@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+reports/tiny/
+reports/smoke_numpy/
+reports/smoke_scalar_probe/
+reports/linear_smoke_probe/

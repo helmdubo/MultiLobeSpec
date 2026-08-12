@@ -1,0 +1,42 @@
+{
+	"algorithm": "ConeAwareEnvBRDF",
+	"referenceEstimator": "UE5.7_SystemTextures_PreintegratedGF",
+	"dimensions": [
+		32,
+		32,
+		8
+	],
+	"axisOrder": [
+		"NoV",
+		"Roughness",
+		"AdjustedCosCone"
+	],
+	"NoVNodes": "center",
+	"roughnessNodes": "center",
+	"adjustedCosConeNodes": [
+		0,
+		0.14285714285714285,
+		0.2857142857142857,
+		0.42857142857142855,
+		0.5714285714285714,
+		0.7142857142857143,
+		0.8571428571428571,
+		1
+	],
+	"importanceSampling": "GGX_NDF_H",
+	"coneAcceptance": "NoL_gt_AdjustedCosCone_Strict",
+	"normalization": "DivideByCommonTotalSampleCount",
+	"output": "AB_ScaleBiasAgainstF0",
+	"quantization": "RG16_UNORM",
+	"packing": "A_Low16_B_High16",
+	"storageGrouping": "EightConePlanes_uint4_FourConsecutivePackedWords",
+	"linearIndexOrder": [
+		"NoV",
+		"Roughness",
+		"AdjustedCosCone"
+	],
+	"samplesPerCell": 8192,
+	"sequence": "UE5.7_Hammersley_iOverN_ReverseBits",
+	"generatorVersion": 3,
+	"dataSHA256": "b5361e3ddfe51b7b9d80f2f893595a6075899be4c170d007969a21ed5867ce20"
+}

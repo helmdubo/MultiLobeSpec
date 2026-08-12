@@ -1,0 +1,22 @@
+# Unreal Engine generated state
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+.vs/
+*.sln
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.log
+
+# Python generated state
+**/__pycache__/
+*.py[cod]
+Tools/**/reports/
+Tools/**/generated/
+Tools/**/generated*/
+
+# Offline search candidates are reproducible; only canonical LUTs are versioned.
+Resources/Generated/Candidates/

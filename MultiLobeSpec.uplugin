@@ -1,0 +1,29 @@
+{
+	"FileVersion": 3,
+	"Version": 40,
+	"VersionName": "0.14.0",
+	"FriendlyName": "MultiLobeSpec Generic VNDF (Legacy Overlay)",
+	"Description": "Experimental UE 5.7 legacy deferred overlay: dual-lobe GGX, offline Generic VNDF direct micro-shadow LUT, RGB indirect visibility, and a storage-blocked staging implementation of cone-aware capture/skylight EnvBRDF.",
+	"Category": "Rendering",
+	"CreatedBy": "Mimirhead",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Modules": [
+		{
+			"Name": "MultiLobeSpec",
+			"Type": "Runtime",
+			"LoadingPhase": "PostEngineInit"
+		},
+		{
+			"Name": "MultiLobeSpecEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true
+		}
+	]
+}

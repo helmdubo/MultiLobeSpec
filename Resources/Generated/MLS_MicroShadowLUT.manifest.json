@@ -1,0 +1,60 @@
+{
+	"algorithm": "GenericVNDFBasedMicroShadowing",
+	"distribution": "IsotropicGGX",
+	"vndfSampler": "DupuyBenyoub2023",
+	"smithCorrelation": "HeightCorrelated",
+	"visibilityWeighting": "CosineWeightedProjectedSolidAngle",
+	"dimensions": [
+		33,
+		49,
+		12
+	],
+	"roughnessNodes": [
+		0.10000000000000001,
+		0.17999999999999999,
+		0.29999999999999999,
+		0.45000000000000001,
+		0.59999999999999998,
+		0.75,
+		1
+	],
+	"roughnessBanks": [
+		[
+			0,
+			1,
+			2,
+			3
+		],
+		[
+			3,
+			4,
+			5,
+			6
+		]
+	],
+	"roughnessBankSplit": 0.45000000000000001,
+	"roughnessBankSelection": "SingleBankPiecewise",
+	"packedBankOrder": "LowRGBAThenHighRGBA",
+	"axisWarp":
+	{
+		"visibility": "symmetricRatioSquare",
+		"NoL": "smoothLimitBoundarySignedSquare",
+		"NoV": "square"
+	},
+	"roughnessInterpolation": "PerceptualRoughness",
+	"relativeAzimuth": "coplanar_same_azimuth",
+	"relativeAzimuthRadians": 0,
+	"samplesPerCell": 8192,
+	"sequence": "DigitallyScrambledHammersley",
+	"sequenceVersion": 1,
+	"seed": 1337,
+	"quantization": "RGBA8_UNORM",
+	"linearIndexOrder": [
+		"Visibility",
+		"NoL",
+		"NoV"
+	],
+	"channelPacking": "RGBA_LittleEndian",
+	"generatorVersion": 2,
+	"dataSHA256": "6251adaf858640aeb7c71b83f9271ab4fdc99288f7abec98b9607805d249a1f3"
+}
