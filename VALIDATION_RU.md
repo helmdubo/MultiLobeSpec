@@ -2,6 +2,13 @@
 
 Дата: 2026-08-12. Engine: UE 5.7.4, CL 51494982, source tree `D:\PersonalProjects\UE5\UE_5.7`.
 
+## v0.14.1 Unity Build regression
+
+- Реальный project target `MimirHead_portfolioEditor`, UBT `-ForceUnity`: `Module.MultiLobeSpecEditor.cpp` compile, static/import libraries и DLL — PASS.
+- Устранены collisions file-local editor symbols, проявлявшиеся только при unity amalgamation (`C2374`, `C2086`, `C2084`, `C2264`).
+- `MultiLobeSpec.*` native Automation Tests: 5/5 PASS, включая исправленный boundary-aware small-LUT contract.
+- CPU float/packed LUT samplers возвращают fail-closed zero на неполном interior payload; Visibility endpoints остаются exact 0/1.
+
 ## Native build
 
 - Финальный P32 `UnrealEditor Win64 Development`: успешно, 7 actions, 221.77 s; UHT и оба модуля linked.

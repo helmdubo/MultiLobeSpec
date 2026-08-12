@@ -1,3 +1,9 @@
+# v0.14.1 — Unity Build compatibility fix
+
+- Исправлены file-local имена editor generators/validators, конфликтовавшие при объединении `.cpp` в `Module.MultiLobeSpecEditor.cpp` (`C2374`, `C2086`, `C2084`, `C2264`).
+- Fix проверен на реальном `MimirHead_portfolioEditor` с UBT `-ForceUnity`: compile/link `MultiLobeSpecEditor` успешно.
+- Обновлён small-LUT Automation fixture для boundary-aware нечётной NoL-сетки; CPU LUT samplers теперь fail-closed на неполном payload вместо выхода за границы `TArray`.
+
 # v0.14.0 — Generic VNDF execution spec
 
 - Добавлен production-shaped direct Generic VNDF LUT path: deterministic offline QMC bake, V2 two-bank RGBA8 representation, fail-closed manifest и независимый validator.

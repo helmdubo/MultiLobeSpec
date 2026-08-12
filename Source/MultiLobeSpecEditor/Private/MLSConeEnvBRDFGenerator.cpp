@@ -16,10 +16,11 @@
 
 namespace
 {
-	constexpr double MLSTwoPi = 6.283185307179586476925286766559;
-	constexpr double MLSInvUint32 = 1.0 / 4294967296.0;
+	// UE unity builds concatenate module .cpp files; keep every internal symbol file-prefixed.
+	constexpr double MLSConeEnvTwoPi = 6.283185307179586476925286766559;
+	constexpr double MLSConeEnvInvUint32 = 1.0 / 4294967296.0;
 
-	uint32 ReverseBits32(uint32 Bits)
+	uint32 ConeEnvReverseBits32(uint32 Bits)
 	{
 		Bits = (Bits << 16u) | (Bits >> 16u);
 		Bits = ((Bits & 0x00ff00ffu) << 8u) | ((Bits & 0xff00ff00u) >> 8u);
@@ -38,7 +39,7 @@ namespace
 		return (ConeIndex * Settings.RoughnessSize + RoughnessIndex) * Settings.NoVSize + NoVIndex;
 	}
 
-	bool SaveStringAtomic(const FString& Path, const FString& Value, FString& OutError)
+	bool SaveConeEnvStringAtomic(const FString& Path, const FString& Value, FString& OutError)
 	{
 		IFileManager& FileManager = IFileManager::Get();
 		if (!FileManager.MakeDirectory(*FPaths::GetPath(Path), true))
@@ -99,7 +100,7 @@ bool FMLSConeEnvBRDFGenerator::Generate(
 		// Literal UE 5.7 SystemTextures.cpp sequence: E1=i/N, E2=ReverseBits(i)/2^32.
 		Sequence[SampleIndex] = FVector2d(
 			static_cast<double>(SampleIndex) / static_cast<double>(Settings.SampleCount),
-			static_cast<double>(ReverseBits32(static_cast<uint32>(SampleIndex))) * MLSInvUint32);
+			static_cast<double>(ConeEnvReverseBits32(static_cast<uint32>(SampleIndex))) * MLSConeEnvInvUint32);
 	}
 
 	const int32 GroupCount = Settings.NoVSize * Settings.RoughnessSize;
@@ -118,7 +119,7 @@ bool FMLSConeEnvBRDFGenerator::Generate(
 		double SumB[8] = {};
 		for (const FVector2d& Xi : Sequence)
 		{
-			const double Phi = MLSTwoPi * Xi.X;
+			const double Phi = MLSConeEnvTwoPi * Xi.X;
 			const double CosTheta = FMath::Sqrt(
 				(1.0 - Xi.Y) / FMath::Max(1.0 + (AlphaSquared - 1.0) * Xi.Y, 1.0e-20));
 			const double SinTheta = FMath::Sqrt(FMath::Max(1.0 - CosTheta * CosTheta, 0.0));
@@ -262,8 +263,8 @@ bool FMLSConeEnvBRDFGenerator::WriteArtifacts(
 		return false;
 	}
 	Manifest += TEXT("\n");
-	return SaveStringAtomic(Paths.ShaderInclude, Shader, OutError)
-		&& SaveStringAtomic(Paths.Manifest, Manifest, OutError);
+	return SaveConeEnvStringAtomic(Paths.ShaderInclude, Shader, OutError)
+		&& SaveConeEnvStringAtomic(Paths.Manifest, Manifest, OutError);
 }
 
 bool FMLSConeEnvBRDFGenerator::GetCanonicalArtifactPaths(

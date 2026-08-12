@@ -11,10 +11,11 @@
 
 namespace
 {
-	constexpr double MLSInvUint32 = 1.0 / 4294967296.0;
-	constexpr double MLSTwoPi = 6.283185307179586476925286766559;
+	// UE unity builds concatenate module .cpp files; keep every internal symbol file-prefixed.
+	constexpr double MLSMicroShadowInvUint32 = 1.0 / 4294967296.0;
+	constexpr double MLSMicroShadowTwoPi = 6.283185307179586476925286766559;
 
-	FVector3d SafeNormal(const FVector3d& Value, const FVector3d& Fallback)
+	FVector3d MicroShadowSafeNormal(const FVector3d& Value, const FVector3d& Fallback)
 	{
 		const double LengthSquared = Value.SquaredLength();
 		return LengthSquared > 1.0e-24 ? Value / FMath::Sqrt(LengthSquared) : Fallback;
@@ -352,7 +353,7 @@ namespace
 		return Hasher.FinalHex();
 	}
 
-	bool SaveStringAtomic(const FString& Path, const FString& Contents, FString& OutError)
+	bool SaveMicroShadowStringAtomic(const FString& Path, const FString& Contents, FString& OutError)
 	{
 		IFileManager& FileManager = IFileManager::Get();
 		if (!FileManager.MakeDirectory(*FPaths::GetPath(Path), true))
@@ -437,7 +438,7 @@ FVector2d FMLSMicroShadowLUTGenerator::Hammersley(uint32 Index, uint32 Count, ui
 	// radical inverse on Y. Neither endpoint is sampled.
 	const double X = (static_cast<double>(Index) + 0.5) / static_cast<double>(Count);
 	const uint32 Scrambled = ReverseBits32(Index) ^ Seed;
-	const double Y = (static_cast<double>(Scrambled) + 0.5) * MLSInvUint32;
+	const double Y = (static_cast<double>(Scrambled) + 0.5) * MLSMicroShadowInvUint32;
 	return FVector2d(X, Y);
 }
 
@@ -452,16 +453,16 @@ FVector3d FMLSMicroShadowLUTGenerator::SampleGGXVNDFIsotropic(
 		return FVector3d(0.0, 0.0, 1.0);
 	}
 
-	const FVector3d ViewStandard = SafeNormal(
+	const FVector3d ViewStandard = MicroShadowSafeNormal(
 		FVector3d(ViewDirection.X * Alpha, ViewDirection.Y * Alpha, ViewDirection.Z),
 		FVector3d(0.0, 0.0, 1.0));
-	const double Phi = MLSTwoPi * FMath::Frac(Xi.X);
+	const double Phi = MLSMicroShadowTwoPi * FMath::Frac(Xi.X);
 	const double UY = FMath::Clamp(Xi.Y, 0.0, 1.0);
 	const double Z = (1.0 - UY) * (1.0 + ViewStandard.Z) - ViewStandard.Z;
 	const double SinTheta = FMath::Sqrt(FMath::Clamp(1.0 - Z * Z, 0.0, 1.0));
 	const FVector3d CapDirection(SinTheta * FMath::Cos(Phi), SinTheta * FMath::Sin(Phi), Z);
 	const FVector3d MicroNormalStandard = CapDirection + ViewStandard;
-	return SafeNormal(
+	return MicroShadowSafeNormal(
 		FVector3d(MicroNormalStandard.X * Alpha, MicroNormalStandard.Y * Alpha, MicroNormalStandard.Z),
 		FVector3d(0.0, 0.0, 1.0));
 }
@@ -808,6 +809,20 @@ double FMLSMicroShadowLUTGenerator::SampleFloatLUT(
 	double NoL,
 	double NoV)
 {
+	if (Visibility <= 0.0)
+	{
+		return 0.0;
+	}
+	if (Visibility >= 1.0)
+	{
+		return 1.0;
+	}
+	FString SettingsError;
+	if (!Data.Settings.Validate(SettingsError)
+		|| Data.FloatTexels.Num() != Data.Settings.PackedTexelCount())
+	{
+		return 0.0;
+	}
 	return SampleLUT(Data, Visibility, Roughness, NoL, NoV,
 		[&](int32 Index, int32 Channel) { return static_cast<double>(VectorChannel(Data.FloatTexels[Index], Channel)); });
 }
@@ -819,6 +834,20 @@ double FMLSMicroShadowLUTGenerator::SamplePackedLUT(
 	double NoL,
 	double NoV)
 {
+	if (Visibility <= 0.0)
+	{
+		return 0.0;
+	}
+	if (Visibility >= 1.0)
+	{
+		return 1.0;
+	}
+	FString SettingsError;
+	if (!Data.Settings.Validate(SettingsError)
+		|| Data.PackedRGBA8.Num() != Data.Settings.PackedTexelCount())
+	{
+		return 0.0;
+	}
 	return SampleLUT(Data, Visibility, Roughness, NoL, NoV,
 		[&](int32 Index, int32 Channel) { return static_cast<double>(PackedChannel(Data.PackedRGBA8[Index], Channel)) / 255.0; });
 }
@@ -961,11 +990,11 @@ bool FMLSMicroShadowLUTGenerator::WriteArtifacts(
 	}
 	Manifest += TEXT("\n");
 
-	if (!SaveStringAtomic(Paths.ShaderInclude, Shader, OutError))
+	if (!SaveMicroShadowStringAtomic(Paths.ShaderInclude, Shader, OutError))
 	{
 		return false;
 	}
-	if (!SaveStringAtomic(Paths.Manifest, Manifest, OutError))
+	if (!SaveMicroShadowStringAtomic(Paths.Manifest, Manifest, OutError))
 	{
 		return false;
 	}

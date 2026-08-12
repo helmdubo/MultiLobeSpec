@@ -12,6 +12,7 @@
 
 namespace
 {
+	// UE unity builds concatenate module .cpp files; keep every internal symbol file-prefixed.
 	double Percentile(TArray<double> Values, double Fraction)
 	{
 		if (Values.IsEmpty())
@@ -270,9 +271,10 @@ bool FMLSMicroShadowLUTValidation::WriteReport(
 
 namespace
 {
-	constexpr double MLSTwoPi = 6.283185307179586476925286766559;
+	// This second anonymous block shares the same unity translation unit as the generators.
+	constexpr double MLSValidationTwoPi = 6.283185307179586476925286766559;
 
-	FVector3d SafeNormal(const FVector3d& Value, const FVector3d& Fallback)
+	FVector3d ValidationSafeNormal(const FVector3d& Value, const FVector3d& Fallback)
 	{
 		const double LengthSquared = Value.SquaredLength();
 		return LengthSquared > 1.0e-24 ? Value / FMath::Sqrt(LengthSquared) : Fallback;
@@ -286,7 +288,7 @@ namespace
 			return FVector3d(0.0, 0.0, 1.0);
 		}
 
-		const FVector3d ViewHemisphere = SafeNormal(
+		const FVector3d ViewHemisphere = ValidationSafeNormal(
 			FVector3d(Alpha * ViewDirection.X, Alpha * ViewDirection.Y, ViewDirection.Z),
 			FVector3d(0.0, 0.0, 1.0));
 		const double Lensq = ViewHemisphere.X * ViewHemisphere.X + ViewHemisphere.Y * ViewHemisphere.Y;
@@ -295,14 +297,14 @@ namespace
 			: FVector3d(1.0, 0.0, 0.0);
 		const FVector3d Tangent2 = FVector3d::CrossProduct(ViewHemisphere, Tangent1);
 		const double Radius = FMath::Sqrt(FMath::Clamp(Xi.X, 0.0, 1.0));
-		const double Phi = MLSTwoPi * FMath::Clamp(Xi.Y, 0.0, 1.0);
+		const double Phi = MLSValidationTwoPi * FMath::Clamp(Xi.Y, 0.0, 1.0);
 		const double T1 = Radius * FMath::Cos(Phi);
 		double T2 = Radius * FMath::Sin(Phi);
 		const double S = 0.5 * (1.0 + ViewHemisphere.Z);
 		T2 = (1.0 - S) * FMath::Sqrt(FMath::Max(0.0, 1.0 - T1 * T1)) + S * T2;
 		const double T3 = FMath::Sqrt(FMath::Max(0.0, 1.0 - T1 * T1 - T2 * T2));
 		const FVector3d NormalHemisphere = T1 * Tangent1 + T2 * Tangent2 + T3 * ViewHemisphere;
-		return SafeNormal(
+		return ValidationSafeNormal(
 			FVector3d(Alpha * NormalHemisphere.X, Alpha * NormalHemisphere.Y, FMath::Max(0.0, NormalHemisphere.Z)),
 			FVector3d(0.0, 0.0, 1.0));
 	}
@@ -363,14 +365,22 @@ bool FMLSMicroShadowSmallLUTContractTest::RunTest(const FString& Parameters)
 {
 	FMLSMicroShadowLUTSettings Settings;
 	Settings.VisibilitySize = 3;
-	Settings.NoLSize = 4;
+	Settings.NoLSize = 5;
 	Settings.NoVSize = 2;
 	Settings.Sequence.SampleCount = 128;
 	FMLSMicroShadowLUTData First;
 	FMLSMicroShadowLUTData Second;
 	FString Error;
-	TestTrue(TEXT("Small LUT generates"), FMLSMicroShadowLUTGenerator::Generate(Settings, First, Error));
-	TestTrue(TEXT("Repeated small LUT generates"), FMLSMicroShadowLUTGenerator::Generate(Settings, Second, Error));
+	if (!TestTrue(TEXT("Small LUT generates"), FMLSMicroShadowLUTGenerator::Generate(Settings, First, Error)))
+	{
+		AddError(Error);
+		return false;
+	}
+	if (!TestTrue(TEXT("Repeated small LUT generates"), FMLSMicroShadowLUTGenerator::Generate(Settings, Second, Error)))
+	{
+		AddError(Error);
+		return false;
+	}
 	TestEqual(TEXT("Expected texel count"), First.PackedRGBA8.Num(), Settings.PackedTexelCount());
 	TestEqual(TEXT("SHA-256 is 64 lowercase hex characters"), First.DataSHA256.Len(), 64);
 	TestTrue(TEXT("Deterministic packed data"), First.PackedRGBA8 == Second.PackedRGBA8);
@@ -388,12 +398,16 @@ bool FMLSMicroShadowSmallLUTContractTest::RunTest(const FString& Parameters)
 		FMLSMicroShadowLUTGenerator::SamplePackedLUT(First, 1.0, 0.5, 0.8, 0.6), 1.0);
 	const double Interior = FMLSMicroShadowLUTGenerator::SamplePackedLUT(First, 0.4, 0.5, 0.8, 0.6);
 	TestTrue(TEXT("Packed trilinear sample is bounded"), Interior >= 0.0 && Interior <= 1.0);
+	FMLSMicroShadowLUTData Incomplete = First;
+	Incomplete.PackedRGBA8.Reset();
+	TestEqual(TEXT("Incomplete packed data fails closed"),
+		FMLSMicroShadowLUTGenerator::SamplePackedLUT(Incomplete, 0.4, 0.5, 0.8, 0.6), 0.0);
 
 	// Verify that the optimized grouped bake is mathematically identical to
 	// the standalone reference integral at an exact warped grid point.
 	FMLSMicroShadowReferenceInput GridInput;
-	GridInput.Visibility = 0.25; // square(1 / (3 - 1))
-	GridInput.NoL = 1.0 - FMath::Square(1.0 - 2.0 / 3.0);
+	GridInput.Visibility = 0.5; // symmetric-ratio-square at the T=0.5 center node
+	GridInput.NoL = FMath::Sqrt(1.0 - GridInput.Visibility); // exact signed-boundary center node
 	GridInput.NoV = 1.0;
 	const int32 GridTexel = (1 * Settings.NoLSize + 2) * Settings.VisibilitySize + 1;
 	for (int32 Channel = 0; Channel < 4; ++Channel)
@@ -408,7 +422,12 @@ bool FMLSMicroShadowSmallLUTContractTest::RunTest(const FString& Parameters)
 		case 2: Generated = First.FloatTexels[GridTexel].Z; break;
 		default: Generated = First.FloatTexels[GridTexel].W; break;
 		}
-		TestTrue(FString::Printf(TEXT("Grouped bake matches reference channel %d"), Channel),
+		TestTrue(FString::Printf(
+			TEXT("Grouped bake matches reference channel %d (generated=%.9g reference=%.9g delta=%.9g)"),
+			Channel,
+			Generated,
+			Reference,
+			FMath::Abs(Generated - Reference)),
 			FMath::Abs(Generated - Reference) <= 1.0e-6);
 	}
 	return true;
