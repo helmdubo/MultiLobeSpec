@@ -1,3 +1,20 @@
+# v0.14.2 — Material visibility contract and admission hardening
+
+- Raw MaterialAO transport теперь активируется для всех direct micro-shadow modes,
+  Raw Scalar/RGB indirect visibility и cone-aware IBL через единый test-covered predicate.
+- Direct Generic VNDF admission больше не равен наличию файлов: committed canonical
+  receipt связан SHA-256 с exact packed payload, manifest и include и проверяется fail-closed.
+- Устранён startup assert UE 5.7 на не реализованном platform SHA-256; receipt использует
+  локальный deterministic SHA-256, проверенный совпадением canonical digests.
+- Reference Step исправлен на strict `>`; свежий `Preset=Off` теперь сохраняет Engine ACES
+  и действительно не включает shader overlay.
+- Добавлены debug views raw Material Visibility, direct multiplier и direct `N dot L`, а
+  также команды `MLS.MicroShadow` и `MLS.IndirectVisibility` для воспроизводимого A/B.
+- Capability честно маркирует Direct LUT как isotropic 4D phi=0 approximation; опубликованы
+  canonical random/boundary/quantization и diagnostic azimuth/monotonicity metrics.
+- Основной overlay-модуль объявлен `Editor`, что соответствует фактическому отсутствию
+  cook/package support и исключает его из runtime targets.
+
 # v0.14.1 — Unity Build compatibility fix
 
 - Исправлены file-local имена editor generators/validators, конфликтовавшие при объединении `.cpp` в `Module.MultiLobeSpecEditor.cpp` (`C2374`, `C2086`, `C2084`, `C2264`).

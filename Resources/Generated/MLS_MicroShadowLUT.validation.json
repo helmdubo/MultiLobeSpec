@@ -1,0 +1,68 @@
+{
+  "schema": "MLSMicroShadowValidationReceiptV1",
+  "validatorVersion": 1,
+  "algorithm": "GenericVNDFBasedMicroShadowing",
+  "profile": "canonical",
+  "passed": true,
+  "acceptanceQualified": true,
+  "dataSHA256": "6251adaf858640aeb7c71b83f9271ab4fdc99288f7abec98b9607805d249a1f3",
+  "manifestFileSHA256": "61bb671dde6dc8ece4715430b7a808c4168cc5e91d7e24e43b8ff081573058d7",
+  "includeFileSHA256": "3dca9d92f0f911f975046cc763e959cbb3317da46986382bbb29f70088df90b0",
+  "packedTexelCount": 38808,
+  "configuration": {
+    "randomPoints": 10000,
+    "referenceSamples": 16384,
+    "boundaryPoints": 512,
+    "boundaryReferenceSamples": 65536,
+    "quantizationPoints": 256,
+    "parameterSeed": 1296847630,
+    "sequenceSeed": 3237998097,
+    "referenceBackend": "numpy",
+    "numpyVersion": "2.3.5"
+  },
+  "randomError": {
+    "mean": 0.0032799078365310314,
+    "p95": 0.012767195541734323,
+    "p99": 0.019474782529813862,
+    "max": 0.045295795894697566,
+    "thresholds": {
+      "mean": 0.012,
+      "p95": 0.035,
+      "p99": 0.07,
+      "max": 0.12
+    },
+    "passed": true
+  },
+  "nearBoundaryError": {
+    "p95": 0.011251850371513324,
+    "max": 0.029505552061138918,
+    "thresholds": {
+      "p95": 0.06,
+      "max": 0.15
+    },
+    "passed": true
+  },
+  "quantization": {
+    "simulatedRGBA8AddedMean": 0.00032953250535240305,
+    "addedMeanThreshold": 0.003,
+    "runtimeVsIndependentCPUTrilinearMax": 2.220446049250313e-16,
+    "passed": true
+  },
+  "endpointsPassed": true,
+  "boundsPassed": true,
+  "monotonicityDiagnostic": {
+    "status": "fail",
+    "tolerance": 0.003921568628450981,
+    "rawViolationCount": 14,
+    "admissionPolicy": "diagnostic per execution spec section 10.5; no post-filtering applied"
+  },
+  "relativeAzimuthDiagnostic": {
+    "status": "measured-not-gated",
+    "canonicalConvention": "coplanar_same_azimuth_phi_zero",
+    "sampleCount": 2368,
+    "meanAbsoluteError": 0.03808191827271623,
+    "p95AbsoluteError": 0.1736752972142489,
+    "p99AbsoluteError": 0.4318514657002649,
+    "maxAbsoluteError": 0.6444680883135848
+  }
+}

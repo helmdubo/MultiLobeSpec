@@ -1,4 +1,4 @@
-# MultiLobeSpec v0.14 — Generic VNDF micro-visibility для UE 5.7
+# MultiLobeSpec v0.14.2 — Generic VNDF micro-visibility для UE 5.7
 
 Экспериментальный editor-only плагин для legacy deferred shading (`r.Substrate=0`). Он реализует горизонтальную смесь двух GGX-лобов, Generic VNDF-based direct micro-shadowing и RGB indirect material visibility. CARD-09 cone-aware Environment BRDF для reflection captures/skylight реализован как staging path, но выключен: overlay-only static LUT не прошёл SM6 compile-cost gate. Файлы движка не изменяются: плагин создаёт content-addressed shader overlay в `Saved/MultiLobeSpec` и remap-ит `/Engine` только после успешного transactional patch.
 
@@ -25,7 +25,7 @@ r.GBufferDiffuseSampleOcclusion=0
 |---|---|---|
 | Direct dual-lobe GGX | два аналитических GGX-лоба с парной energy compensation | реализовано |
 | Direct micro-shadow | Off, Reference Step, CoD:WWII, PZ Analytical, Generic VNDF LUT, experimental cone overlap | реализовано |
-| Generic VNDF LUT | offline 8192-sample QMC bake; V2 two-bank RGBA8; runtime без Monte Carlo | численно admitted по существующему direct-LUT gate |
+| Generic VNDF LUT | offline 8192-sample QMC bake; V2 two-bank RGBA8; runtime без Monte Carlo | canonical receipt и SHA-256 binding проверяются fail-closed |
 | Raw MaterialAO transport | BasePass сохраняет исходный AO до `AOMultiBounce` | только при обязательном renderer contract |
 | Indirect diffuse | Direct Only, Raw Scalar AO, RGB Interreflection | реализовано для Lumen/non-Lumen/skylight diffuse |
 | Captures/skylight IBL | отдельные direction, radiance и response для R1/R2 | реализовано для legacy Default Lit isotropic |
@@ -63,7 +63,9 @@ MLS.Apply
 MLS.Disable
 MLS.Preset 0|1|2|3
 MLS.Tonemap 0|1|2|3|4
-MLS.DebugView 0|1|2
+MLS.MicroShadow 0|1|2|3|4|5
+MLS.IndirectVisibility 0|1|2
+MLS.DebugView 0|1|2|3|4|5
 MLS.Capabilities
 ```
 
@@ -78,6 +80,39 @@ V_rgb = saturate(V / max(1 - Albedo * (1 - V), 1e-4));
 ```
 
 Screen AO, DFAO и geometric occlusion остаются в своих stock путях. Для capture/skylight specular material visibility сначала переводится в cone, затем корректируется отдельно по roughness каждого лоба.
+
+Raw transport запрашивается единым предикатом для любого direct micro-shadow режима,
+Raw Scalar/RGB indirect visibility и cone-aware IBL. Capability не может объявить эти
+пути доступными, если исходный `MaterialAO` не был сохранён в BasePass.
+
+## Диагностика Generic VNDF на реальном материале
+
+Сначала отделите direct VNDF от RGB indirect — иначе albedo-aware непрямой свет может
+визуально маскировать подавленный direct term:
+
+```text
+MLS.MicroShadow 4
+MLS.IndirectVisibility 0
+MLS.DebugView 3   # raw Material Visibility: белый = 1, чёрный = 0
+MLS.DebugView 4   # итоговый direct micro-shadow multiplier
+MLS.DebugView 5   # макроскопический N dot L выбранного direct light
+MLS.DebugView 0   # обычный шейдинг
+```
+
+Для чистого direct-сравнения временно выключите GI/skylight/reflections viewport show
+flags либо используйте `ShowFlag.GlobalIllumination 0`,
+`ShowFlag.ReflectionEnvironment 0`, `ShowFlag.SkyLighting 0`. После диагностики верните
+их в `1` и только затем сравните `MLS.IndirectVisibility 0` с `2`.
+
+Generic VNDF ожидает именно cosine-weighted P2 surface visibility, а не произвольную
+conventional AO map. На гладкой границе direct проходит только при
+`NoL > sqrt(1 - Visibility)`: например, при `NoL=0.2` требуется
+`Visibility > 0.96`. Поэтому рисунок «видны только самые белые texels» при скользящем
+свете сначала проверяется через debug views 3/4/5, а не исправляется инверсией LUT.
+
+Текущая 4D таблица канонизирована при relative azimuth `phi=0`. Полный azimuth sweep
+измеряется, но пока не admission-gated; capability честно называет путь
+`Isotropic4D Phi0 approximation`.
 
 ## Честные ограничения CARD-09
 

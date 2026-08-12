@@ -26,6 +26,7 @@ static const TCHAR* MLS_StampFileName  = TEXT("MLS_STAMP.txt");
 static const TCHAR* MLS_CloneSuffix    = TEXT("_MLS_Orig");
 static const TCHAR* MLS_VNDFLUTFileName = TEXT("MLS_MicroShadowLUT.ush");
 static const TCHAR* MLS_VNDFManifestFileName = TEXT("MLS_MicroShadowLUT.manifest.json");
+static const TCHAR* MLS_VNDFValidationFileName = TEXT("MLS_MicroShadowLUT.validation.json");
 static const TCHAR* MLS_ConeEnvLUTFileName = TEXT("MLS_ConeEnvBRDF.ush");
 static const TCHAR* MLS_ConeEnvManifestFileName = TEXT("MLS_ConeEnvBRDF.manifest.json");
 
@@ -50,6 +51,18 @@ static bool MLS_GetVNDFArtifactPaths(FString& OutShaderInclude, FString& OutMani
 	return true;
 }
 
+static bool MLS_GetVNDFValidationPath(FString& OutValidation)
+{
+	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("MultiLobeSpec"));
+	if (!Plugin.IsValid())
+	{
+		return false;
+	}
+	OutValidation = FPaths::Combine(
+		Plugin->GetBaseDir(), TEXT("Resources"), TEXT("Generated"), MLS_VNDFValidationFileName);
+	return true;
+}
+
 static bool MLS_GetConeEnvArtifactPaths(FString& OutShaderInclude, FString& OutManifest)
 {
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("MultiLobeSpec"));
@@ -71,10 +84,309 @@ static FString MLS_HashFileSHA1(const FString& Path)
 		: TEXT("missing");
 }
 
+static FString MLS_HashBytesSHA256(const TArray<uint8>& Bytes)
+{
+	// FPlatformMisc::GetSHA256Signature is deliberately unimplemented on some UE
+	// desktop platforms. Keep receipt validation deterministic and platform-neutral.
+	static constexpr uint32 RoundConstants[64] =
+	{
+		0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u,
+		0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
+		0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
+		0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
+		0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu,
+		0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
+		0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u,
+		0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u,
+		0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u,
+		0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
+		0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u,
+		0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
+		0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u,
+		0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
+		0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
+		0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u
+	};
+
+	auto RotateRight = [](uint32 Value, uint32 Bits)
+	{
+		return (Value >> Bits) | (Value << (32u - Bits));
+	};
+	auto ProcessBlock = [&RotateRight](const uint8* Block, uint32 State[8])
+	{
+		uint32 Schedule[64];
+		for (int32 Index = 0; Index < 16; ++Index)
+		{
+			const uint8* Word = Block + Index * 4;
+			Schedule[Index] = (static_cast<uint32>(Word[0]) << 24u)
+				| (static_cast<uint32>(Word[1]) << 16u)
+				| (static_cast<uint32>(Word[2]) << 8u)
+				| static_cast<uint32>(Word[3]);
+		}
+		for (int32 Index = 16; Index < 64; ++Index)
+		{
+			const uint32 Sigma0 = RotateRight(Schedule[Index - 15], 7u)
+				^ RotateRight(Schedule[Index - 15], 18u)
+				^ (Schedule[Index - 15] >> 3u);
+			const uint32 Sigma1 = RotateRight(Schedule[Index - 2], 17u)
+				^ RotateRight(Schedule[Index - 2], 19u)
+				^ (Schedule[Index - 2] >> 10u);
+			Schedule[Index] = Schedule[Index - 16] + Sigma0
+				+ Schedule[Index - 7] + Sigma1;
+		}
+
+		uint32 A = State[0];
+		uint32 B = State[1];
+		uint32 C = State[2];
+		uint32 D = State[3];
+		uint32 E = State[4];
+		uint32 F = State[5];
+		uint32 G = State[6];
+		uint32 H = State[7];
+		for (int32 Index = 0; Index < 64; ++Index)
+		{
+			const uint32 BigSigma1 = RotateRight(E, 6u) ^ RotateRight(E, 11u) ^ RotateRight(E, 25u);
+			const uint32 Choice = (E & F) ^ (~E & G);
+			const uint32 Temp1 = H + BigSigma1 + Choice + RoundConstants[Index] + Schedule[Index];
+			const uint32 BigSigma0 = RotateRight(A, 2u) ^ RotateRight(A, 13u) ^ RotateRight(A, 22u);
+			const uint32 Majority = (A & B) ^ (A & C) ^ (B & C);
+			const uint32 Temp2 = BigSigma0 + Majority;
+			H = G;
+			G = F;
+			F = E;
+			E = D + Temp1;
+			D = C;
+			C = B;
+			B = A;
+			A = Temp1 + Temp2;
+		}
+		State[0] += A;
+		State[1] += B;
+		State[2] += C;
+		State[3] += D;
+		State[4] += E;
+		State[5] += F;
+		State[6] += G;
+		State[7] += H;
+	};
+
+	uint32 State[8] =
+	{
+		0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+		0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u
+	};
+	const int64 ByteCount = Bytes.Num();
+	int64 Offset = 0;
+	while (ByteCount - Offset >= 64)
+	{
+		ProcessBlock(Bytes.GetData() + Offset, State);
+		Offset += 64;
+	}
+
+	uint8 Tail[128] = { 0 };
+	const int32 Remainder = static_cast<int32>(ByteCount - Offset);
+	if (Remainder > 0)
+	{
+		FMemory::Memcpy(Tail, Bytes.GetData() + Offset, Remainder);
+	}
+	Tail[Remainder] = 0x80u;
+	const int32 TailBytes = Remainder <= 55 ? 64 : 128;
+	const uint64 BitCount = static_cast<uint64>(ByteCount) * 8u;
+	for (int32 Index = 0; Index < 8; ++Index)
+	{
+		Tail[TailBytes - 1 - Index] = static_cast<uint8>(BitCount >> (Index * 8));
+	}
+	ProcessBlock(Tail, State);
+	if (TailBytes == 128)
+	{
+		ProcessBlock(Tail + 64, State);
+	}
+
+	uint8 Digest[32];
+	for (int32 WordIndex = 0; WordIndex < 8; ++WordIndex)
+	{
+		Digest[WordIndex * 4] = static_cast<uint8>(State[WordIndex] >> 24u);
+		Digest[WordIndex * 4 + 1] = static_cast<uint8>(State[WordIndex] >> 16u);
+		Digest[WordIndex * 4 + 2] = static_cast<uint8>(State[WordIndex] >> 8u);
+		Digest[WordIndex * 4 + 3] = static_cast<uint8>(State[WordIndex]);
+	}
+	FString Result;
+	Result.Reserve(64);
+	for (const uint8 Byte : Digest)
+	{
+		Result += FString::Printf(TEXT("%02x"), Byte);
+	}
+	return Result;
+}
+
+static FString MLS_HashFileSHA256(const FString& Path)
+{
+	TArray<uint8> Bytes;
+	return FFileHelper::LoadFileToArray(Bytes, *Path)
+		? MLS_HashBytesSHA256(Bytes)
+		: TEXT("missing");
+}
+
+static bool MLS_LoadJsonObject(const FString& Path, TSharedPtr<FJsonObject>& OutObject)
+{
+	FString Text;
+	if (!FFileHelper::LoadFileToString(Text, *Path))
+	{
+		return false;
+	}
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Text);
+	return FJsonSerializer::Deserialize(Reader, OutObject) && OutObject.IsValid();
+}
+
+static bool MLS_ComputePackedVNDFPayloadSHA256(
+	const FString& ShaderInclude,
+	FString& OutSHA256,
+	int32& OutTexelCount,
+	FString& OutError)
+{
+	FString Source;
+	if (!FFileHelper::LoadFileToString(Source, *ShaderInclude))
+	{
+		OutError = TEXT("unable to load packed LUT include");
+		return false;
+	}
+
+	const int32 Marker = Source.Find(TEXT("static const uint MLS_VNDF_LUT_PACKED"));
+	const int32 OpenBrace = Marker == INDEX_NONE
+		? INDEX_NONE
+		: Source.Find(TEXT("{"), ESearchCase::CaseSensitive, ESearchDir::FromStart, Marker);
+	const int32 CloseBrace = OpenBrace == INDEX_NONE
+		? INDEX_NONE
+		: Source.Find(TEXT("};"), ESearchCase::CaseSensitive, ESearchDir::FromStart, OpenBrace);
+	if (OpenBrace == INDEX_NONE || CloseBrace == INDEX_NONE)
+	{
+		OutError = TEXT("packed LUT array bounds were not found");
+		return false;
+	}
+
+	TArray<uint8> PackedBytes;
+	int32 SearchFrom = OpenBrace + 1;
+	OutTexelCount = 0;
+	while (true)
+	{
+		const int32 HexPrefix = Source.Find(
+			TEXT("0x"), ESearchCase::CaseSensitive, ESearchDir::FromStart, SearchFrom);
+		if (HexPrefix == INDEX_NONE || HexPrefix >= CloseBrace)
+		{
+			break;
+		}
+		if (HexPrefix + 10 > CloseBrace)
+		{
+			OutError = TEXT("truncated packed LUT word");
+			return false;
+		}
+		const FString Hex = Source.Mid(HexPrefix + 2, 8);
+		for (const TCHAR Character : Hex)
+		{
+			if (!FChar::IsHexDigit(Character))
+			{
+				OutError = TEXT("invalid packed LUT hex word");
+				return false;
+			}
+		}
+		const uint32 Word = FParse::HexNumber(*Hex);
+		PackedBytes.Add(static_cast<uint8>(Word & 0xffu));
+		PackedBytes.Add(static_cast<uint8>((Word >> 8u) & 0xffu));
+		PackedBytes.Add(static_cast<uint8>((Word >> 16u) & 0xffu));
+		PackedBytes.Add(static_cast<uint8>((Word >> 24u) & 0xffu));
+		++OutTexelCount;
+		SearchFrom = HexPrefix + 10;
+	}
+
+	if (OutTexelCount == 0)
+	{
+		OutError = TEXT("packed LUT array is empty");
+		return false;
+	}
+	OutSHA256 = MLS_HashBytesSHA256(PackedBytes);
+	if (OutSHA256 == TEXT("unavailable"))
+	{
+		OutError = TEXT("SHA-256 implementation unavailable");
+		return false;
+	}
+	return true;
+}
+
+static bool MLS_ValidateVNDFAdmission(
+	const FString& ShaderInclude,
+	const FString& ManifestPath,
+	const FString& ValidationPath,
+	FString& OutReason)
+{
+	if (!FPaths::FileExists(ShaderInclude)
+		|| !FPaths::FileExists(ManifestPath)
+		|| !FPaths::FileExists(ValidationPath))
+	{
+		OutReason = TEXT("include, manifest, or validation receipt is missing");
+		return false;
+	}
+
+	TSharedPtr<FJsonObject> Manifest;
+	TSharedPtr<FJsonObject> Receipt;
+	if (!MLS_LoadJsonObject(ManifestPath, Manifest) || !MLS_LoadJsonObject(ValidationPath, Receipt))
+	{
+		OutReason = TEXT("manifest or validation receipt is not valid JSON");
+		return false;
+	}
+
+	FString Schema;
+	FString Algorithm;
+	FString ManifestDataSHA;
+	FString ReceiptDataSHA;
+	FString ReceiptManifestSHA;
+	FString ReceiptIncludeSHA;
+	bool bPassed = false;
+	bool bQualified = false;
+	double ValidatorVersion = 0.0;
+	double ExpectedTexels = 0.0;
+	if (!Receipt->TryGetStringField(TEXT("schema"), Schema)
+		|| Schema != TEXT("MLSMicroShadowValidationReceiptV1")
+		|| !Receipt->TryGetNumberField(TEXT("validatorVersion"), ValidatorVersion)
+		|| ValidatorVersion != 1.0
+		|| !Receipt->TryGetStringField(TEXT("algorithm"), Algorithm)
+		|| Algorithm != TEXT("GenericVNDFBasedMicroShadowing")
+		|| !Receipt->TryGetBoolField(TEXT("passed"), bPassed) || !bPassed
+		|| !Receipt->TryGetBoolField(TEXT("acceptanceQualified"), bQualified) || !bQualified
+		|| !Manifest->TryGetStringField(TEXT("dataSHA256"), ManifestDataSHA)
+		|| !Receipt->TryGetStringField(TEXT("dataSHA256"), ReceiptDataSHA)
+		|| !Receipt->TryGetStringField(TEXT("manifestFileSHA256"), ReceiptManifestSHA)
+		|| !Receipt->TryGetStringField(TEXT("includeFileSHA256"), ReceiptIncludeSHA)
+		|| !Receipt->TryGetNumberField(TEXT("packedTexelCount"), ExpectedTexels))
+	{
+		OutReason = TEXT("validation receipt contract is incomplete or unsupported");
+		return false;
+	}
+
+	FString PayloadSHA;
+	int32 ActualTexels = 0;
+	if (!MLS_ComputePackedVNDFPayloadSHA256(ShaderInclude, PayloadSHA, ActualTexels, OutReason))
+	{
+		return false;
+	}
+	if (ActualTexels != static_cast<int32>(ExpectedTexels)
+		|| !PayloadSHA.Equals(ManifestDataSHA, ESearchCase::IgnoreCase)
+		|| !PayloadSHA.Equals(ReceiptDataSHA, ESearchCase::IgnoreCase)
+		|| !MLS_HashFileSHA256(ManifestPath).Equals(ReceiptManifestSHA, ESearchCase::IgnoreCase)
+		|| !MLS_HashFileSHA256(ShaderInclude).Equals(ReceiptIncludeSHA, ESearchCase::IgnoreCase))
+	{
+		OutReason = TEXT("payload/manifest/receipt SHA-256 binding or packed texel count mismatch");
+		return false;
+	}
+
+	OutReason = TEXT("canonical receipt and SHA-256 binding verified");
+	return true;
+}
+
 static bool MLS_CopyVNDFArtifacts(const FString& OverlayDir, bool bRequired, FString& OutError)
 {
 	FString ShaderInclude;
 	FString Manifest;
+	FString Validation;
 	if (!MLS_GetVNDFArtifactPaths(ShaderInclude, Manifest)
 		|| !FPaths::FileExists(ShaderInclude)
 		|| !FPaths::FileExists(Manifest))
@@ -86,12 +398,26 @@ static bool MLS_CopyVNDFArtifacts(const FString& OverlayDir, bool bRequired, FSt
 		}
 		return true;
 	}
+	MLS_GetVNDFValidationPath(Validation);
+	if (bRequired)
+	{
+		FString AdmissionReason;
+		if (!MLS_ValidateVNDFAdmission(ShaderInclude, Manifest, Validation, AdmissionReason))
+		{
+			OutError = FString::Printf(
+				TEXT("Generic VNDF LUT numerical admission failed closed: %s."), *AdmissionReason);
+			return false;
+		}
+	}
 
 	const FString DestinationInclude = OverlayDir / TEXT("Private") / MLS_VNDFLUTFileName;
 	const FString DestinationManifest = OverlayDir / TEXT("Private") / MLS_VNDFManifestFileName;
+	const FString DestinationValidation = OverlayDir / TEXT("Private") / MLS_VNDFValidationFileName;
 	IFileManager& FileManager = IFileManager::Get();
 	if (FileManager.Copy(*DestinationInclude, *ShaderInclude, true, true) != COPY_OK
-		|| FileManager.Copy(*DestinationManifest, *Manifest, true, true) != COPY_OK)
+		|| FileManager.Copy(*DestinationManifest, *Manifest, true, true) != COPY_OK
+		|| (FPaths::FileExists(Validation)
+			&& FileManager.Copy(*DestinationValidation, *Validation, true, true) != COPY_OK))
 	{
 		OutError = TEXT("Failed to copy Generic VNDF LUT artifacts into the staging overlay.");
 		return false;
@@ -148,9 +474,12 @@ FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 {
 	FString LUTIncludePath;
 	FString LUTManifestPath;
+	FString LUTValidationPath;
 	const bool bHaveArtifactPaths = MLS_GetVNDFArtifactPaths(LUTIncludePath, LUTManifestPath);
+	MLS_GetVNDFValidationPath(LUTValidationPath);
 	const FString LUTIncludeDigest = bHaveArtifactPaths ? MLS_HashFileSHA1(LUTIncludePath) : TEXT("missing");
 	const FString LUTManifestDigest = bHaveArtifactPaths ? MLS_HashFileSHA1(LUTManifestPath) : TEXT("missing");
+	const FString LUTValidationDigest = MLS_HashFileSHA1(LUTValidationPath);
 	FString ConeEnvIncludePath;
 	FString ConeEnvManifestPath;
 	const bool bHaveConeEnvArtifactPaths = MLS_GetConeEnvArtifactPaths(ConeEnvIncludePath, ConeEnvManifestPath);
@@ -159,7 +488,7 @@ FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 	const FString Identity = FString::Printf(
 		TEXT("engine=%s|patch=%d|enabled=%d|w=%.9g|envw=%.9g|scale=%.9g|offset=%.9g|core=%.9g|")
 		TEXT("env=%d|enva=%d|diff=%d|tone=%d|micro=%d|md=%.9g|ms=%.9g|mmode=%d|")
-		TEXT("lumen=%d|lumenw=%.9g|ibl=%d|coneibl=%d|debug=%d|indirectvis=%d|lut=%s|lutmanifest=%s|coneenv=%s|conemanifest=%s"),
+		TEXT("lumen=%d|lumenw=%.9g|ibl=%d|coneibl=%d|debug=%d|indirectvis=%d|lut=%s|lutmanifest=%s|lutvalidation=%s|coneenv=%s|conemanifest=%s"),
 		*FEngineVersion::Current().ToString(), PatchVersion,
 		Cfg.bEnabled ? 1 : 0, Cfg.Lobe2Weight, Cfg.EnvLobe2Weight, Cfg.Lobe2Scale,
 		Cfg.Lobe2Offset, Cfg.CoreFade, Cfg.bPatchEnvBRDF ? 1 : 0,
@@ -169,7 +498,8 @@ FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 		Cfg.bLumenDualBlur ? 1 : 0, Cfg.LumenBlurWeight, Cfg.bTwoSampleIBL ? 1 : 0,
 		Cfg.bConeAwareIndirectSpecular ? 1 : 0,
 		Cfg.DebugView, Cfg.IndirectMaterialVisibilityMode,
-		*LUTIncludeDigest, *LUTManifestDigest, *ConeEnvIncludeDigest, *ConeEnvManifestDigest);
+		*LUTIncludeDigest, *LUTManifestDigest, *LUTValidationDigest,
+		*ConeEnvIncludeDigest, *ConeEnvManifestDigest);
 
 	FTCHARToUTF8 Utf8(*Identity);
 	return FSHA1::HashBuffer(Utf8.Get(), static_cast<uint64>(Utf8.Length())).ToString().ToLower();
@@ -573,7 +903,15 @@ int32 FMultiLobeShaderPatcher::PatchMicroShadow(FString& Source)
 		TEXT("\tif (GBuffer.ShadingModelID == SHADINGMODELID_DEFAULT_LIT && !MLS_HasAnisotropyFallback && AreaLight.NoL > 0.0f && !IsRectLight(AreaLight))\n")
 		TEXT("\t{\n")
 		TEXT("\t\tfloat MLS_MS_D = MLS_EvaluateMicroShadow(GBuffer.GBufferAO, GBuffer.Roughness, AreaLight.NoL, Context.NoV);\n")
+		TEXT("#if MLS_DEBUG_VIEW == 3\n")
+		TEXT("\t\tLighting.Diffuse = saturate(GBuffer.GBufferAO).xxx; Lighting.Specular = 0;\n")
+		TEXT("#elif MLS_DEBUG_VIEW == 4\n")
+		TEXT("\t\tLighting.Diffuse = MLS_MS_D.xxx; Lighting.Specular = 0;\n")
+		TEXT("#elif MLS_DEBUG_VIEW == 5\n")
+		TEXT("\t\tLighting.Diffuse = saturate(AreaLight.NoL).xxx; Lighting.Specular = 0;\n")
+		TEXT("#else\n")
 		TEXT("\t\tLighting.Diffuse *= lerp(1.0, MLS_MS_D, MLS_MICROSHADOW_DIFFUSE_STRENGTH);\n")
+		TEXT("#endif\n")
 		TEXT("\t}\n")
 		TEXT("#endif\n\t");
 
@@ -1383,7 +1721,7 @@ bool FMultiLobeShaderPatcher::PatchRawMaterialVisibilityTransport(
 	const FString Replacement = FString::Printf(
 		TEXT("#if MLS_ENABLED && MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT\n")
 		TEXT("\t#if GBUFFER_HAS_DIFFUSE_SAMPLE_OCCLUSION || ALLOW_STATIC_LIGHTING || SUBSTRATE_ENABLED\n")
-		TEXT("\t\t#error MultiLobeSpec Generic VNDF/cone-aware IBL requires lossless legacy MaterialAO transport\n")
+		TEXT("\t\t#error MultiLobeSpec direct/indirect material visibility requires lossless legacy MaterialAO transport\n")
 		TEXT("\t#endif\n")
 		TEXT("\tGBuffer.GBufferAO = MaterialAO; // MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT %s\n")
 		TEXT("#else\n")
@@ -1923,7 +2261,7 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		TEXT("#define MLS_MICROSHADOW_DIFFUSE_STRENGTH %.4f\n")
 		TEXT("#define MLS_MICROSHADOW_SPECULAR_STRENGTH %.4f\n")
 		TEXT("#define MLS_MICROSHADOW_MODE %d\n")
-		TEXT("// Preserve raw MaterialAO whenever direct Generic VNDF or cone-aware indirect specular consumes it.\n")
+		TEXT("// Preserve raw MaterialAO whenever direct micro-shadowing, indirect material visibility, or cone-aware IBL consumes it.\n")
 		TEXT("#define MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT %d\n")
 		TEXT("#if MLS_MICROSHADOW_MODE == 4\n")
 		TEXT("#include \"/Engine/Private/MLS_MicroShadowLUT.ush\"\n")
@@ -2029,7 +2367,7 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		TEXT("}\n")
 		TEXT("float MLS_MicroShadow_ReferenceStep(float Visibility, float NoL)\n")
 		TEXT("{\n")
-		TEXT("\treturn (NoL >= sqrt(saturate(1.0 - Visibility))) ? 1.0 : 0.0;\n")
+		TEXT("\treturn (NoL > sqrt(saturate(1.0 - Visibility))) ? 1.0 : 0.0;\n")
 		TEXT("}\n")
 		TEXT("float MLS_MicroShadow_ActivisionWWII(float Visibility, float NoL)\n")
 		TEXT("{\n")
@@ -2128,7 +2466,7 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		Cfg.MicroShadowDiffuseStrength,
 		Cfg.MicroShadowSpecularStrength,
 		Cfg.MicroShadowMode,
-		(Cfg.MicroShadowMode == 4 || Cfg.bConeAwareIndirectSpecular) ? 1 : 0,
+		Cfg.NeedsRawMaterialVisibilityTransport() ? 1 : 0,
 		Cfg.IndirectMaterialVisibilityMode,
 		Cfg.bLumenDualBlur ? 1 : 0,
 		Cfg.LumenBlurWeight,
@@ -2175,9 +2513,16 @@ bool FMultiLobeShaderPatcher::WriteCapabilityManifest(
 
 	FString LUTInclude;
 	FString LUTManifest;
+	FString LUTValidation;
 	const bool bLUTArtifactsPresent = MLS_GetVNDFArtifactPaths(LUTInclude, LUTManifest)
 		&& FPaths::FileExists(LUTInclude)
 		&& FPaths::FileExists(LUTManifest);
+	const bool bLUTValidationReceiptPresent = MLS_GetVNDFValidationPath(LUTValidation)
+		&& FPaths::FileExists(LUTValidation);
+	FString LUTAdmissionReason;
+	const bool bLUTNumericallyAdmitted = bLUTArtifactsPresent
+		&& bLUTValidationReceiptPresent
+		&& MLS_ValidateVNDFAdmission(LUTInclude, LUTManifest, LUTValidation, LUTAdmissionReason);
 	FString ConeEnvInclude;
 	FString ConeEnvManifest;
 	const bool bConeEnvArtifactsPresent = MLS_GetConeEnvArtifactPaths(ConeEnvInclude, ConeEnvManifest)
@@ -2189,9 +2534,9 @@ bool FMultiLobeShaderPatcher::WriteCapabilityManifest(
 	// advertise this storage policy as runtime-available.
 	constexpr bool bConeEnvStaticStorageCompileAdmitted = false;
 	const bool bGenericRequested = Cfg.bMicroShadow && Cfg.MicroShadowMode == 4;
-	const bool bRawTransportRequested = Cfg.MicroShadowMode == 4 || Cfg.bConeAwareIndirectSpecular;
+	const bool bRawTransportRequested = Cfg.NeedsRawMaterialVisibilityTransport();
 	const bool bRawTransportPatched = bRawTransportRequested && bOverlayOnlyTransportPrerequisites;
-	const bool bGenericDirectAvailable = bGenericRequested && bLUTArtifactsPresent && bRawTransportPatched;
+	const bool bGenericDirectAvailable = bGenericRequested && bLUTNumericallyAdmitted && bRawTransportPatched;
 	const bool bRGBIndirectRequested = Cfg.bEnabled && Cfg.IndirectMaterialVisibilityMode == 2;
 	const bool bConeEnvAvailable = Cfg.bEnabled
 		&& Cfg.bTwoSampleIBL
@@ -2206,9 +2551,12 @@ bool FMultiLobeShaderPatcher::WriteCapabilityManifest(
 	Root->SetNumberField(TEXT("patchVersion"), PatchVersion);
 	Root->SetStringField(TEXT("overlayBuildId"), GetOverlayBuildId(Cfg));
 	Root->SetBoolField(TEXT("GenericVNDFLUT_ArtifactsPresent"), bLUTArtifactsPresent);
+	Root->SetBoolField(TEXT("GenericVNDFLUT_ValidationReceiptPresent"), bLUTValidationReceiptPresent);
 	Root->SetBoolField(TEXT("GenericVNDFLUT_RuntimeSamplerImplemented"), true);
-	Root->SetBoolField(TEXT("GenericVNDFLUT_NumericallyAdmitted"), bLUTArtifactsPresent);
+	Root->SetBoolField(TEXT("GenericVNDFLUT_NumericallyAdmitted"), bLUTNumericallyAdmitted);
+	Root->SetStringField(TEXT("GenericVNDFLUT_AdmissionReason"), LUTAdmissionReason);
 	Root->SetStringField(TEXT("GenericVNDFLUT_Representation"), TEXT("V2 SingleBankPiecewise, two overlapping RGBA8 banks, one selected trilinear fetch"));
+	Root->SetStringField(TEXT("GenericVNDFDirect_AzimuthPolicy"), TEXT("Isotropic4D Phi0 approximation; arbitrary relative azimuth is measured but not numerically admitted"));
 	Root->SetBoolField(TEXT("LegacyRawMaterialVisibility_OverlayPrerequisitesMet"), bOverlayOnlyTransportPrerequisites);
 	Root->SetBoolField(TEXT("LegacyRawMaterialVisibility_TransportRequested"), bRawTransportRequested);
 	Root->SetBoolField(TEXT("LegacyRawMaterialVisibility_TransportPatched"),
@@ -2303,7 +2651,7 @@ bool FMultiLobeShaderPatcher::BuildOverlay(const FString& EngineShaderDir, const
 		{
 			return false;
 		}
-		if ((Cfg.MicroShadowMode == 4 || Cfg.bConeAwareIndirectSpecular)
+		if (Cfg.NeedsRawMaterialVisibilityTransport()
 			&& !PatchRawMaterialVisibilityTransport(OverlayDir, OutError))
 		{
 			return false;

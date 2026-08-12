@@ -1,6 +1,28 @@
-# Validation receipt v0.14
+# Validation receipt v0.14.2
 
 Дата: 2026-08-12. Engine: UE 5.7.4, CL 51494982, source tree `D:\PersonalProjects\UE5\UE_5.7`.
+
+## v0.14.2 reviewer/case regression
+
+- Raw MaterialAO activation использует один предикат для всех direct micro-shadow modes,
+  Raw Scalar/RGB indirect visibility и cone-aware IBL. Native Automation test
+  `MultiLobeSpec.Runtime.RawMaterialVisibility.Predicate`: PASS.
+- Canonical LUT получил committed machine-readable receipt
+  `Resources/Generated/MLS_MicroShadowLUT.validation.json`. Runtime сверяет supported
+  schema/version, `passed`, `acceptanceQualified`, packed texel count и SHA-256 exact
+  payload/manifest/include; mismatch выключает numerical admission fail-closed.
+- Canonical independent run: 10 000 random points × 16 384 reference samples и 512
+  boundary points × 65 536 samples — PASS. Random error:
+  mean `0.00327991`, p95 `0.0127672`, p99 `0.0194748`, max `0.0452958`;
+  boundary p95 `0.0112519`, max `0.0295056`; RGBA8 added mean `0.000329533`.
+- Monotonicity остаётся diagnostic: 14 raw violations beyond one RGBA8 step. Relative
+  azimuth также не admission-gated: mean `0.0380819`, p95 `0.173675`, p99 `0.431851`,
+  max `0.644468`. Capability маркирует путь как `Isotropic4D Phi0 approximation`.
+- Реальный `MimirHead_portfolioEditor Win64 Development -ForceUnity`: PASS. Headless
+  startup подтвердил raw transport `1/1`, SHA receipt verified и Generic Direct
+  `DefaultLit=true`; shader errors/asserts отсутствуют.
+- Добавлены debug views raw Material Visibility, direct multiplier и direct `N dot L`
+  для раздельной проверки входной карты, LUT и угла света.
 
 ## v0.14.1 Unity Build regression
 
@@ -18,7 +40,7 @@
 
 ## Direct Generic VNDF
 
-Канонический artifact: V2 SingleBankPiecewise, two RGBA8 banks, SHA-256 `6251adaf858640aeb7c71b83f9271ab4fdc99288f7abec98b9607805d249a1f3`.
+Канонический artifact: V2 SingleBankPiecewise, two RGBA8 banks, SHA-256 `6251adaf858640aeb7c71b83f9271ab4fdc99288f7abec98b9607805d249a1f3`. Admission receipt связан также с manifest SHA-256 `61bb671dde6dc8ece4715430b7a808c4168cc5e91d7e24e43b8ff081573058d7` и include SHA-256 `3dca9d92f0f911f975046cc763e959cbb3317da46986382bbb29f70088df90b0`.
 
 Независимый validator находится в `Tools/MLSMicroShadowValidation`. Он проверяет endpoints, bounds, deterministic QMC, manifest/payload hash, CPU/runtime interpolation, bank split, quantization, azimuth и monotonicity.
 

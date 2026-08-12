@@ -1,4 +1,4 @@
-# MultiLobeSpec v0.14
+# MultiLobeSpec v0.14.2
 
 Experimental UE 5.7 editor plugin for legacy deferred shading. It implements
 dual-lobe GGX, offline Generic VNDF direct micro-visibility LUTs, raw MaterialAO

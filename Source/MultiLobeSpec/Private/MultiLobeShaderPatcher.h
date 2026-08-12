@@ -37,6 +37,16 @@ struct FMLSShaderConfig
 	int32 DebugView = 0;
 	/** 0 = Direct Only diagnostic, 1 = Raw Scalar AO legacy, 2 = RGB Interreflection. */
 	int32 IndirectMaterialVisibilityMode = 2;
+
+	/** Every consumer below expects the continuous, unprocessed MaterialAO value. */
+	bool NeedsRawMaterialVisibilityTransport() const
+	{
+		return bEnabled
+			&& (bMicroShadow
+				|| IndirectMaterialVisibilityMode == 1
+				|| IndirectMaterialVisibilityMode == 2
+				|| bConeAwareIndirectSpecular);
+	}
 };
 
 /**
@@ -58,7 +68,7 @@ class FMultiLobeShaderPatcher
 {
 public:
 	/** Bump when the patch logic changes to force overlay rebuild. */
-	static constexpr int32 PatchVersion = 32;
+	static constexpr int32 PatchVersion = 34;
 
 	static bool BuildOverlay(const FString& EngineShaderDir, const FString& OverlayDir,
 	                         const FMLSShaderConfig& Cfg, FString& OutError);
@@ -113,7 +123,7 @@ private:
 	/** Skylight diffuse: separate RGB material visibility from Screen/DFAO geometry visibility. */
 	static bool PatchSkyLightIndirectAO(const FString& OverlayDir, FString& OutWarning);
 
-	/** Preserve continuous raw MaterialAO for Generic VNDF and cone-aware capture/skylight IBL. */
+	/** Preserve continuous raw MaterialAO for all direct/indirect consumers that require it. */
 	static bool PatchRawMaterialVisibilityTransport(const FString& OverlayDir, FString& OutError);
 
 	/** Patch PostProcessCombineLUTs.usf: inject AgX include, reroute FilmToneMap calls. */

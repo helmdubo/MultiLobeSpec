@@ -125,11 +125,11 @@ void FMultiLobeSpecModule::StartupModule()
 
 	static FAutoConsoleCommand CmdDebugView(
 		TEXT("MLS.DebugView"),
-		TEXT("MultiLobeSpec: debug visualization. Usage: MLS.DebugView 0|1|2  (0 = None, 1 = Effective Lobe Weight, 2 = Second-Lobe Roughness). Requires Preset != Off (Off is a hard vanilla guarantee)."),
+		TEXT("MultiLobeSpec: debug visualization. Usage: MLS.DebugView 0|1|2|3|4|5  (0 = None, 1 = Effective Lobe Weight, 2 = Second-Lobe Roughness, 3 = Raw Material Visibility, 4 = Direct Micro-Shadow Multiplier, 5 = Direct N dot L). Requires Preset != Off (Off is a hard vanilla guarantee)."),
 		FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
 		{
 			if (Args.Num() < 1) { return; }
-			const int32 D = FMath::Clamp(FCString::Atoi(*Args[0]), 0, 2);
+			const int32 D = FMath::Clamp(FCString::Atoi(*Args[0]), 0, 5);
 			UMultiLobeSpecSettings* S = GetMutableDefault<UMultiLobeSpecSettings>();
 			S->DebugView = static_cast<EMLSDebugView>(D);
 			S->SaveConfig();
@@ -138,6 +138,32 @@ void FMultiLobeSpecModule::StartupModule()
 				UE_LOG(LogMultiLobeSpec, Warning,
 					TEXT("Preset is Off — debug views are hard-gated off with vanilla shading. Enable a preset (MLS.Preset 1..3) first."));
 			}
+			FMultiLobeSpecModule::Get().ApplyFromSettings();
+		}));
+
+	static FAutoConsoleCommand CmdMicroShadowMode(
+		TEXT("MLS.MicroShadow"),
+		TEXT("MultiLobeSpec: switch direct micro-shadowing. Usage: MLS.MicroShadow 0|1|2|3|4|5  (Off, Reference Step, CoD:WWII, PZ Analytical, Generic VNDF, Cone Overlap Experimental)."),
+		FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+		{
+			if (Args.Num() < 1) { return; }
+			const int32 Mode = FMath::Clamp(FCString::Atoi(*Args[0]), 0, 5);
+			UMultiLobeSpecSettings* S = GetMutableDefault<UMultiLobeSpecSettings>();
+			S->MicroShadowMode = static_cast<EMLSMicroShadowMode>(Mode);
+			S->SaveConfig();
+			FMultiLobeSpecModule::Get().ApplyFromSettings();
+		}));
+
+	static FAutoConsoleCommand CmdIndirectVisibility(
+		TEXT("MLS.IndirectVisibility"),
+		TEXT("MultiLobeSpec: switch indirect material visibility. Usage: MLS.IndirectVisibility 0|1|2  (Direct Only diagnostic, Raw Scalar AO, RGB Interreflection)."),
+		FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+		{
+			if (Args.Num() < 1) { return; }
+			const int32 Mode = FMath::Clamp(FCString::Atoi(*Args[0]), 0, 2);
+			UMultiLobeSpecSettings* S = GetMutableDefault<UMultiLobeSpecSettings>();
+			S->IndirectMaterialVisibility = static_cast<EMLSIndirectMaterialVisibility>(Mode);
+			S->SaveConfig();
 			FMultiLobeSpecModule::Get().ApplyFromSettings();
 		}));
 
@@ -204,9 +230,7 @@ bool FMultiLobeSpecModule::ApplyInternal(FString& OutError)
 	const FMLSShaderConfig Cfg = MLS_ConfigFromSettings();
 	const FString OverlayDir = MLS_GetOverlayDir(Cfg);
 
-	const bool bRawMaterialVisibilityTransportRequested =
-		Cfg.MicroShadowMode == static_cast<int32>(EMLSMicroShadowMode::GenericVNDFIsotropicLUT)
-		|| Cfg.bConeAwareIndirectSpecular;
+	const bool bRawMaterialVisibilityTransportRequested = Cfg.NeedsRawMaterialVisibilityTransport();
 	if (bRawMaterialVisibilityTransportRequested)
 	{
 		if (!MLS_CheckRawMaterialVisibilityTransportPrerequisites(OutError))

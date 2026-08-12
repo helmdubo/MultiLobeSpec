@@ -47,9 +47,12 @@ enum class EMLSIndirectMaterialVisibility : uint8
 UENUM()
 enum class EMLSDebugView : uint8
 {
-	None            UMETA(DisplayName = "None"),
-	EffectiveWeight UMETA(DisplayName = "Effective Lobe Weight"),
-	SecondRoughness UMETA(DisplayName = "Second-Lobe Roughness")
+	None                  UMETA(DisplayName = "None"),
+	EffectiveWeight       UMETA(DisplayName = "Effective Lobe Weight"),
+	SecondRoughness       UMETA(DisplayName = "Second-Lobe Roughness"),
+	RawMaterialVisibility UMETA(DisplayName = "Raw Material Visibility"),
+	DirectMicroShadow     UMETA(DisplayName = "Direct Micro-Shadow Multiplier"),
+	DirectNoL             UMETA(DisplayName = "Direct N dot L")
 };
 
 UENUM()
@@ -79,7 +82,7 @@ public:
 
 	/** Independent of the BRDF preset (but requires Preset != Off, since it lives in the same overlay). */
 	UPROPERTY(EditAnywhere, config, Category = "Preset")
-	EMLSTonemap Tonemapper = EMLSTonemap::GTUchimura;
+	EMLSTonemap Tonemapper = EMLSTonemap::EngineACES;
 
 	/** Diffuse term used by DefaultLit. Chan adds grazing retro-reflection on rough surfaces. */
 	UPROPERTY(EditAnywhere, config, Category = "Preset")

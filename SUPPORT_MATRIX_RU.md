@@ -1,4 +1,4 @@
-# Support matrix v0.14
+# Support matrix v0.14.2
 
 | Pipeline / feature | Direct dual-lobe | Generic VNDF direct | RGB indirect diffuse | Cone-aware per-lobe IBL | Примечание |
 |---|---:|---:|---:|---:|---|
@@ -20,6 +20,8 @@
 
 - `available=true` означает: requested config, artifacts, renderer prerequisites и patch anchors присутствуют.
 - `implemented=true` не означает numerical admission.
+- Direct Generic VNDF admission требует exact canonical receipt + SHA-256 binding; relative
+  azimuth остаётся measured-but-not-gated для `Isotropic4D Phi0 approximation`.
 - CARD-09 оставляет `NumericallyAdmitted=false`, пока отдельно не утверждены mean/p95/p99/max thresholds.
 - CARD-09 оставляет `StaticStorageCompileAdmitted=false`; настройка выключена по умолчанию и fail-closed.
 - `Transactional_PreRemapSmokeCompile=false`: текущая архитектура компилирует после remap; полный compile receipt не переименовывается в pre-remap smoke.
