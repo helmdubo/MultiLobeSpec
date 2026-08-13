@@ -46,6 +46,9 @@ public:
 	/** Print the fail-closed capability manifest for the active/selected overlay. */
 	void LogCapabilities() const;
 
+	/** One-shot health report: overlay state, /Engine mapping, effective config, CVar contract, patch markers. */
+	void LogStatus() const;
+
 	/** Change the plugin-owned per-view debug selector without rebuilding shaders. */
 	bool SetRuntimeDebugView(int32 DebugView, bool bPersistSetting = true);
 

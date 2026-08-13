@@ -18,7 +18,9 @@ public class MultiLobeSpec : ModuleRules
 			"Json",
 			"RenderCore",      // AddShaderSourceDirectoryMapping / FlushShaderFileCache
 			"Projects",
-			"DeveloperSettings"
+			"DeveloperSettings",
+			"Slate",           // FSlateNotificationManager: apply-failure toast
+			"SlateCore"
 		});
 	}
 }
