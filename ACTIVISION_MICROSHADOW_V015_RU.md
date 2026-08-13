@@ -1,0 +1,118 @@
+# v0.15 — Activision Direct Micro-Shadow
+
+## Решение по Generic VNDF
+
+`Generic VNDF LUT` сохранён как **Experimental / Research Only**, но больше не является рекомендуемым production-режимом. На реальных материалах текущая 4D LUT может чрезмерно подавлять direct lighting за пределами самых ярких участков. Reference-integrator остаётся полезен для исследований, однако default v0.15 — `Activision / CoD:WWII`.
+
+Рекомендуемые настройки:
+
+```text
+Micro Shadowing = Activision / CoD:WWII
+Diffuse Strength = 1.0
+Specular Strength = 1.0
+```
+
+## Direct formula
+
+Material AO трактуется как cosine-weighted visibility:
+
+```text
+1 = полностью открыто
+0 = полностью закрыто
+```
+
+Runtime:
+
+```hlsl
+CosTheta = sqrt(saturate(1 - Visibility));
+T = saturate(NoL / max(CosTheta, 1e-6));
+MicroShadow = T * T;
+```
+
+При `Visibility ~= 1` функция возвращает `1`. Это sharpened-вариант, с которым Activision shipped WWII.
+
+## `r.GBufferDiffuseSampleOcclusion`
+
+В `Micro Shadowing = Off` используется stock legacy transport; проект может оставлять:
+
+```ini
+r.GBufferDiffuseSampleOcclusion=1
+```
+
+При любом активном micro-shadow mode immutable overlay:
+
+1. сохраняет исходный `MaterialAO`;
+2. переносит его через `GenericAO` как continuous scalar;
+3. восстанавливает его в `GBufferAO`;
+4. внутри active permutation выставляет `DiffuseIndirectSampleOcclusion=0`;
+5. принудительно выбирает `Indirect Visibility = Direct Only`.
+
+Глобальная CVar может оставаться `1`. Engine files не меняются.
+
+Обязательный contract:
+
+```ini
+[/Script/Engine.RendererSettings]
+r.Substrate=False
+r.AllowStaticLighting=False
+
+[ConsoleVariables]
+r.GBufferDiffuseSampleOcclusion=1
+```
+
+## Shading-domain audit
+
+| Domain | v0.15 behavior |
+|---|---|
+| Base Color | не меняется |
+| Direct diffuse | готовый Lambert/UE Rough GGX contribution умножается на microshadow |
+| Direct specular | каждый GGX-лоб затеняется отдельно, затем лобы смешиваются |
+| Roughness | не входит в Activision cone formula; влияет на BRDF |
+| Directional/Point/Spot | поддержаны |
+| Rect LTC | stock fallback, без microshadow |
+| Anisotropy | stock fallback |
+| Lumen/Skylight/non-Lumen diffuse | Material AO не применяется |
+| Reflection captures/Skylight specular | material visibility не применяется |
+| Lumen/SSR specular | stock response |
+
+Это соответствует **direct microshadowing** Activision. Полный WWII Material Surface Occlusion pipeline также использовал visibility для albedo-aware indirect diffuse и cone-aware indirect specular. Эти indirect-ветки намеренно выключены по пользовательскому требованию, чтобы AO не появлялась в GI/полутенях.
+
+## Baker presets
+
+Все built-in presets сохраняют raw visibility:
+
+```text
+Strength = 1
+Output Power = 1
+```
+
+| Preset | Relief | Max slope | Radius @ 2048 | Slices | Steps | Distribution | Falloff |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Debris / Deep | 0.82 | 10 | 36 | 16 | 12 | 2.55 | 0.58 |
+| Stone / Brick / Medium | 0.65 | 8 | 28 | 16 | 10 | 2.35 | 0.60 |
+| Sand / Earth / Shallow | 0.38 | 6 | 16 | 12 | 8 | 2.20 | 0.55 |
+| Custom | editable values | | | | | | |
+
+Radius масштабируется линейно с texture resolution. Baker позволяет удалить элементы из списка и после успешного bake сразу назначает `<base>_tex_ao` в AO slots найденных material instances. Отдельный assignment workflow не нужен.
+
+## Debug and no-fork
+
+`MLS.DebugView 0..5` использует SceneViewExtension/UserFlags и не должен rebuild/remap/compile shaders.
+
+Все shader changes выполняются только в:
+
+```text
+<Project>/Saved/MultiLobeSpec/Shaders_<hash>/
+```
+
+`Engine/Shaders` и `Engine/Source` не изменяются.
+
+## Visual acceptance
+
+1. `Visibility=1`: Activision mode совпадает с Off.
+2. Cavity darkens only according to direct light direction.
+3. Без direct light baked visibility не остаётся в Lumen/Skylight diffuse.
+4. `r.GBufferDiffuseSampleOcclusion=1` работает в Activision mode; Off возвращает stock behavior.
+5. Point/Spot меняют microshadow вместе с light vector.
+6. Rect/anisotropy остаются stock.
+7. Debug switches on the next frame without shader jobs.
