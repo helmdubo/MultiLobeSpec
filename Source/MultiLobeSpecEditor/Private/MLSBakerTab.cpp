@@ -110,6 +110,93 @@ namespace
 
 #include "MLSBakerTabUI.inl"
 #include "MLSBakerTabGather.inl"
-#include "MLSBakerTabAssign.inl"
+
+bool SMLSBakerTab::AssignBakedAOToGathered(
+	const TSet<UTexture2D*>* AllowedNormals,
+	int32& OutAssignments,
+	int32& OutSkipped,
+	FString& OutDetails) const
+{
+	OutAssignments = 0;
+	OutSkipped = 0;
+	OutDetails.Reset();
+
+	TArray<FString> ExplicitNormalNames;
+	TArray<FString> AOParameterNames;
+	ParseNames(NormalParamNames, ExplicitNormalNames);
+	ParseNames(AOParamNames, AOParameterNames);
+	if (AOParameterNames.IsEmpty())
+	{
+		OutDetails = TEXT("No AO parameter names configured.\n");
+		return false;
+	}
+
+	for (const TWeakObjectPtr<UMaterialInstanceConstant>& WeakInstance : FoundInstances)
+	{
+		UMaterialInstanceConstant* Instance = WeakInstance.Get();
+		if (!Instance || !PassesMasterFilter(Instance)) continue;
+
+		TArray<FMaterialParameterInfo> Infos;
+		TArray<FGuid> Ids;
+		Instance->GetAllTextureParameterInfo(Infos, Ids);
+		int32 FallbackIndex = 0;
+		bool bChanged = false;
+
+		for (const FMaterialParameterInfo& NormalInfo : Infos)
+		{
+			if (!ExplicitNormalNames.IsEmpty()
+				&& !ExplicitNormalNames.ContainsByPredicate([&](const FString& Name)
+					{ return NormalInfo.Name.ToString().Equals(Name, ESearchCase::IgnoreCase); }))
+			{
+				continue;
+			}
+
+			UTexture* Value = nullptr;
+			if (!Instance->GetTextureParameterValue(NormalInfo, Value)) continue;
+			UTexture2D* NormalTexture = Cast<UTexture2D>(Value);
+			if (!NormalTexture || !NormalTexture->GetName().EndsWith(NormalSuffix, ESearchCase::IgnoreCase)) continue;
+			if (AllowedNormals && !AllowedNormals->Contains(NormalTexture)) continue;
+
+			const int32 AONameIndex = ChooseAOParameterIndex(NormalInfo, AOParameterNames, FallbackIndex++);
+			if (!AOParameterNames.IsValidIndex(AONameIndex))
+			{
+				++OutSkipped;
+				continue;
+			}
+
+			FString BaseName = NormalTexture->GetName();
+			BaseName.LeftChopInline(NormalSuffix.Len());
+			const FString Folder = FPackageName::GetLongPackagePath(NormalTexture->GetOutermost()->GetName());
+			const FString AOName = BaseName + AOSuffix;
+			const FString AOPath = (Folder / AOName) + TEXT(".") + AOName;
+			UTexture2D* AOTexture = Cast<UTexture2D>(UEditorAssetLibrary::LoadAsset(AOPath));
+			FMaterialParameterInfo AOInfo;
+			if (!AOTexture || !FindParameterInfoByNamePreferContext(
+				Infos, AOParameterNames[AONameIndex], NormalInfo, AOInfo))
+			{
+				++OutSkipped;
+				OutDetails += FString::Printf(TEXT("%s: skipped %s -> %s.\n"),
+					*Instance->GetName(), *NormalInfo.Name.ToString(), *AOPath);
+				continue;
+			}
+
+			if (!bChanged)
+			{
+				Instance->Modify();
+				bChanged = true;
+			}
+			Instance->SetTextureParameterValueEditorOnly(AOInfo, AOTexture);
+			++OutAssignments;
+		}
+
+		if (bChanged)
+		{
+			Instance->PostEditChange();
+			Instance->MarkPackageDirty();
+			UEditorAssetLibrary::SaveLoadedAsset(Instance, false);
+		}
+	}
+	return OutAssignments > 0;
+}
 
 #undef MLS_ROW
