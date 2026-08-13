@@ -1,7 +1,12 @@
 bool SMLSBakerTab::PassesMasterFilter(const UMaterialInstanceConstant* Instance) const
 {
 	if (MasterFilter.TrimStartAndEnd().IsEmpty()) return true;
-	const UMaterial* Base = Instance ? Instance->GetBaseMaterial() : nullptr;
+	// UMaterialInterface::GetBaseMaterial() is not const-qualified in UE 5.7, so a
+	// const instance pointer cannot call it directly. Both call sites own a
+	// non-const instance; the cast only restores the caller's actual constness.
+	const UMaterial* Base = Instance
+		? const_cast<UMaterialInstanceConstant*>(Instance)->GetBaseMaterial()
+		: nullptr;
 	if (!Base) return false;
 	TArray<FString> Filters;
 	MasterFilter.ParseIntoArray(Filters, TEXT(","), true);

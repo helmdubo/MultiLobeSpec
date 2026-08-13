@@ -5,6 +5,8 @@
 #include "MLSRawMaterialVisibilityOverlay.h"
 
 #include "ShaderCore.h"
+#include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/CoreDelegates.h"
 #include "HAL/IConsoleManager.h"
@@ -209,8 +211,17 @@ void FMultiLobeSpecModule::LogCapabilities() const
 	const FString OverlayDir = bOverlayActive ? ActiveOverlayDir : MLS_GetOverlayDir(MLS_ConfigFromSettings());
 	const FString Path = OverlayDir / TEXT("MLS_CAPABILITIES.json");
 	FString Manifest;
-	if (FFileHelper::LoadFileToString(Manifest, *Path)) UE_LOG(LogMultiLobeSpec, Display, TEXT("%s\n%s"), *Path, *Manifest);
-	else UE_LOG(LogMultiLobeSpec, Warning, TEXT("Capability manifest not available: %s"), *Path);
+	// UE_LOG expands to a brace-enclosed block, so the ';' terminating the
+	// single-statement 'if' closes the statement and orphans 'else' (C2181).
+	// Any if/else around a log macro must be braced.
+	if (FFileHelper::LoadFileToString(Manifest, *Path))
+	{
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("%s\n%s"), *Path, *Manifest);
+	}
+	else
+	{
+		UE_LOG(LogMultiLobeSpec, Warning, TEXT("Capability manifest not available: %s"), *Path);
+	}
 }
 
 bool FMultiLobeSpecModule::RemapEngineShaders(const FString& NewDir)
