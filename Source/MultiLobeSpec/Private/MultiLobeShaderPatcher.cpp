@@ -1733,9 +1733,21 @@ bool FMultiLobeShaderPatcher::PatchRawMaterialVisibilityTransport(
 		return false;
 	}
 
+	// The inner compile guard must NOT name GBUFFER_HAS_DIFFUSE_SAMPLE_OCCLUSION:
+	//
+	//  1. Policy. v0.15 deliberately SUPPORTS r.GBufferDiffuseSampleOcclusion=1.
+	//     FMLSRawMaterialVisibilityOverlay rewrites the BasePass guard and carries the
+	//     continuous value through GenericAO, so hard-erroring on that permutation here
+	//     contradicts the transport this same overlay installs.
+	//  2. Mechanics. Emitting that literal adds a second occurrence of the exact anchor
+	//     FMLSRawMaterialVisibilityOverlay::PatchBasePassGuard requires to appear exactly
+	//     once. Both passes run on this file whenever micro-shadowing is active, so the
+	//     guard pass would see a count of 2 and fail the whole apply closed.
+	//
+	// Static lighting and Substrate remain genuinely unsupported and still hard-error.
 	const FString Replacement = FString::Printf(
 		TEXT("#if MLS_ENABLED && MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT\n")
-		TEXT("\t#if GBUFFER_HAS_DIFFUSE_SAMPLE_OCCLUSION || ALLOW_STATIC_LIGHTING || SUBSTRATE_ENABLED\n")
+		TEXT("\t#if ALLOW_STATIC_LIGHTING || SUBSTRATE_ENABLED\n")
 		TEXT("\t\t#error MultiLobeSpec direct/indirect material visibility requires lossless legacy MaterialAO transport\n")
 		TEXT("\t#endif\n")
 		TEXT("\tGBuffer.GBufferAO = MaterialAO; // MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT %s\n")
