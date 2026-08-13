@@ -1,9 +1,9 @@
 {
 	"FileVersion": 3,
-	"Version": 43,
-	"VersionName": "0.14.3",
-	"FriendlyName": "MultiLobeSpec Generic VNDF (Legacy Overlay)",
-	"Description": "Experimental UE 5.7 legacy deferred overlay: dual-lobe GGX, offline Generic VNDF direct micro-shadow LUT, RGB indirect visibility, and a storage-blocked staging implementation of cone-aware capture/skylight EnvBRDF.",
+	"Version": 50,
+	"VersionName": "0.15.0",
+	"FriendlyName": "MultiLobeSpec Activision Micro-Shadow (Legacy Overlay)",
+	"Description": "UE 5.7 legacy deferred shader overlay: dual-lobe GGX, Activision/CoD:WWII direct material micro-shadowing, direct-only MaterialAO transport, Poisson/GTAO visibility baking, and experimental Generic VNDF research mode. No engine fork.",
 	"Category": "Rendering",
 	"CreatedBy": "Mimirhead",
 	"CanContainContent": false,

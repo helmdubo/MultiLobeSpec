@@ -35,16 +35,18 @@ struct FMLSShaderConfig
 	bool  bConeAwareIndirectSpecular = false;
 	/** Persisted runtime selector only; excluded from the content-addressed overlay identity. */
 	int32 DebugView = 0;
-	/** 0 = Direct Only diagnostic, 1 = Raw Scalar AO legacy, 2 = RGB Interreflection. */
-	int32 IndirectMaterialVisibilityMode = 2;
+	/** 0 = Direct Only, 1 = Raw Scalar AO legacy, 2 = RGB Interreflection. */
+	int32 IndirectMaterialVisibilityMode = 1;
 
 	/**
-	 * Every MLS BRDF overlay preserves continuous MaterialAO. This also makes the
-	 * runtime-selectable Raw Material Visibility diagnostic valid without a rebuild.
+	 * Only an active direct micro-shadow mode needs continuous MaterialAO.
+	 * Legacy AO keeps the stock GBuffer/sample-occlusion contract, including
+	 * r.GBufferDiffuseSampleOcclusion=1.  The MLS overlay repurposes GenericAO
+	 * only while direct micro-shadowing is active.
 	 */
 	bool NeedsRawMaterialVisibilityTransport() const
 	{
-		return bEnabled;
+		return bMicroShadow;
 	}
 };
 
@@ -67,7 +69,7 @@ class FMultiLobeShaderPatcher
 {
 public:
 	/** Bump when the patch logic changes to force overlay rebuild. */
-	static constexpr int32 PatchVersion = 35;
+	static constexpr int32 PatchVersion = 36;
 
 	static bool BuildOverlay(const FString& EngineShaderDir, const FString& OverlayDir,
 	                         const FMLSShaderConfig& Cfg, FString& OutError);
@@ -116,13 +118,13 @@ private:
 	/** Indirect material AO -> interreflection visibility (DiffuseIndirectComposite, non-Lumen branch). */
 	static bool PatchIndirectAO(const FString& OverlayDir, FString& OutWarning);
 
-	/** Lumen SPG: remove ALL material-AO applications to indirect (AO = micro-visibility only). */
+	/** Lumen SPG: configure material visibility separately from geometric occlusion. */
 	static bool PatchLumenIndirectAO(const FString& OverlayDir, FString& OutWarning);
 
 	/** Skylight diffuse: separate RGB material visibility from Screen/DFAO geometry visibility. */
 	static bool PatchSkyLightIndirectAO(const FString& OverlayDir, FString& OutWarning);
 
-	/** Preserve continuous raw MaterialAO for all direct/indirect consumers that require it. */
+	/** Preserve continuous raw MaterialAO for direct micro-shadowing. */
 	static bool PatchRawMaterialVisibilityTransport(const FString& OverlayDir, FString& OutError);
 
 	/** Patch PostProcessCombineLUTs.usf: inject AgX include, reroute FilmToneMap calls. */

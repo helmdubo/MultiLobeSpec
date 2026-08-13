@@ -37,26 +37,30 @@ void UMultiLobeSpecSettings::FillConfig(FMLSShaderConfig& Out) const
 
 	Out.bPatchEnvBRDF = bPatchEnvBRDF;
 	Out.MicroShadowMode = static_cast<int32>(MicroShadowMode);
-	// CARD-03 numerical admission: the generated V2 SingleBankPiecewise LUT
-	// passed the canonical corpus and two held-out parameter/reference seeds.
-	// Runtime preflight still fail-closes on the raw MaterialAO transport CVars.
 	Out.bMicroShadow = (MicroShadowMode != EMLSMicroShadowMode::Off)
 		&& (Preset != EMLSPreset::Off);
 	Out.MicroShadowDiffuseStrength = MicroShadowDiffuseStrength;
 	Out.MicroShadowSpecularStrength = MicroShadowSpecularStrength;
+
 	Out.bLumenDualBlur = bLumenDualBlur && (Preset != EMLSPreset::Off);
-	// One physical lobe weight everywhere: q = w, no sampling override until a
-	// w/q-corrected estimator exists (review v2 §5). Raw (pre-Scope-zeroing) value.
 	Out.LumenBlurWeight = Out.EnvLobe2Weight;
 	Out.bTwoSampleIBL = bTwoSampleIBL && (Preset != EMLSPreset::Off);
 	Out.bConeAwareIndirectSpecular = bConeAwareIndirectSpecular
 		&& Out.bTwoSampleIBL
 		&& Out.bPatchEnvBRDF
 		&& (Preset != EMLSPreset::Off);
+
+	// Direct micro-shadow modes consume Material AO exclusively as micro-visibility.
+	// The map must not reappear as legacy black scalar AO in indirect lighting.
+	Out.IndirectMaterialVisibilityMode = Out.bMicroShadow
+		? static_cast<int32>(EMLSIndirectMaterialVisibility::DirectOnly)
+		: static_cast<int32>(IndirectMaterialVisibility);
+
+	// Debug is session-only and excluded from the content-addressed overlay identity.
 	Out.DebugView = (Preset != EMLSPreset::Off) ? static_cast<int32>(DebugView) : 0;
-	Out.IndirectMaterialVisibilityMode = static_cast<int32>(IndirectMaterialVisibility);
 	Out.bPatchEnvBRDFApprox = bPatchEnvBRDF;
 	Out.DiffuseModel = (DiffuseModel == EMLSDiffuse::Chan) ? 1 : 0;
+
 	switch (Tonemapper)
 	{
 	default:
@@ -83,11 +87,10 @@ void UMultiLobeSpecSettings::PostEditChangeProperty(FPropertyChangedEvent& Event
 	if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(UMultiLobeSpecSettings, DebugView)
 		&& FModuleManager::Get().IsModuleLoaded("MultiLobeSpec"))
 	{
-		FMultiLobeSpecModule::Get().SetRuntimeDebugView(static_cast<int32>(DebugView));
+		FMultiLobeSpecModule::Get().SetRuntimeDebugView(static_cast<int32>(DebugView), false);
 		return;
 	}
-	// Deliberately no recompile here: changes accumulate and are applied
-	// explicitly via the 'Apply Changes' button or the MLS.* console commands.
+
 	UE_LOG(LogMultiLobeSpec, Log,
 		TEXT("Settings changed (pending). Press 'Apply Changes' in Project Settings or run MLS.Apply."));
 }
