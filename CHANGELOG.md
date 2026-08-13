@@ -1,3 +1,19 @@
+# v0.14.3 — Instant runtime debug views
+
+- Добавлен plugin-owned runtime selector в битах 28..30 штатного
+  `View.PostVolumeUserFlags`; UE 5.7 source patch не требуется.
+- Все MLS diagnostic branches теперь компилируются один раз и выбираются runtime;
+  `MLS.DebugView 0..5` больше не строит overlay и не запускает shader recompile.
+- Debug view удалён из content-addressed overlay build ID и generated config define.
+- Console command и Project Settings обновляют CVar, сохраняют выбор и сразу
+  перерисовывают editor viewports; неактивный overlay сохраняет hard gate с effective mode 0.
+- Capability manifest сообщает dedicated selector и `RequiresShaderRecompilePerSwitch=false`;
+  native test фиксирует build-ID invariance.
+- Scene view extension сохраняет остальные user flags; capture/reflection/planar/VT/custom
+  views и realtime skylight capture hard-gated off.
+- Диагностики документированы как lighting-weighted Default Lit masks; mode 4 показывает
+  финальный diffuse factor после strength, unsupported target pixels fail-closed black.
+
 # v0.14.2 — Material visibility contract and admission hardening
 
 - Raw MaterialAO transport теперь активируется для всех direct micro-shadow modes,

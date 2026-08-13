@@ -488,7 +488,7 @@ FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 	const FString Identity = FString::Printf(
 		TEXT("engine=%s|patch=%d|enabled=%d|w=%.9g|envw=%.9g|scale=%.9g|offset=%.9g|core=%.9g|")
 		TEXT("env=%d|enva=%d|diff=%d|tone=%d|micro=%d|md=%.9g|ms=%.9g|mmode=%d|")
-		TEXT("lumen=%d|lumenw=%.9g|ibl=%d|coneibl=%d|debug=%d|indirectvis=%d|lut=%s|lutmanifest=%s|lutvalidation=%s|coneenv=%s|conemanifest=%s"),
+		TEXT("lumen=%d|lumenw=%.9g|ibl=%d|coneibl=%d|indirectvis=%d|lut=%s|lutmanifest=%s|lutvalidation=%s|coneenv=%s|conemanifest=%s"),
 		*FEngineVersion::Current().ToString(), PatchVersion,
 		Cfg.bEnabled ? 1 : 0, Cfg.Lobe2Weight, Cfg.EnvLobe2Weight, Cfg.Lobe2Scale,
 		Cfg.Lobe2Offset, Cfg.CoreFade, Cfg.bPatchEnvBRDF ? 1 : 0,
@@ -497,7 +497,7 @@ FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 		Cfg.MicroShadowSpecularStrength, Cfg.MicroShadowMode,
 		Cfg.bLumenDualBlur ? 1 : 0, Cfg.LumenBlurWeight, Cfg.bTwoSampleIBL ? 1 : 0,
 		Cfg.bConeAwareIndirectSpecular ? 1 : 0,
-		Cfg.DebugView, Cfg.IndirectMaterialVisibilityMode,
+		Cfg.IndirectMaterialVisibilityMode,
 		*LUTIncludeDigest, *LUTManifestDigest, *LUTValidationDigest,
 		*ConeEnvIncludeDigest, *ConeEnvManifestDigest);
 
@@ -872,8 +872,9 @@ int32 FMultiLobeShaderPatcher::PatchDefaultLitDualSpecular(FString& Source)
 int32 FMultiLobeShaderPatcher::PatchMicroShadow(FString& Source)
 {
 	// Multiply direct diffuse/specular by the AO-cone visibility term right
-	// before DefaultLitBxDF returns. GBuffer / NoL are in scope there; the
-	// local result variable has been named 'Lighting' throughout 5.x.
+	// before DefaultLitBxDF returns. Runtime diagnostics intentionally multiply
+	// the existing per-light BRDF result: at this hook they are lighting-weighted
+	// masks, not a standalone full-screen scalar visualization pass.
 	FFuncDef Fn;
 	if (!FindNextFunctionDef(Source, TEXT("DefaultLitBxDF"), 0, Fn))
 	{
@@ -888,31 +889,45 @@ int32 FMultiLobeShaderPatcher::PatchMicroShadow(FString& Source)
 	}
 
 	static const TCHAR* Block =
-		TEXT("#if MLS_ENABLED && MLS_DEBUG_VIEW == 1\n")
-		TEXT("\tLighting.Diffuse = (MLS_LOBE2_W(GBuffer.Roughness)).xxx; Lighting.Specular = 0;\n")
-		TEXT("#elif MLS_ENABLED && MLS_DEBUG_VIEW == 2\n")
-		TEXT("\tLighting.Diffuse = (MLS_R2(GBuffer.Roughness)).xxx; Lighting.Specular = 0;\n")
-		TEXT("#endif\n")
-		TEXT("#if MLS_MICROSHADOW\n")
+		TEXT("#if MLS_ENABLED\n")
+		TEXT("\t// Realtime skylight captures clone the main view without setting bIsReflectionCapture.\n")
+		TEXT("\t// The shader-side mask is the final hard gate against baking diagnostics into captures.\n")
+		TEXT("\tuint MLS_RuntimeDebugView = View.RenderingReflectionCaptureMask == 0.0f ? ((asuint(View.PostVolumeUserFlags) >> 28u) & 0x7u) : 0u;\n")
 		TEXT("#if SUPPORTS_ANISOTROPIC_MATERIALS\n")
 		TEXT("\tbool MLS_HasAnisotropyFallback = HasAnisotropy(GBuffer.SelectiveOutputMask);\n")
 		TEXT("#else\n")
 		TEXT("\tbool MLS_HasAnisotropyFallback = false;\n")
 		TEXT("#endif\n")
-		TEXT("\tBRANCH\n")
-		TEXT("\tif (GBuffer.ShadingModelID == SHADINGMODELID_DEFAULT_LIT && !MLS_HasAnisotropyFallback && AreaLight.NoL > 0.0f && !IsRectLight(AreaLight))\n")
+		TEXT("\tbool MLS_DebugEligible = GBuffer.ShadingModelID == SHADINGMODELID_DEFAULT_LIT && !MLS_HasAnisotropyFallback && AreaLight.NoL > 0.0f && !IsRectLight(AreaLight);\n")
+		TEXT("\tif (MLS_RuntimeDebugView == 1u || MLS_RuntimeDebugView == 2u)\n")
+		TEXT("\t{\n")
+		TEXT("\t\tfloat MLS_DebugScalar = 0.0f;\n")
+		TEXT("\t\tif (MLS_DebugEligible) { MLS_DebugScalar = MLS_RuntimeDebugView == 1u ? MLS_LOBE2_W(GBuffer.Roughness) : MLS_R2(GBuffer.Roughness); }\n")
+		TEXT("\t\tLighting.Diffuse *= MLS_DebugScalar;\n")
+		TEXT("\t\tLighting.Specular = 0;\n")
+		TEXT("\t}\n")
+		TEXT("#if MLS_MICROSHADOW\n")
+		TEXT("\telse if (MLS_RuntimeDebugView >= 3u)\n")
+		TEXT("\t{\n")
+		TEXT("\t\tfloat MLS_DebugScalar = 0.0f;\n")
+		TEXT("\t\tif (MLS_DebugEligible)\n")
+		TEXT("\t\t{\n")
+		TEXT("\t\t\tfloat MLS_MS_D = MLS_EvaluateMicroShadow(GBuffer.GBufferAO, GBuffer.Roughness, AreaLight.NoL, Context.NoV);\n")
+		TEXT("\t\t\tif (MLS_RuntimeDebugView == 3u) { MLS_DebugScalar = saturate(GBuffer.GBufferAO); }\n")
+		TEXT("\t\t\telse if (MLS_RuntimeDebugView == 4u) { MLS_DebugScalar = lerp(1.0, MLS_MS_D, MLS_MICROSHADOW_DIFFUSE_STRENGTH); }\n")
+		TEXT("\t\t\telse if (MLS_RuntimeDebugView == 5u) { MLS_DebugScalar = saturate(AreaLight.NoL); }\n")
+		TEXT("\t\t}\n")
+		TEXT("\t\tLighting.Diffuse *= MLS_DebugScalar;\n")
+		TEXT("\t\tLighting.Specular = 0;\n")
+		TEXT("\t}\n")
+		TEXT("\telse if (MLS_DebugEligible)\n")
 		TEXT("\t{\n")
 		TEXT("\t\tfloat MLS_MS_D = MLS_EvaluateMicroShadow(GBuffer.GBufferAO, GBuffer.Roughness, AreaLight.NoL, Context.NoV);\n")
-		TEXT("#if MLS_DEBUG_VIEW == 3\n")
-		TEXT("\t\tLighting.Diffuse = saturate(GBuffer.GBufferAO).xxx; Lighting.Specular = 0;\n")
-		TEXT("#elif MLS_DEBUG_VIEW == 4\n")
-		TEXT("\t\tLighting.Diffuse = MLS_MS_D.xxx; Lighting.Specular = 0;\n")
-		TEXT("#elif MLS_DEBUG_VIEW == 5\n")
-		TEXT("\t\tLighting.Diffuse = saturate(AreaLight.NoL).xxx; Lighting.Specular = 0;\n")
-		TEXT("#else\n")
 		TEXT("\t\tLighting.Diffuse *= lerp(1.0, MLS_MS_D, MLS_MICROSHADOW_DIFFUSE_STRENGTH);\n")
-		TEXT("#endif\n")
 		TEXT("\t}\n")
+		TEXT("#else\n")
+		TEXT("\telse if (MLS_RuntimeDebugView >= 3u) { Lighting.Diffuse = 0; Lighting.Specular = 0; }\n")
+		TEXT("#endif\n")
 		TEXT("#endif\n\t");
 
 	Source.InsertAt(Pos, FString(Block));
@@ -2445,7 +2460,6 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		TEXT("// Legacy mixed-radiance TWS mode is superseded by paired IBL — permanently off.\n")
 		TEXT("#define MLS_TWO_SAMPLE_IBL 0\n")
 		TEXT("#define MLS_IBL_W(r) (MLS_ENV_W(r) * MLS_TWO_SAMPLE_IBL)\n")
-		TEXT("#define MLS_DEBUG_VIEW %d\n")
 		TEXT("\n")
 		TEXT("// ---- Tonemapper: 0 = engine ACES, 1 = AgX Base, 2 = AgX Punchy ----\n")
 		TEXT("#define MLS_TONEMAP %d\n")
@@ -2472,7 +2486,6 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		Cfg.LumenBlurWeight,
 		Cfg.bTwoSampleIBL ? 1 : 0,
 		Cfg.bConeAwareIndirectSpecular ? 1 : 0,
-		Cfg.DebugView,
 		Cfg.TonemapMode);
 
 	const FString ConfigPath = OverlayDir / TEXT("Private") / MLS_ConfigFileName;
@@ -2586,6 +2599,9 @@ bool FMultiLobeShaderPatcher::WriteCapabilityManifest(
 	Root->SetBoolField(TEXT("Transactional_ExactRequestedAnchorCounts"), true);
 	Root->SetBoolField(TEXT("Transactional_ContentAddressedOverlay"), true);
 	Root->SetBoolField(TEXT("Transactional_PreRemapSmokeCompile"), false);
+	Root->SetBoolField(TEXT("RuntimeDebugView_PluginOwnedViewUniformBits"), true);
+	Root->SetBoolField(TEXT("RuntimeDebugView_RequiresShaderRecompilePerSwitch"), false);
+	Root->SetStringField(TEXT("RuntimeDebugView_Selector"), TEXT("View.PostVolumeUserFlags bits 28..30 <- MLS scene view extension"));
 
 	const TSharedRef<FJsonObject> Prerequisites = MakeShared<FJsonObject>();
 	Prerequisites->SetNumberField(TEXT("r.Substrate"), Substrate);
@@ -2726,7 +2742,7 @@ bool FMultiLobeShaderPatcher::BuildOverlay(const FString& EngineShaderDir, const
 			OutError = FString::Printf(TEXT("DefaultLit diffuse exact-count failure: expected 1, found %d."), NumDiffuse);
 			return false;
 		}
-		if (Cfg.bMicroShadow && NumMicroShadow != 1)
+		if (Cfg.bEnabled && NumMicroShadow != 1)
 		{
 			OutError = FString::Printf(TEXT("DefaultLit micro-shadow exact-count failure: expected 1, found %d."), NumMicroShadow);
 			return false;

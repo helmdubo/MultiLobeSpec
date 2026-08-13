@@ -50,9 +50,9 @@ enum class EMLSDebugView : uint8
 	None                  UMETA(DisplayName = "None"),
 	EffectiveWeight       UMETA(DisplayName = "Effective Lobe Weight"),
 	SecondRoughness       UMETA(DisplayName = "Second-Lobe Roughness"),
-	RawMaterialVisibility UMETA(DisplayName = "Raw Material Visibility"),
-	DirectMicroShadow     UMETA(DisplayName = "Direct Micro-Shadow Multiplier"),
-	DirectNoL             UMETA(DisplayName = "Direct N dot L")
+	RawMaterialVisibility UMETA(DisplayName = "Raw Material Visibility (Lighting-weighted)"),
+	DirectMicroShadow     UMETA(DisplayName = "Final Direct Diffuse Micro-Shadow Multiplier (Lighting-weighted)"),
+	DirectNoL             UMETA(DisplayName = "Direct N dot L (Lighting-weighted)")
 };
 
 UENUM()
@@ -161,7 +161,7 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "Micro-Shadowing", meta = (DisplayName = "Indirect Material Visibility"))
 	EMLSIndirectMaterialVisibility IndirectMaterialVisibility = EMLSIndirectMaterialVisibility::RGBInterreflection;
 
-	/** Diagnostic renders: visualize the model instead of lighting. */
+	/** Instant per-light diagnostics. Values are lighting-weighted at the Default Lit accumulation hook. */
 	UPROPERTY(EditAnywhere, config, Category = "Debug")
 	EMLSDebugView DebugView = EMLSDebugView::None;
 

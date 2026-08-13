@@ -33,19 +33,18 @@ struct FMLSShaderConfig
 	bool  bTwoSampleIBL = true;
 	/** Staged cone-aware EnvBRDF for paired captures/skylight; static storage is not compile-admitted. */
 	bool  bConeAwareIndirectSpecular = false;
-	/** 0 = off, 1 = effective lobe weight, 2 = second-lobe roughness. */
+	/** Persisted runtime selector only; excluded from the content-addressed overlay identity. */
 	int32 DebugView = 0;
 	/** 0 = Direct Only diagnostic, 1 = Raw Scalar AO legacy, 2 = RGB Interreflection. */
 	int32 IndirectMaterialVisibilityMode = 2;
 
-	/** Every consumer below expects the continuous, unprocessed MaterialAO value. */
+	/**
+	 * Every MLS BRDF overlay preserves continuous MaterialAO. This also makes the
+	 * runtime-selectable Raw Material Visibility diagnostic valid without a rebuild.
+	 */
 	bool NeedsRawMaterialVisibilityTransport() const
 	{
-		return bEnabled
-			&& (bMicroShadow
-				|| IndirectMaterialVisibilityMode == 1
-				|| IndirectMaterialVisibilityMode == 2
-				|| bConeAwareIndirectSpecular);
+		return bEnabled;
 	}
 };
 
@@ -68,7 +67,7 @@ class FMultiLobeShaderPatcher
 {
 public:
 	/** Bump when the patch logic changes to force overlay rebuild. */
-	static constexpr int32 PatchVersion = 34;
+	static constexpr int32 PatchVersion = 35;
 
 	static bool BuildOverlay(const FString& EngineShaderDir, const FString& OverlayDir,
 	                         const FMLSShaderConfig& Cfg, FString& OutError);

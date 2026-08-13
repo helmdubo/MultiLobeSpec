@@ -1,4 +1,4 @@
-# MultiLobeSpec v0.14.2 — Generic VNDF micro-visibility для UE 5.7
+# MultiLobeSpec v0.14.3 — Generic VNDF micro-visibility для UE 5.7
 
 Экспериментальный editor-only плагин для legacy deferred shading (`r.Substrate=0`). Он реализует горизонтальную смесь двух GGX-лобов, Generic VNDF-based direct micro-shadowing и RGB indirect material visibility. CARD-09 cone-aware Environment BRDF для reflection captures/skylight реализован как staging path, но выключен: overlay-only static LUT не прошёл SM6 compile-cost gate. Файлы движка не изменяются: плагин создаёт content-addressed shader overlay в `Saved/MultiLobeSpec` и remap-ит `/Engine` только после успешного transactional patch.
 
@@ -71,6 +71,19 @@ MLS.Capabilities
 
 Каждая конфигурация получает отдельный immutable overlay. Stamp записывается последним; exact-count mismatch оставляет предыдущий overlay активным. Первая компиляция дорогая, дальнейшие сборки переиспользуют DDC.
 
+### Быстрый Debug View без engine patch
+
+Плагин резервирует биты 28..30 стандартного `View.PostVolumeUserFlags` и публикует
+selector через собственный scene view extension. Остальные user flags сохраняются;
+layout View uniform и Engine binaries не меняются. Обычные
+scene/reflection/planar/VT/custom captures получают mode 0; realtime skylight capture
+дополнительно закрыт через `RenderingReflectionCaptureMask` в HLSL.
+
+После однократного `MLS.Apply` для версии P35 команда `MLS.DebugView 0..5` меняет
+только атомарный runtime selector, перерисовывает viewport и не вызывает новый overlay,
+remap, shader-cache flush или `RecompileShaders Changed`. То же поведение действует для
+поля Debug View в Project Settings.
+
 ## Семантика material visibility
 
 Material AO трактуется как cosine-weighted micro-visibility, а не как screen-space geometry AO. Для direct lighting значение применяется к полным diffuse/specular contributions каждого лоба. Для indirect diffuse default `RGB Interreflection` использует:
@@ -81,9 +94,9 @@ V_rgb = saturate(V / max(1 - Albedo * (1 - V), 1e-4));
 
 Screen AO, DFAO и geometric occlusion остаются в своих stock путях. Для capture/skylight specular material visibility сначала переводится в cone, затем корректируется отдельно по roughness каждого лоба.
 
-Raw transport запрашивается единым предикатом для любого direct micro-shadow режима,
-Raw Scalar/RGB indirect visibility и cone-aware IBL. Capability не может объявить эти
-пути доступными, если исходный `MaterialAO` не был сохранён в BasePass.
+Raw transport запрашивается для любого активного MLS BRDF overlay: это позволяет
+включить Debug View 3 позднее без перестройки overlay. Capability не может объявить
+material-visibility пути доступными, если исходный `MaterialAO` не сохранён в BasePass.
 
 ## Диагностика Generic VNDF на реальном материале
 
@@ -93,11 +106,19 @@ Raw Scalar/RGB indirect visibility и cone-aware IBL. Capability не может
 ```text
 MLS.MicroShadow 4
 MLS.IndirectVisibility 0
-MLS.DebugView 3   # raw Material Visibility: белый = 1, чёрный = 0
-MLS.DebugView 4   # итоговый direct micro-shadow multiplier
-MLS.DebugView 5   # макроскопический N dot L выбранного direct light
+MLS.DebugView 3   # lighting-weighted raw Material Visibility
+MLS.DebugView 4   # lighting-weighted итоговый direct diffuse micro-shadow multiplier
+MLS.DebugView 5   # lighting-weighted per-light N dot L
 MLS.DebugView 0   # обычный шейдинг
 ```
+
+Режимы 1..5 внедрены в per-light `DefaultLitBxDF`, поэтому это быстрые
+lighting-weighted diagnostic masks, а не абсолютный полноэкранный grayscale buffer:
+результат зависит от цвета, интенсивности и shadow источников и затем проходит
+exposure/tonemapping. В одном кадре складываются вклады всех direct lights; mode 5 не
+выбирает один light. Для абсолютных scalar views нужен отдельный debug/postprocess pass.
+Внутри target Default Lit hook неподдерживаемые Rect/anisotropic/back-facing случаи
+дают чёрный; остальные shading models не входят в заявленный diagnostic scope.
 
 Для чистого direct-сравнения временно выключите GI/skylight/reflections viewport show
 flags либо используйте `ShowFlag.GlobalIllumination 0`,

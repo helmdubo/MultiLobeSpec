@@ -5,6 +5,8 @@
 
 MULTILOBESPEC_API DECLARE_LOG_CATEGORY_EXTERN(LogMultiLobeSpec, Log, All);
 
+class FMLSViewExtension;
+
 /**
  * MultiLobeSpec — dual-lobe GGX and material micro-visibility for UE 5.7 legacy deferred shading.
  *
@@ -44,6 +46,9 @@ public:
 	/** Print the fail-closed capability manifest for the active/selected overlay. */
 	void LogCapabilities() const;
 
+	/** Change the plugin-owned per-view debug selector without rebuilding shaders. */
+	bool SetRuntimeDebugView(int32 DebugView, bool bPersistSetting = true);
+
 	bool IsOverlayActive() const { return bOverlayActive; }
 
 private:
@@ -57,5 +62,6 @@ private:
 	/** Immutable content-addressed overlay currently mapped by this module. */
 	FString ActiveOverlayDir;
 	bool bOverlayActive = false;
+	TSharedPtr<FMLSViewExtension, ESPMode::ThreadSafe> RuntimeViewExtension;
 
 };

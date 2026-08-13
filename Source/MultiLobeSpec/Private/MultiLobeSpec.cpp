@@ -1,6 +1,7 @@
 #include "MultiLobeSpec.h"
 #include "MultiLobeSpecSettings.h"
 #include "MultiLobeShaderPatcher.h"
+#include "MultiLobeSpecViewExtension.h"
 
 #include "ShaderCore.h"          // AddShaderSourceDirectoryMapping / ResetAllShaderSourceDirectoryMappings /
                                  // AllShaderSourceDirectoryMappings / FlushShaderFileCache
@@ -8,6 +9,7 @@
 #include "Misc/CoreDelegates.h"
 #include "HAL/IConsoleManager.h"
 #include "Engine/Engine.h"
+#include "EditorSupportDelegates.h"
 
 DEFINE_LOG_CATEGORY(LogMultiLobeSpec);
 
@@ -91,6 +93,7 @@ void FMultiLobeSpecModule::StartupModule()
 	}
 
 	OriginalEngineShaderDir = MLS_GetEngineShaderDir();
+	RuntimeViewExtension = FSceneViewExtensions::NewExtension<FMLSViewExtension>();
 
 	// Console API for quick testing without opening Project Settings:
 	static FAutoConsoleCommand CmdApply(
@@ -125,20 +128,12 @@ void FMultiLobeSpecModule::StartupModule()
 
 	static FAutoConsoleCommand CmdDebugView(
 		TEXT("MLS.DebugView"),
-		TEXT("MultiLobeSpec: debug visualization. Usage: MLS.DebugView 0|1|2|3|4|5  (0 = None, 1 = Effective Lobe Weight, 2 = Second-Lobe Roughness, 3 = Raw Material Visibility, 4 = Direct Micro-Shadow Multiplier, 5 = Direct N dot L). Requires Preset != Off (Off is a hard vanilla guarantee)."),
+		TEXT("MultiLobeSpec: instant lighting-weighted diagnostics (no shader rebuild). Usage: MLS.DebugView 0|1|2|3|4|5  (0 = None, 1 = Effective Lobe Weight, 2 = Second-Lobe Roughness, 3 = Raw Material Visibility, 4 = Final Direct Diffuse Micro-Shadow Multiplier, 5 = Direct N dot L). Requires an active MLS overlay."),
 		FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
 		{
 			if (Args.Num() < 1) { return; }
 			const int32 D = FMath::Clamp(FCString::Atoi(*Args[0]), 0, 5);
-			UMultiLobeSpecSettings* S = GetMutableDefault<UMultiLobeSpecSettings>();
-			S->DebugView = static_cast<EMLSDebugView>(D);
-			S->SaveConfig();
-			if (S->Preset == EMLSPreset::Off && D != 0)
-			{
-				UE_LOG(LogMultiLobeSpec, Warning,
-					TEXT("Preset is Off — debug views are hard-gated off with vanilla shading. Enable a preset (MLS.Preset 1..3) first."));
-			}
-			FMultiLobeSpecModule::Get().ApplyFromSettings();
+			FMultiLobeSpecModule::Get().SetRuntimeDebugView(D);
 		}));
 
 	static FAutoConsoleCommand CmdMicroShadowMode(
@@ -201,6 +196,7 @@ void FMultiLobeSpecModule::StartupModule()
 	}
 	else
 	{
+		SetRuntimeDebugView(0, false);
 		UE_LOG(LogMultiLobeSpec, Log, TEXT("Preset = Off, Tonemapper = Engine — vanilla engine shaders, overlay not mapped."));
 	}
 }
@@ -220,6 +216,11 @@ void FMultiLobeSpecModule::ApplyFromSettings()
 
 void FMultiLobeSpecModule::ShutdownModule()
 {
+	if (RuntimeViewExtension.IsValid())
+	{
+		RuntimeViewExtension->SetDebugView(0);
+		RuntimeViewExtension.Reset();
+	}
 	// Editor is going down; nothing to restore (mappings die with the process).
 }
 
@@ -229,7 +230,6 @@ bool FMultiLobeSpecModule::ApplyInternal(FString& OutError)
 {
 	const FMLSShaderConfig Cfg = MLS_ConfigFromSettings();
 	const FString OverlayDir = MLS_GetOverlayDir(Cfg);
-
 	const bool bRawMaterialVisibilityTransportRequested = Cfg.NeedsRawMaterialVisibilityTransport();
 	if (bRawMaterialVisibilityTransportRequested)
 	{
@@ -283,11 +283,13 @@ void FMultiLobeSpecModule::ApplyAndRecompile()
 		TonemapNames[FMath::Clamp(Cfg.TonemapMode, 0, 4)],
 		Cfg.Lobe2Weight, Cfg.EnvLobe2Weight, Cfg.Lobe2Scale, Cfg.Lobe2Offset, Cfg.CoreFade,
 		Cfg.DiffuseModel == 1 ? TEXT("Chan") : TEXT("Lambert"));
+	SetRuntimeDebugView(Cfg.DebugView, false);
 	TriggerRecompile();
 }
 
 void FMultiLobeSpecModule::DisableAndRecompile()
 {
+	SetRuntimeDebugView(0, false);
 	if (!bOverlayActive)
 	{
 		UE_LOG(LogMultiLobeSpec, Log, TEXT("Overlay already inactive."));
@@ -308,6 +310,40 @@ void FMultiLobeSpecModule::DisableAndRecompile()
 
 	UE_LOG(LogMultiLobeSpec, Log, TEXT("Restored pre-plugin engine shader mapping: %s"), *RestoreDir);
 	TriggerRecompile();
+}
+
+bool FMultiLobeSpecModule::SetRuntimeDebugView(int32 DebugView, bool bPersistSetting)
+{
+	const int32 RequestedView = FMath::Clamp(DebugView, 0, 5);
+	UMultiLobeSpecSettings* Settings = GetMutableDefault<UMultiLobeSpecSettings>();
+	if (bPersistSetting)
+	{
+		Settings->DebugView = static_cast<EMLSDebugView>(RequestedView);
+		Settings->SaveConfig();
+	}
+
+	const bool bCanDisplayDebug = Settings->Preset != EMLSPreset::Off && bOverlayActive;
+	const int32 EffectiveView = bCanDisplayDebug ? RequestedView : 0;
+	if (!RuntimeViewExtension.IsValid())
+	{
+		UE_LOG(LogMultiLobeSpec, Error,
+			TEXT("Runtime debug switch unavailable: MLS scene view extension is not registered."));
+		return false;
+	}
+
+	RuntimeViewExtension->SetDebugView(EffectiveView);
+	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
+	if (EffectiveView != RequestedView)
+	{
+		UE_LOG(LogMultiLobeSpec, Warning,
+			TEXT("Debug view %d stored but runtime remains 0 because no active MLS BRDF overlay is mapped."), RequestedView);
+	}
+	else
+	{
+		UE_LOG(LogMultiLobeSpec, Display,
+			TEXT("Runtime debug view = %d (no overlay rebuild or shader recompile)."), EffectiveView);
+	}
+	return true;
 }
 
 void FMultiLobeSpecModule::LogCapabilities() const

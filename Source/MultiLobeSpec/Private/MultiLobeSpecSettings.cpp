@@ -80,6 +80,12 @@ void UMultiLobeSpecSettings::ApplyChanges()
 void UMultiLobeSpecSettings::PostEditChangeProperty(FPropertyChangedEvent& Event)
 {
 	Super::PostEditChangeProperty(Event);
+	if (Event.GetPropertyName() == GET_MEMBER_NAME_CHECKED(UMultiLobeSpecSettings, DebugView)
+		&& FModuleManager::Get().IsModuleLoaded("MultiLobeSpec"))
+	{
+		FMultiLobeSpecModule::Get().SetRuntimeDebugView(static_cast<int32>(DebugView));
+		return;
+	}
 	// Deliberately no recompile here: changes accumulate and are applied
 	// explicitly via the 'Apply Changes' button or the MLS.* console commands.
 	UE_LOG(LogMultiLobeSpec, Log,

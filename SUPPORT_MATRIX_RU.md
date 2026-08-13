@@ -1,4 +1,4 @@
-# Support matrix v0.14.2
+# Support matrix v0.14.3
 
 | Pipeline / feature | Direct dual-lobe | Generic VNDF direct | RGB indirect diffuse | Cone-aware per-lobe IBL | Примечание |
 |---|---:|---:|---:|---:|---|
@@ -25,3 +25,7 @@
 - CARD-09 оставляет `NumericallyAdmitted=false`, пока отдельно не утверждены mean/p95/p99/max thresholds.
 - CARD-09 оставляет `StaticStorageCompileAdmitted=false`; настройка выключена по умолчанию и fail-closed.
 - `Transactional_PreRemapSmokeCompile=false`: текущая архитектура компилирует после remap; полный compile receipt не переименовывается в pre-remap smoke.
+- `MLS.DebugView 0..5` использует plugin-owned биты stock `View.PostVolumeUserFlags`
+  и переключается без shader recompile и без UE source patch.
+- Debug 1..5 — lighting-weighted masks в legacy deferred Default Lit hook; это не
+  абсолютный full-screen scalar и не selected-light diagnostic. Captures hard-gated off.

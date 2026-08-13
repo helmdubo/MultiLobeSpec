@@ -1,11 +1,28 @@
-# Validation receipt v0.14.2
+# Validation receipt v0.14.3
 
-Дата: 2026-08-12. Engine: UE 5.7.4, CL 51494982, source tree `D:\PersonalProjects\UE5\UE_5.7`.
+Дата: 2026-08-13. Engine: UE 5.7.4, CL 51494982, source tree `D:\PersonalProjects\UE5\UE_5.7`.
+
+## v0.14.3 runtime Debug View contract
+
+- Selector кодируется plugin-owned scene view extension в зарезервированных битах
+  28..30 стандартного `View.PostVolumeUserFlags`; Engine ABI/source patch не требуется.
+- `DebugView` исключён из overlay build ID; generated `.ush` больше не содержит
+  `MLS_DEBUG_VIEW`.
+- `MLS.DebugView` выполняет только `set CVar → RedrawAllViewports`; per-switch remap,
+  cache flush и `RECOMPILESHADERS CHANGED` запрещены контрактом.
+- P35 требует один shader rebuild, чтобы все runtime branches появились в overlay;
+  дальнейшее переключение не инвалидирует shaders.
+- View extension публикует selector только вне scene/reflection/planar/VT/custom
+  captures. HLSL отдельно обнуляет его по `RenderingReflectionCaptureMask` для
+  realtime skylight capture.
+- Режимы 1..5 являются per-light lighting-weighted Default Lit masks. Они не заявлены
+  как абсолютный grayscale buffer или selected-light view; это потребовало бы
+  отдельного render/debug pass.
 
 ## v0.14.2 reviewer/case regression
 
-- Raw MaterialAO activation использует один предикат для всех direct micro-shadow modes,
-  Raw Scalar/RGB indirect visibility и cone-aware IBL. Native Automation test
+- Raw MaterialAO transport активен для любого MLS BRDF overlay, включая заранее
+  скомпилированную поддержку runtime Debug View 3. Native Automation test
   `MultiLobeSpec.Runtime.RawMaterialVisibility.Predicate`: PASS.
 - Canonical LUT получил committed machine-readable receipt
   `Resources/Generated/MLS_MicroShadowLUT.validation.json`. Runtime сверяет supported
