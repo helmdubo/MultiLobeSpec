@@ -28,6 +28,11 @@ is the default indirect policy; Full RGB diffuse is an explicit opt-in. The
 reflection-environment policy removes material AO from stock scalar capture/
 skylight specular occlusion in DirectOnly/Full while preserving geometric AO.
 
+`Direct Cavity Depth` (`MLS.CavityDepth <0..1> [power]`) multiplies the direct
+micro-shadow term by `lerp(1, V^power, depth)`: lit-side cavities deepen toward
+the Full RGB look while cast shadows and indirect lighting stay exactly
+unchanged. Default 0 reproduces the pure micro-shadow term.
+
 `MLS.DebugView 0..5` switches through the existing SceneViewExtension/UserFlags
 path on the next rendered frame, without rebuilding the overlay or recompiling
 shaders.

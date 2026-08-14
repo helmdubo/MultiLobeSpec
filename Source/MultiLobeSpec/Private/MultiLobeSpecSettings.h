@@ -107,6 +107,14 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "Micro Shadowing", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "MicroShadowMode != EMLSMicroShadowMode::Off", DisplayName = "Specular Strength"))
 	float MicroShadowSpecularStrength = 1.0f;
 
+	/** Extra direct-only cavity deepening: M *= lerp(1, V^Power, Depth). Cast shadows and indirect lighting are exactly unaffected. */
+	UPROPERTY(EditAnywhere, config, Category = "Micro Shadowing", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "MicroShadowMode != EMLSMicroShadowMode::Off", DisplayName = "Direct Cavity Depth"))
+	float MicroShadowCavityDepth = 0.0f;
+
+	/** >1 confines the cavity deepening to the darkest visibility values. */
+	UPROPERTY(EditAnywhere, config, AdvancedDisplay, Category = "Micro Shadowing", meta = (ClampMin = "0.25", ClampMax = "4.0", EditCondition = "MicroShadowMode != EMLSMicroShadowMode::Off", DisplayName = "Direct Cavity Power"))
+	float MicroShadowCavityPower = 1.0f;
+
 	UPROPERTY(EditAnywhere, config, Category = "Material Visibility", meta = (DisplayName = "Indirect Material Visibility"))
 	EMLSIndirectMaterialVisibility IndirectMaterialVisibility = EMLSIndirectMaterialVisibility::DirectOnly;
 

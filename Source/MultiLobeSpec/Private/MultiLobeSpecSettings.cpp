@@ -40,6 +40,8 @@ void UMultiLobeSpecSettings::FillConfig(FMLSShaderConfig& Out) const
 	Out.bMicroShadow = (MicroShadowMode != EMLSMicroShadowMode::Off);
 	Out.MicroShadowDiffuseStrength = MicroShadowDiffuseStrength;
 	Out.MicroShadowSpecularStrength = MicroShadowSpecularStrength;
+	Out.MicroShadowCavityDepth = MicroShadowCavityDepth;
+	Out.MicroShadowCavityPower = MicroShadowCavityPower;
 
 	Out.bLumenDualBlur = bLumenDualBlur && Out.bBRDFEnabled;
 	Out.LumenBlurWeight = Out.EnvLobe2Weight;

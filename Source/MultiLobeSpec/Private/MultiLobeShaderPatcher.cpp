@@ -487,7 +487,7 @@ FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 	const FString ConeEnvManifestDigest = bHaveConeEnvArtifactPaths ? MLS_HashFileSHA1(ConeEnvManifestPath) : TEXT("missing");
 	const FString Identity = FString::Printf(
 		TEXT("engine=%s|patch=%d|enabled=%d|brdf=%d|w=%.9g|envw=%.9g|scale=%.9g|offset=%.9g|core=%.9g|")
-		TEXT("env=%d|enva=%d|diff=%d|tone=%d|micro=%d|md=%.9g|ms=%.9g|mmode=%d|")
+		TEXT("env=%d|enva=%d|diff=%d|tone=%d|micro=%d|md=%.9g|ms=%.9g|cavd=%.9g|cavp=%.9g|mmode=%d|")
 		TEXT("lumen=%d|lumenw=%.9g|ibl=%d|coneibl=%d|indirectvis=%d|lut=%s|lutmanifest=%s|lutvalidation=%s|coneenv=%s|conemanifest=%s"),
 		*FEngineVersion::Current().ToString(), PatchVersion,
 		Cfg.bEnabled ? 1 : 0, Cfg.bBRDFEnabled ? 1 : 0,
@@ -495,7 +495,9 @@ FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 		Cfg.Lobe2Offset, Cfg.CoreFade, Cfg.bPatchEnvBRDF ? 1 : 0,
 		Cfg.bPatchEnvBRDFApprox ? 1 : 0, Cfg.DiffuseModel, Cfg.TonemapMode,
 		Cfg.bMicroShadow ? 1 : 0, Cfg.MicroShadowDiffuseStrength,
-		Cfg.MicroShadowSpecularStrength, Cfg.MicroShadowMode,
+		Cfg.MicroShadowSpecularStrength,
+		Cfg.MicroShadowCavityDepth, Cfg.MicroShadowCavityPower,
+		Cfg.MicroShadowMode,
 		Cfg.bLumenDualBlur ? 1 : 0, Cfg.LumenBlurWeight, Cfg.bTwoSampleIBL ? 1 : 0,
 		Cfg.bConeAwareIndirectSpecular ? 1 : 0,
 		Cfg.IndirectMaterialVisibilityMode,
@@ -2321,6 +2323,10 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		TEXT("#define MLS_MICROSHADOW %d\n")
 		TEXT("#define MLS_MICROSHADOW_DIFFUSE_STRENGTH %.4f\n")
 		TEXT("#define MLS_MICROSHADOW_SPECULAR_STRENGTH %.4f\n")
+		TEXT("// Art-directed direct-only cavity deepening: M *= lerp(1, V^power, depth).\n")
+		TEXT("// Zero effect wherever there is no direct light (cast shadows included).\n")
+		TEXT("#define MLS_CAVITY_DEPTH %.4f\n")
+		TEXT("#define MLS_CAVITY_POWER %.4f\n")
 		TEXT("#define MLS_MICROSHADOW_MODE %d\n")
 		TEXT("// Preserve raw MaterialAO whenever direct micro-shadowing, indirect material visibility, or cone-aware IBL consumes it.\n")
 		TEXT("#define MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT %d\n")
@@ -2466,7 +2472,7 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		TEXT("\tfloat CosThetaLobe = rsqrt(1.0 + K * K); // lobe cap around L\n")
 		TEXT("\treturn MLS_ConeConeOverlap(CosThetaVis, CosThetaLobe, saturate(NoL));\n")
 		TEXT("}\n")
-		TEXT("float MLS_EvaluateMicroShadow(float Visibility, float Roughness, float NoL, float NoV)\n")
+		TEXT("float MLS_EvaluateMicroShadowBase(float Visibility, float Roughness, float NoL, float NoV)\n")
 		TEXT("{\n")
 		TEXT("#if MLS_MICROSHADOW_MODE == 1\n")
 		TEXT("\treturn MLS_MicroShadow_ReferenceStep(Visibility, NoL);\n")
@@ -2481,6 +2487,17 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		TEXT("#else\n")
 		TEXT("\treturn 1.0;\n")
 		TEXT("#endif\n")
+		TEXT("}\n")
+		TEXT("// Direct-only cavity deepening. Identity at MLS_CAVITY_DEPTH=0 and at Visibility=1,\n")
+		TEXT("// so 'Visibility=1 matches Off' acceptance is preserved. Applies only through the\n")
+		TEXT("// direct micro-shadow call sites, never to indirect lighting.\n")
+		TEXT("float MLS_DirectCavityDepth(float Visibility)\n")
+		TEXT("{\n")
+		TEXT("\treturn lerp(1.0, pow(saturate(Visibility), MLS_CAVITY_POWER), MLS_CAVITY_DEPTH);\n")
+		TEXT("}\n")
+		TEXT("float MLS_EvaluateMicroShadow(float Visibility, float Roughness, float NoL, float NoV)\n")
+		TEXT("{\n")
+		TEXT("\treturn MLS_EvaluateMicroShadowBase(Visibility, Roughness, NoL, NoV) * MLS_DirectCavityDepth(Visibility);\n")
 		TEXT("}\n")
 		TEXT("\n")
 		TEXT("// ---- Indirect material visibility: 0 Direct Only, 1 Raw Scalar AO, 2 RGB interreflection ----\n")
@@ -2527,6 +2544,8 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		Cfg.bMicroShadow ? 1 : 0,
 		Cfg.MicroShadowDiffuseStrength,
 		Cfg.MicroShadowSpecularStrength,
+		Cfg.MicroShadowCavityDepth,
+		Cfg.MicroShadowCavityPower,
 		Cfg.MicroShadowMode,
 		Cfg.NeedsRawMaterialVisibilityTransport() ? 1 : 0,
 		Cfg.IndirectMaterialVisibilityMode,
