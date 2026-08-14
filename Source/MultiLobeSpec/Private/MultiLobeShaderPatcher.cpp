@@ -486,11 +486,12 @@ FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 	const FString ConeEnvIncludeDigest = bHaveConeEnvArtifactPaths ? MLS_HashFileSHA1(ConeEnvIncludePath) : TEXT("missing");
 	const FString ConeEnvManifestDigest = bHaveConeEnvArtifactPaths ? MLS_HashFileSHA1(ConeEnvManifestPath) : TEXT("missing");
 	const FString Identity = FString::Printf(
-		TEXT("engine=%s|patch=%d|enabled=%d|w=%.9g|envw=%.9g|scale=%.9g|offset=%.9g|core=%.9g|")
+		TEXT("engine=%s|patch=%d|enabled=%d|brdf=%d|w=%.9g|envw=%.9g|scale=%.9g|offset=%.9g|core=%.9g|")
 		TEXT("env=%d|enva=%d|diff=%d|tone=%d|micro=%d|md=%.9g|ms=%.9g|mmode=%d|")
 		TEXT("lumen=%d|lumenw=%.9g|ibl=%d|coneibl=%d|indirectvis=%d|lut=%s|lutmanifest=%s|lutvalidation=%s|coneenv=%s|conemanifest=%s"),
 		*FEngineVersion::Current().ToString(), PatchVersion,
-		Cfg.bEnabled ? 1 : 0, Cfg.Lobe2Weight, Cfg.EnvLobe2Weight, Cfg.Lobe2Scale,
+		Cfg.bEnabled ? 1 : 0, Cfg.bBRDFEnabled ? 1 : 0,
+		Cfg.Lobe2Weight, Cfg.EnvLobe2Weight, Cfg.Lobe2Scale,
 		Cfg.Lobe2Offset, Cfg.CoreFade, Cfg.bPatchEnvBRDF ? 1 : 0,
 		Cfg.bPatchEnvBRDFApprox ? 1 : 0, Cfg.DiffuseModel, Cfg.TonemapMode,
 		Cfg.bMicroShadow ? 1 : 0, Cfg.MicroShadowDiffuseStrength,
@@ -844,7 +845,7 @@ int32 FMultiLobeShaderPatcher::PatchDefaultLitDualSpecular(FString& Source)
 		TEXT("}\n\n")
 		TEXT("float3 MLS_DefaultLitDualSpecularGGX(float Roughness, float3 SpecularColor, BxDFContext Context, FAreaLight AreaLight, float MaterialVisibility, uint ShadingModelID)\n")
 		TEXT("{\n")
-		TEXT("#if MLS_ENABLED\n")
+		TEXT("#if MLS_BRDF_ENABLED\n")
 		TEXT("\tif (ShadingModelID == SHADINGMODELID_DEFAULT_LIT)\n")
 		TEXT("\t{\n")
 		TEXT("\t\tfloat Weight = MLS_LOBE2_W(Roughness);\n")
@@ -861,6 +862,12 @@ int32 FMultiLobeShaderPatcher::PatchDefaultLitDualSpecular(FString& Source)
 		TEXT("\t\tfloat3 Specular1 = MLS_DefaultLitSpecularLobe(Roughness1, SpecularColor, Context, AreaLight, MaterialVisibility);\n")
 		TEXT("\t\tfloat3 Specular2 = MLS_DefaultLitSpecularLobe(Roughness2, SpecularColor, Context, AreaLight, MaterialVisibility);\n")
 		TEXT("\t\treturn lerp(Specular1, Specular2, Weight);\n")
+		TEXT("\t}\n")
+		TEXT("#endif\n")
+		TEXT("#if MLS_MICROSHADOW\n")
+		TEXT("\tif (ShadingModelID == SHADINGMODELID_DEFAULT_LIT)\n")
+		TEXT("\t{\n")
+		TEXT("\t\treturn MLS_DefaultLitSpecularLobe(Roughness, SpecularColor, Context, AreaLight, MaterialVisibility);\n")
 		TEXT("\t}\n")
 		TEXT("#endif\n")
 		TEXT("\treturn SpecularGGX(Roughness, SpecularColor, Context, AreaLight);\n")
@@ -902,7 +909,9 @@ int32 FMultiLobeShaderPatcher::PatchMicroShadow(FString& Source)
 		TEXT("\tif (MLS_RuntimeDebugView == 1u || MLS_RuntimeDebugView == 2u)\n")
 		TEXT("\t{\n")
 		TEXT("\t\tfloat MLS_DebugScalar = 0.0f;\n")
+		TEXT("#if MLS_BRDF_ENABLED\n")
 		TEXT("\t\tif (MLS_DebugEligible) { MLS_DebugScalar = MLS_RuntimeDebugView == 1u ? MLS_LOBE2_W(GBuffer.Roughness) : MLS_R2(GBuffer.Roughness); }\n")
+		TEXT("#endif\n")
 		TEXT("\t\tLighting.Diffuse *= MLS_DebugScalar;\n")
 		TEXT("\t\tLighting.Specular = 0;\n")
 		TEXT("\t}\n")
@@ -1189,10 +1198,64 @@ bool FMultiLobeShaderPatcher::WriteConeEnvBRDFRuntimeFile(const FString& Overlay
 	return true;
 }
 
+bool FMultiLobeShaderPatcher::PatchIndirectSpecularMaterialVisibility(
+	const FString& OverlayDir,
+	FString& OutWarning)
+{
+	// UE 5.7 mixes raw MaterialAO with screen/geometric AO before stock GTSO.
+	// DirectOnly and RGB-interreflection modes must remove only the material term;
+	// the screen/DFAO path remains intact. Keep unsupported shading models stock.
+	const FString FilePath = OverlayDir / TEXT("Private/ReflectionEnvironmentPixelShader.usf");
+	FString Source;
+	if (!FFileHelper::LoadFileToString(Source, *FilePath))
+	{
+		OutWarning = TEXT("ReflectionEnvironmentPixelShader.usf not found — indirect-specular material-visibility policy unavailable.");
+		return false;
+	}
+	if (Source.Contains(TEXT("MLS_REFLECTION_ENV_MATERIAL_VISIBILITY_POLICY")))
+	{
+		return true;
+	}
+
+	static const TCHAR* AOAnchor = TEXT("float AO = GBuffer.GBufferAO * AmbientOcclusion;");
+	const int32 AOCount = MLS_CountExactOccurrences(Source, AOAnchor);
+	if (AOCount != 1)
+	{
+		OutWarning = FString::Printf(
+			TEXT("Reflection Environment material-visibility exact-count failure: expected AO anchor once, found %d; file left untouched."),
+			AOCount);
+		return false;
+	}
+
+	const FString Replacement =
+		TEXT("float MLS_MaterialVisibility = saturate(GBuffer.GBufferAO);\n")
+		TEXT("float MLS_GeometryAO = saturate(AmbientOcclusion);\n")
+		TEXT("bool MLS_ReflectionMaterialVisibilityEligible = GBuffer.ShadingModelID == SHADINGMODELID_DEFAULT_LIT;\n")
+		TEXT("#if SUPPORTS_ANISOTROPIC_MATERIALS\n")
+		TEXT("MLS_ReflectionMaterialVisibilityEligible = MLS_ReflectionMaterialVisibilityEligible && abs(GBuffer.Anisotropy) <= 1e-4;\n")
+		TEXT("#endif\n")
+		TEXT("#if MLS_ENABLED && MLS_INDIRECT_VISIBILITY_MODE != 1\n")
+		TEXT("// MLS_REFLECTION_ENV_MATERIAL_VISIBILITY_POLICY: material visibility is not stock scalar indirect occlusion.\n")
+		TEXT("float AO = (MLS_ReflectionMaterialVisibilityEligible ? 1.0 : MLS_MaterialVisibility) * MLS_GeometryAO;\n")
+		TEXT("#else\n")
+		TEXT("float AO = MLS_MaterialVisibility * MLS_GeometryAO;\n")
+		TEXT("#endif");
+	Source.ReplaceInline(AOAnchor, *Replacement, ESearchCase::CaseSensitive);
+	EnsureConfigInclude(Source);
+	if (!FFileHelper::SaveStringToFile(Source, *FilePath))
+	{
+		OutWarning = TEXT("Failed to save Reflection Environment material-visibility policy patch.");
+		return false;
+	}
+	UE_LOG(LogMultiLobeSpec, Log,
+		TEXT("Reflection Environment: material visibility separated from screen/geometric specular occlusion (1/1 anchor)."));
+	return true;
+}
+
 bool FMultiLobeShaderPatcher::PatchPairedIBL(const FString& OverlayDir, FString& OutWarning)
 {
-	// Verified against real 5.7 ReflectionEnvironmentPixelShader.usf. Three edits,
-	// ALL mandatory (material/geometric AO split + paired gather + paired response); if any anchor is
+	// Verified against real 5.7 ReflectionEnvironmentPixelShader.usf. Two edits,
+	// both mandatory (paired gather + paired response); if either anchor is
 	// missing the file is left untouched and the feature stays unavailable.
 	const FString FilePath = OverlayDir / TEXT("Private/ReflectionEnvironmentPixelShader.usf");
 	FString Src;
@@ -1209,20 +1272,18 @@ bool FMultiLobeShaderPatcher::PatchPairedIBL(const FString& OverlayDir, FString&
 	// ---- Edit A: per-lobe gather (unique legacy gather line; clear-coat top-layer gather differs) ----
 	static const TCHAR* GatherAnchor =
 		TEXT("Color.rgb += View.PreExposure * GatherRadiance(Color.a, TranslatedWorldPosition, R, GBuffer.Roughness, BentNormal, IndirectIrradiance, GBuffer.ShadingModelID, NumCulledReflectionCaptures, CaptureDataStartIndex);");
-	static const TCHAR* AOAnchor = TEXT("float AO = GBuffer.GBufferAO * AmbientOcclusion;");
 	const int32 GatherCount = MLS_CountExactOccurrences(Src, GatherAnchor);
-	const int32 AOCount = MLS_CountExactOccurrences(Src, AOAnchor);
 	const int32 GatherPos = Src.Find(GatherAnchor, ESearchCase::CaseSensitive);
 	// ---- Edit B: response block (unique EnvBRDF line; expand to its #if/#endif) ----
 	static const TCHAR* RespAnchor = TEXT("Color.rgb *= EnvBRDF( SpecularColor, GBuffer.Roughness, NoV );");
 	const int32 RespCount = MLS_CountExactOccurrences(Src, RespAnchor);
 	const int32 RespPos = Src.Find(RespAnchor, ESearchCase::CaseSensitive);
 
-	if (GatherCount != 1 || AOCount != 1 || RespCount != 1 || GatherPos == INDEX_NONE || RespPos == INDEX_NONE)
+	if (GatherCount != 1 || RespCount != 1 || GatherPos == INDEX_NONE || RespPos == INDEX_NONE)
 	{
 		OutWarning = FString::Printf(
-			TEXT("Paired/cone IBL exact-count failure: expected AO/Gather/Response 1/1/1, found %d/%d/%d; file left untouched."),
-			AOCount, GatherCount, RespCount);
+			TEXT("Paired/cone IBL exact-count failure: expected Gather/Response 1/1, found %d/%d; file left untouched."),
+			GatherCount, RespCount);
 		return false;
 	}
 
@@ -1239,7 +1300,7 @@ bool FMultiLobeShaderPatcher::PatchPairedIBL(const FString& OverlayDir, FString&
 
 	const FString OrigResp = Src.Mid(IfPos, EndifEnd - IfPos);
 	const FString NewResp = FString::Printf(
-		TEXT("#if MLS_ENABLED && MLS_PAIRED_IBL\n")
+		TEXT("#if MLS_BRDF_ENABLED && MLS_PAIRED_IBL\n")
 		TEXT("\t\tif (MLS_IBL_Eligible)\n")
 		TEXT("\t\t{\n")
 		TEXT("\t\t\t// Lumen/SSR stays authored-roughness/single-lobe: lobe identity is unavailable.\n")
@@ -1281,8 +1342,12 @@ bool FMultiLobeShaderPatcher::PatchPairedIBL(const FString& OverlayDir, FString&
 	// Edit A (indices before Edit B region, still valid: GatherPos < IfPos).
 	const FString OrigGather(GatherAnchor);
 	const FString NewGather = FString::Printf(
-		TEXT("#if MLS_ENABLED && MLS_PAIRED_IBL\n")
+		TEXT("#if MLS_BRDF_ENABLED && MLS_PAIRED_IBL\n")
 		TEXT("\t// Exact radiance/response pairing is limited to isotropic legacy DefaultLit.\n")
+		TEXT("\tbool MLS_IBL_Eligible = GBuffer.ShadingModelID == SHADINGMODELID_DEFAULT_LIT;\n")
+		TEXT("\t#if SUPPORTS_ANISOTROPIC_MATERIALS\n")
+		TEXT("\tMLS_IBL_Eligible = MLS_IBL_Eligible && abs(GBuffer.Anisotropy) <= 1e-4;\n")
+		TEXT("\t#endif\n")
 		TEXT("\tfloat MLS_IBLW = MLS_IBL_Eligible ? MLS_ENV_W(GBuffer.Roughness) : 0.0;\n")
 		TEXT("\tfloat3 MLS_UnpairedReflection = Color.rgb;\n")
 		TEXT("\tfloat3 MLS_Dir1 = R;\n")
@@ -1311,33 +1376,6 @@ bool FMultiLobeShaderPatcher::PatchPairedIBL(const FString& OverlayDir, FString&
 		Src.InsertAt(Pos2, NewGather);
 	}
 
-	// Split raw material visibility from Screen/DFAO geometry before the cone
-	// response. This prevents applying GBufferAO once through stock GTSO and a
-	// second time through the cone-integrated EnvBRDF.
-	{
-		const FString OrigAO(AOAnchor);
-		const FString NewAO = FString::Printf(
-			TEXT("#if MLS_ENABLED && MLS_PAIRED_IBL\n")
-			TEXT("\tbool MLS_IBL_Eligible = GBuffer.ShadingModelID == SHADINGMODELID_DEFAULT_LIT;\n")
-			TEXT("\t#if SUPPORTS_ANISOTROPIC_MATERIALS\n")
-			TEXT("\tMLS_IBL_Eligible = MLS_IBL_Eligible && abs(GBuffer.Anisotropy) <= 1e-4;\n")
-			TEXT("\t#endif\n")
-			TEXT("\t#if MLS_CONE_ENVBRDF\n")
-			TEXT("\tfloat MLS_MaterialVisibility = saturate(GBuffer.GBufferAO);\n")
-			TEXT("\tfloat AO = (MLS_IBL_Eligible ? 1.0 : GBuffer.GBufferAO) * AmbientOcclusion;\n")
-			TEXT("\t#else\n")
-			TEXT("\t%s\n")
-			TEXT("\t#endif\n")
-			TEXT("#else\n")
-			TEXT("\t%s\n")
-			TEXT("#endif"),
-			*OrigAO,
-			*OrigAO);
-		const int32 AOPos = Src.Find(AOAnchor, ESearchCase::CaseSensitive);
-		Src.RemoveAt(AOPos, OrigAO.Len());
-		Src.InsertAt(AOPos, NewAO);
-	}
-
 	// Config include after the last #include preceding first use.
 	{
 		const int32 UsePos = Src.Find(TEXT("MLS_PAIRED_IBL"), ESearchCase::CaseSensitive);
@@ -1362,7 +1400,7 @@ bool FMultiLobeShaderPatcher::PatchPairedIBL(const FString& OverlayDir, FString&
 		OutWarning = TEXT("Failed to save patched ReflectionEnvironmentPixelShader.usf");
 		return false;
 	}
-	UE_LOG(LogMultiLobeSpec, Log, TEXT("Paired/Cone IBL: AO/gather/response exact anchors patched 1/1/1; Lumen/SSR response remains single-lobe."));
+	UE_LOG(LogMultiLobeSpec, Log, TEXT("Paired/Cone IBL: gather/response exact anchors patched 1/1; Lumen/SSR response remains single-lobe."));
 	return true;
 }
 
@@ -1424,7 +1462,7 @@ int32 FMultiLobeShaderPatcher::PatchRectAdapter(FString& Source)
 		}
 
 		FString W;
-		W += TEXT("{\n#if MLS_ENABLED\n");
+		W += TEXT("{\n#if MLS_BRDF_ENABLED\n");
 		W += TEXT("\tfloat3 MLS_Dir1 = OutMeanLightWorldDirection;\n");
 		W += TEXT("\tfloat3 MLS_Dir2 = OutMeanLightWorldDirection;\n");
 		W += FString::Printf(TEXT("\tfloat3 MLS_S1 = %s( %s );\n"), *CloneName, *Args(TEXT("MLS_R1"), TEXT("MLS_Dir1")));
@@ -1460,7 +1498,7 @@ bool FMultiLobeShaderPatcher::PatchIndirectAO(const FString& OverlayDir, FString
 		OutWarning = TEXT("DiffuseIndirectComposite.usf not found — indirect AO stays raw.");
 		return false;
 	}
-	if (Src.Contains(TEXT("MLS_NONLUMEN_RGB_INTERREFLECTION")))
+	if (Src.Contains(TEXT("MLS_NONLUMEN_MATERIAL_VISIBILITY_POLICY")))
 	{
 		return true;
 	}
@@ -1478,6 +1516,7 @@ bool FMultiLobeShaderPatcher::PatchIndirectAO(const FString& OverlayDir, FString
 		return false;
 	}
 	const FString AOReplacement = FString::Printf(
+		TEXT("// MLS_NONLUMEN_MATERIAL_VISIBILITY_POLICY\n")
 		TEXT("#if MLS_ENABLED && MLS_INDIRECT_VISIBILITY_MODE != 1\n")
 		TEXT("\t\t// Only geometry/screen AO may affect the final scene-color multiply.\n")
 		TEXT("\t\tFinalAmbientOcclusion = lerp(1.0f, DynamicAmbientOcclusion, AOMask * AmbientOcclusionStaticFraction);\n")
@@ -1534,7 +1573,7 @@ bool FMultiLobeShaderPatcher::PatchLumenIndirectAO(const FString& OverlayDir, FS
 		OutWarning = TEXT("LumenScreenProbeGather.usf not found — Lumen keeps darkening indirect with material AO.");
 		return false;
 	}
-	if (Src.Contains(TEXT("MLS_LUMEN_RGB_INTERREFLECTION")))
+	if (Src.Contains(TEXT("MLS_LUMEN_MATERIAL_VISIBILITY_POLICY")))
 	{
 		return true;
 	}
@@ -1548,6 +1587,7 @@ bool FMultiLobeShaderPatcher::PatchLumenIndirectAO(const FString& OverlayDir, FS
 		if (Pos != INDEX_NONE)
 		{
 			const FString To = FString::Printf(
+				TEXT("// MLS_LUMEN_MATERIAL_VISIBILITY_POLICY\n")
 				TEXT("#if MLS_ENABLED && MLS_INDIRECT_VISIBILITY_MODE == 0\n")
 				TEXT("\t\t\t\t\t\tbool bIsBentNormalOccluded = false; // material AO = micro-visibility only\n")
 				TEXT("#else\n")
@@ -1640,7 +1680,7 @@ bool FMultiLobeShaderPatcher::PatchSkyLightIndirectAO(const FString& OverlayDir,
 		OutWarning = TEXT("SkyLightingDiffuseShared.ush not found.");
 		return false;
 	}
-	if (Source.Contains(TEXT("MLS_SKYLIGHT_RGB_INTERREFLECTION")))
+	if (Source.Contains(TEXT("MLS_SKYLIGHT_MATERIAL_VISIBILITY_POLICY")))
 	{
 		return true;
 	}
@@ -1664,6 +1704,7 @@ bool FMultiLobeShaderPatcher::PatchSkyLightIndirectAO(const FString& OverlayDir,
 		TEXT("FSkyLightVisibilityData GetSkyLightVisibilityData(float3 SkyLightingNormal, const float3 WorldNormal, const float GBufferAO, float ScreenAO, const float3 BentNormal, const float3 DiffuseAlbedo)")) ? 1 : 0;
 	Count += ReplaceExact(
 		TEXT("// Combine with other AO sources"),
+		TEXT("// MLS_SKYLIGHT_MATERIAL_VISIBILITY_POLICY\n")
 		TEXT("// Separate material RGB visibility from Screen/DFAO geometry visibility.\n")
 		TEXT("float3 MLS_MaterialVisibility = GBufferAO.xxx;\n")
 		TEXT("#if MLS_ENABLED && MLS_INDIRECT_VISIBILITY_MODE == 0\n")
@@ -1733,24 +1774,16 @@ bool FMultiLobeShaderPatcher::PatchRawMaterialVisibilityTransport(
 		return false;
 	}
 
-	// The inner compile guard must NOT name GBUFFER_HAS_DIFFUSE_SAMPLE_OCCLUSION:
-	//
-	//  1. Policy. v0.15 deliberately SUPPORTS r.GBufferDiffuseSampleOcclusion=1.
-	//     FMLSRawMaterialVisibilityOverlay rewrites the BasePass guard and carries the
-	//     continuous value through GenericAO, so hard-erroring on that permutation here
-	//     contradicts the transport this same overlay installs.
-	//  2. Mechanics. Emitting that literal adds a second occurrence of the exact anchor
-	//     FMLSRawMaterialVisibilityOverlay::PatchBasePassGuard requires to appear exactly
-	//     once. Both passes run on this file whenever micro-shadowing is active, so the
-	//     guard pass would see a count of 2 and fail the whole apply closed.
-	//
-	// Static lighting and Substrate remain genuinely unsupported and still hard-error.
+	// UE 5.7 stores GenericAO through separate compile-time branches. The companion
+	// GBufferHelpers patch handles both r.GBufferDiffuseSampleOcclusion permutations;
+	// no BasePass guard rewrite is valid or required. Static lighting and Substrate
+	// remain genuinely unsupported and still hard-error.
 	const FString Replacement = FString::Printf(
 		TEXT("#if MLS_ENABLED && MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT\n")
 		TEXT("\t#if ALLOW_STATIC_LIGHTING || SUBSTRATE_ENABLED\n")
 		TEXT("\t\t#error MultiLobeSpec direct/indirect material visibility requires lossless legacy MaterialAO transport\n")
 		TEXT("\t#endif\n")
-		TEXT("\tGBuffer.GBufferAO = MaterialAO; // MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT %s\n")
+		TEXT("\tGBuffer.GBufferAO = MaterialAO; // MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT MLS_SAMPLE_OCCLUSION_TRANSPORT_SUPPORTED %s\n")
 		TEXT("#else\n")
 		TEXT("\t%s\n")
 		TEXT("#endif"),
@@ -2248,7 +2281,7 @@ bool FMultiLobeShaderPatcher::PatchLumenDualBlur(const FString& OverlayDir, FStr
 
 bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const FMLSShaderConfig& Cfg, FString& OutError)
 {
-	const float EnvW = Cfg.bPatchEnvBRDF ? Cfg.EnvLobe2Weight : 0.0f;
+	const float EnvW = Cfg.bBRDFEnabled && Cfg.bPatchEnvBRDF ? Cfg.EnvLobe2Weight : 0.0f;
 
 	const FString Config = FString::Printf(
 		TEXT("// Generated by MultiLobeSpec plugin. Do not edit — rewritten on every preset change.\n")
@@ -2256,6 +2289,7 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		TEXT("#define MLS_CONFIG_INCLUDED 1\n")
 		TEXT("\n")
 		TEXT("#define MLS_ENABLED %d\n")
+		TEXT("#define MLS_BRDF_ENABLED %d\n")
 		TEXT("#define MLS_LOBE2_WEIGHT %.4f\n")
 		TEXT("#define MLS_ENV_WEIGHT %.4f\n")
 		TEXT("#define MLS_CORE_FADE %.4f\n")
@@ -2267,7 +2301,7 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		TEXT("\n")
 		TEXT("// Per-lobe energy pairing: compensation lives INSIDE each specular lobe\n")
 		TEXT("// (SpecularGGX/Rect wrappers); global specular conservation is skipped for MLS.\n")
-		TEXT("#define MLS_ENERGY_MIX 1\n")
+		TEXT("#define MLS_ENERGY_MIX %d\n")
 		TEXT("\n")
 		TEXT("// Lobe 1 = authored roughness; Lobe 2 = widened \"haze\" lobe.\n")
 		TEXT("#define MLS_R1(r) (r)\n")
@@ -2275,7 +2309,7 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		TEXT("\n")
 		TEXT("// ---- Diffuse model: 0 = Lambert (engine default), 1 = Chan (GGX-consistent) ----\n")
 		TEXT("#define MLS_DIFFUSE_ROUGH %d\n")
-		TEXT("#if MLS_ENABLED && MLS_DIFFUSE_ROUGH\n")
+		TEXT("#if MLS_BRDF_ENABLED && MLS_DIFFUSE_ROUGH\n")
 		TEXT("// Verbatim engine expression (5.7 MATERIAL_ROUGHDIFFUSE branch): LOCAL pre-morph\n")
 		TEXT("// NoV/VoH/NoH (SphereMaxNoH artefact avoidance) + engine area-light weight.\n")
 		TEXT("#define MLS_DefaultDiffuse(GB, AL) Diffuse_GGX_Rough((GB).DiffuseColor, (GB).Roughness, NoV, (AL).NoL, VoH, NoH, GetAreaLightDiffuseMicroReflWeight(AL))\n")
@@ -2482,9 +2516,11 @@ bool FMultiLobeShaderPatcher::WriteConfigFile(const FString& OverlayDir, const F
 		TEXT("\n")
 		TEXT("#endif // MLS_CONFIG_INCLUDED\n"),
 		Cfg.bEnabled ? 1 : 0,
+		Cfg.bBRDFEnabled ? 1 : 0,
 		Cfg.Lobe2Weight,
 		EnvW,
 		Cfg.CoreFade,
+		Cfg.bBRDFEnabled ? 1 : 0,
 		Cfg.Lobe2Scale,
 		Cfg.Lobe2Offset,
 		Cfg.DiffuseModel,
@@ -2534,7 +2570,8 @@ bool FMultiLobeShaderPatcher::WriteCapabilityManifest(
 	const bool bOverlayOnlyTransportPrerequisites =
 		bHasSubstrate && Substrate == 0
 		&& bHasStaticLighting && AllowStaticLighting == 0
-		&& bHasDiffuseSampleOcclusion && DiffuseSampleOcclusion == 0;
+		&& bHasDiffuseSampleOcclusion
+		&& (DiffuseSampleOcclusion == 0 || DiffuseSampleOcclusion == 1);
 
 	FString LUTInclude;
 	FString LUTManifest;
@@ -2575,6 +2612,12 @@ bool FMultiLobeShaderPatcher::WriteCapabilityManifest(
 	Root->SetStringField(TEXT("engineVersion"), FEngineVersion::Current().ToString());
 	Root->SetNumberField(TEXT("patchVersion"), PatchVersion);
 	Root->SetStringField(TEXT("overlayBuildId"), GetOverlayBuildId(Cfg));
+	Root->SetBoolField(TEXT("OverlayEnabled"), Cfg.bEnabled);
+	Root->SetBoolField(TEXT("BRDFEnabled"), Cfg.bBRDFEnabled);
+	Root->SetBoolField(TEXT("MicroShadowEnabled"), Cfg.bMicroShadow);
+	Root->SetBoolField(TEXT("ActivisionDirectMicroShadow_DefaultLit"), Cfg.bMicroShadow);
+	Root->SetNumberField(TEXT("IndirectMaterialVisibilityMode"), Cfg.IndirectMaterialVisibilityMode);
+	Root->SetBoolField(TEXT("ReflectionEnvironment_MaterialVisibilityPolicy"), Cfg.bEnabled);
 	Root->SetBoolField(TEXT("GenericVNDFLUT_ArtifactsPresent"), bLUTArtifactsPresent);
 	Root->SetBoolField(TEXT("GenericVNDFLUT_ValidationReceiptPresent"), bLUTValidationReceiptPresent);
 	Root->SetBoolField(TEXT("GenericVNDFLUT_RuntimeSamplerImplemented"), true);
@@ -2620,7 +2663,7 @@ bool FMultiLobeShaderPatcher::WriteCapabilityManifest(
 	Prerequisites->SetNumberField(TEXT("r.AllowStaticLighting"), AllowStaticLighting);
 	Prerequisites->SetNumberField(TEXT("r.GBufferDiffuseSampleOcclusion"), DiffuseSampleOcclusion);
 	Prerequisites->SetStringField(TEXT("requiredContract"),
-		TEXT("r.Substrate=0; r.AllowStaticLighting=0; r.GBufferDiffuseSampleOcclusion=0"));
+		TEXT("r.Substrate=0; r.AllowStaticLighting=0; r.GBufferDiffuseSampleOcclusion=0_or_1"));
 	Root->SetObjectField(TEXT("rawMaterialVisibilityPrerequisites"), Prerequisites);
 
 	TArray<TSharedPtr<FJsonValue>> Blockers;
@@ -2733,33 +2776,33 @@ bool FMultiLobeShaderPatcher::BuildOverlay(const FString& EngineShaderDir, const
 			NumEnergyMix += En;
 		}
 
-		if (Cfg.bEnabled && NumDefaultLitSpecular != 1)
+		if ((Cfg.bBRDFEnabled || Cfg.bMicroShadow) && NumDefaultLitSpecular != 1)
 		{
 			OutError = FString::Printf(TEXT("DefaultLit dual-specular exact-count failure: expected 1, found %d."), NumDefaultLitSpecular);
 			IFileManager::Get().Delete(*(OverlayDir / MLS_StampFileName));
 			return false;
 		}
-		if (Cfg.bEnabled && Cfg.bPatchEnvBRDF && NumEnvBRDF != 2)
+		if (Cfg.bBRDFEnabled && Cfg.bPatchEnvBRDF && NumEnvBRDF != 2)
 		{
 			OutError = FString::Printf(TEXT("EnvBRDF exact-count failure: expected 2, found %d."), NumEnvBRDF);
 			return false;
 		}
-		if (Cfg.bEnabled && Cfg.bPatchEnvBRDFApprox && NumEnvBRDFApprox != 2)
+		if (Cfg.bBRDFEnabled && Cfg.bPatchEnvBRDFApprox && NumEnvBRDFApprox != 2)
 		{
 			OutError = FString::Printf(TEXT("EnvBRDFApprox exact-count failure: expected 2, found %d."), NumEnvBRDFApprox);
 			return false;
 		}
-		if (Cfg.bEnabled && NumDiffuse != 1)
+		if (Cfg.bBRDFEnabled && NumDiffuse != 1)
 		{
 			OutError = FString::Printf(TEXT("DefaultLit diffuse exact-count failure: expected 1, found %d."), NumDiffuse);
 			return false;
 		}
-		if (Cfg.bEnabled && NumMicroShadow != 1)
+		if ((Cfg.bBRDFEnabled || Cfg.bMicroShadow) && NumMicroShadow != 1)
 		{
 			OutError = FString::Printf(TEXT("DefaultLit micro-shadow exact-count failure: expected 1, found %d."), NumMicroShadow);
 			return false;
 		}
-		if (Cfg.bEnabled && NumEnergyMix != 3)
+		if (Cfg.bBRDFEnabled && NumEnergyMix != 3)
 		{
 			OutError = FString::Printf(TEXT("DefaultLit energy exact-count failure: expected 3, found %d."), NumEnergyMix);
 			return false;
@@ -2798,6 +2841,14 @@ bool FMultiLobeShaderPatcher::BuildOverlay(const FString& EngineShaderDir, const
 		}
 		if (!WriteConeEnvBRDFRuntimeFile(OverlayDir, OutError))
 		{
+			return false;
+		}
+		FString ReflectionVisibilityWarning;
+		if (Cfg.bEnabled && !PatchIndirectSpecularMaterialVisibility(OverlayDir, ReflectionVisibilityWarning))
+		{
+			OutError = ReflectionVisibilityWarning.IsEmpty()
+				? TEXT("Reflection Environment material-visibility policy patch failed.")
+				: ReflectionVisibilityWarning;
 			return false;
 		}
 		FString PairedWarning;
@@ -2859,7 +2910,7 @@ bool FMultiLobeShaderPatcher::BuildOverlay(const FString& EngineShaderDir, const
 				}
 			}
 		}
-		if (Cfg.bEnabled && NumRect != 2)
+		if (Cfg.bBRDFEnabled && NumRect != 2)
 		{
 			OutError = FString::Printf(TEXT("Rect LTC exact-count failure: expected 2, found %d."), NumRect);
 			return false;

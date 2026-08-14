@@ -1,4 +1,4 @@
-# MultiLobeSpec v0.15.0
+# MultiLobeSpec v0.15.1
 
 UE 5.7 editor plugin for legacy deferred shading. It implements dual-lobe GGX,
 an Activision / Call of Duty: WWII direct material micro-shadow profile, raw
@@ -21,10 +21,12 @@ r.Substrate=False
 r.GBufferDiffuseSampleOcclusion=1
 ```
 
-With micro-shadowing Off, the plugin leaves the stock legacy AO/sample-occlusion
-transport intact. With any micro-shadow mode active, the overlay transports raw
-MaterialAO as continuous micro-visibility and forces it to **direct-only** use;
-it does not darken Lumen GI, skylight diffuse, or other indirect diffuse paths.
+The BRDF preset, direct micro-shadow mode, and indirect material-visibility
+profile are independent. `Preset=Off` plus an active micro-shadow mode keeps the
+stock single-lobe UE BRDF and still activates direct micro-shadowing. DirectOnly
+is the default indirect policy; Full RGB diffuse is an explicit opt-in. The
+reflection-environment policy removes material AO from stock scalar capture/
+skylight specular occlusion in DirectOnly/Full while preserving geometric AO.
 
 `MLS.DebugView 0..5` switches through the existing SceneViewExtension/UserFlags
 path on the next rendered frame, without rebuilding the overlay or recompiling

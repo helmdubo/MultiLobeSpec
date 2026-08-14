@@ -2,6 +2,7 @@
 
 #include "Misc/AutomationTest.h"
 #include "MultiLobeShaderPatcher.h"
+#include "MultiLobeSpecSettings.h"
 #include "MultiLobeSpecViewExtension.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -26,10 +27,45 @@ bool FMLSRawMaterialVisibilityPredicateTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Indirect direct-only policy alone does not repurpose the channel"), Config.NeedsRawMaterialVisibilityTransport());
 
 	Config.IndirectMaterialVisibilityMode = 2;
-	TestFalse(TEXT("RGB indirect mode is not a v0.15 raw-transport trigger"), Config.NeedsRawMaterialVisibilityTransport());
+	TestTrue(TEXT("RGB indirect mode requires continuous visibility"), Config.NeedsRawMaterialVisibilityTransport());
 
+	Config.IndirectMaterialVisibilityMode = 1;
 	Config.bConeAwareIndirectSpecular = true;
-	TestFalse(TEXT("Staged cone IBL does not silently activate transport"), Config.NeedsRawMaterialVisibilityTransport());
+	TestTrue(TEXT("Cone-aware IBL requires continuous visibility"), Config.NeedsRawMaterialVisibilityTransport());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMLSFeatureActivationIndependenceTest,
+	"MultiLobeSpec.Runtime.FeatureActivation.IndependentGates",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMLSFeatureActivationIndependenceTest::RunTest(const FString& Parameters)
+{
+	UMultiLobeSpecSettings* Settings = NewObject<UMultiLobeSpecSettings>();
+	Settings->Preset = EMLSPreset::Off;
+	Settings->MicroShadowMode = EMLSMicroShadowMode::ActivisionWWII;
+	Settings->IndirectMaterialVisibility = EMLSIndirectMaterialVisibility::DirectOnly;
+
+	FMLSShaderConfig Config;
+	Settings->FillConfig(Config);
+	TestFalse(TEXT("Preset Off disables only the authored BRDF"), Config.bBRDFEnabled);
+	TestTrue(TEXT("Preset Off does not disable an explicit direct micro-shadow mode"), Config.bMicroShadow);
+	TestTrue(TEXT("Micro-shadow alone activates the shading overlay"), Config.bEnabled);
+	TestEqual(TEXT("DirectOnly remains an independent selected policy"), Config.IndirectMaterialVisibilityMode, 0);
+
+	Settings->MicroShadowMode = EMLSMicroShadowMode::Off;
+	Settings->FillConfig(Config);
+	TestFalse(TEXT("No BRDF, micro-shadow, or full-indirect feature leaves the overlay inactive"), Config.bEnabled);
+
+	Settings->IndirectMaterialVisibility = EMLSIndirectMaterialVisibility::RGBInterreflection;
+	Settings->FillConfig(Config);
+	TestTrue(TEXT("Full indirect diffuse alone activates the overlay"), Config.bEnabled);
+	TestTrue(TEXT("Full indirect diffuse requests continuous material visibility"), Config.NeedsRawMaterialVisibilityTransport());
+
+	Settings->MicroShadowMode = EMLSMicroShadowMode::ActivisionWWII;
+	Settings->FillConfig(Config);
+	TestEqual(TEXT("Full indirect selection is not silently forced back to DirectOnly"), Config.IndirectMaterialVisibilityMode, 2);
 	return true;
 }
 

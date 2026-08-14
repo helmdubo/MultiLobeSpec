@@ -4,7 +4,10 @@
 
 struct FMLSShaderConfig
 {
+	/** Any MLS shading policy is active (BRDF, direct micro-shadow, or full indirect visibility). */
 	bool  bEnabled = true;
+	/** Dual-lobe/rough-diffuse BRDF features, independent from the overlay master gate. */
+	bool  bBRDFEnabled = true;
 	float Lobe2Weight = 0.22f;
 	float EnvLobe2Weight = 0.22f;
 	float Lobe2Scale = 2.0f;
@@ -39,14 +42,14 @@ struct FMLSShaderConfig
 	int32 IndirectMaterialVisibilityMode = 1;
 
 	/**
-	 * Only an active direct micro-shadow mode needs continuous MaterialAO.
-	 * Legacy AO keeps the stock GBuffer/sample-occlusion contract, including
-	 * r.GBufferDiffuseSampleOcclusion=1.  The MLS overlay repurposes GenericAO
-	 * only while direct micro-shadowing is active.
+	 * Every MLS consumer that needs continuous visibility shares this predicate.
+	 * Legacy scalar AO keeps the stock GBuffer/sample-occlusion contract.
 	 */
 	bool NeedsRawMaterialVisibilityTransport() const
 	{
-		return bMicroShadow;
+		return bMicroShadow
+			|| IndirectMaterialVisibilityMode == 2
+			|| bConeAwareIndirectSpecular;
 	}
 };
 
@@ -69,7 +72,7 @@ class FMultiLobeShaderPatcher
 {
 public:
 	/** Bump when the patch logic changes to force overlay rebuild. */
-	static constexpr int32 PatchVersion = 37;
+	static constexpr int32 PatchVersion = 39;
 
 	static bool BuildOverlay(const FString& EngineShaderDir, const FString& OverlayDir,
 	                         const FMLSShaderConfig& Cfg, FString& OutError);
@@ -87,7 +90,7 @@ private:
 
 	static int32 PatchFunctionDualLobe(FString& Source, const FString& FunctionName,
 	                                   const FString& WeightExpr,
-	                                   const TCHAR* GuardExpr = TEXT("MLS_ENABLED"),
+	                                   const TCHAR* GuardExpr = TEXT("MLS_BRDF_ENABLED"),
 	                                   const TCHAR* RequiredParam = nullptr,
 	                                   const TCHAR* PerLobeMulTemplate = nullptr);
 
@@ -111,6 +114,9 @@ private:
 
 	/** Paired per-lobe IBL at the legacy composite call-site (radiance x response per lobe). */
 	static bool PatchPairedIBL(const FString& OverlayDir, FString& OutWarning);
+
+	/** Reflection captures/skylight: separate material visibility from screen/geometric AO. */
+	static bool PatchIndirectSpecularMaterialVisibility(const FString& OverlayDir, FString& OutWarning);
 
 	/** Write the isolated CARD-09 packed RG16 sampler used only by reflection composite shaders. */
 	static bool WriteConeEnvBRDFRuntimeFile(const FString& OverlayDir, FString& OutError);

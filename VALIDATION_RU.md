@@ -1,6 +1,22 @@
-# Validation receipt v0.14.3
+# Validation receipt v0.15.1
 
-Дата: 2026-08-13. Engine: UE 5.7.4, CL 51494982, source tree `D:\PersonalProjects\UE5\UE_5.7`.
+## v0.15.1 material-visibility regression
+
+- `Preset=Off + ActivisionWWII` даёт `overlayEnabled=1`, `BRDFEnabled=0`,
+  `MicroShadowEnabled=1`; отдельный P39 overlay с этими defines скомпилирован на
+  D3D12/SM6 без shader errors, vanilla single-lobe BRDF сохраняется.
+- Full RGB indirect profile запрашивает raw MaterialAO transport даже при выключенном
+  direct micro-shadow.
+- Reflection Environment policy имеет отдельный mandatory exact anchor и marker
+  `MLS_REFLECTION_ENV_MATERIAL_VISIBILITY_POLICY`.
+- UE 5.7 BasePass/GBuffer raw transport проверен на фактической split-branch разметке:
+  overlay P39 активен при `r.GBufferDiffuseSampleOcclusion=0` и `=1`, обе D3D12/SM6
+  пермутации скомпилированы; stale compound-guard patch удалён.
+- `MimirHead_portfolioEditor Win64 Development`: PASS. D3D12/SM6 global shaders и
+  обязательные material shader maps скомпилированы без shader/GPU errors; native
+  `MultiLobeSpec.Runtime`: 3/3 PASS.
+
+Дата: 2026-08-14. Engine: UE 5.7.4, CL 51494982, source tree `D:\PersonalProjects\UE5\UE_5.7`.
 
 ## v0.14.3 runtime Debug View contract
 
@@ -91,7 +107,8 @@ Runtime exact-count receipt:
 
 ```text
 Raw MaterialAO source/store:             1/1
-Paired IBL AO/gather/response:            1/1/1
+Paired IBL gather/response:               1/1
+Reflection Environment visibility policy: 1/1
 Non-Lumen indirect material visibility:   2/2
 Lumen indirect diffuse:                   3/3
 Skylight indirect visibility:             8/8

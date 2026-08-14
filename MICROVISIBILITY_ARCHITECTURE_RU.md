@@ -1,4 +1,4 @@
-# Архитектура micro-visibility v0.14
+# Архитектура micro-visibility v0.15.1
 
 ## 1. Контракт данных
 
@@ -7,10 +7,10 @@ Material AO — непрерывная cosine-weighted micro-visibility. В lega
 Transport включается единым predicate:
 
 ```text
-Generic VNDF direct requested OR cone-aware indirect specular requested
+direct micro-shadow requested OR RGB indirect diffuse requested OR cone-aware indirect specular requested
 ```
 
-И preflight, и HLSL guard, и capability manifest используют тот же predicate. Несовместимые permutations получают compile-time error. Обязательны `r.Substrate=0`, `r.AllowStaticLighting=0`, `r.GBufferDiffuseSampleOcclusion=0`.
+И preflight, и HLSL guard, и capability manifest используют тот же predicate. Несовместимые permutations получают compile-time error. Обязательны `r.Substrate=0`, `r.AllowStaticLighting=0`; `r.GBufferDiffuseSampleOcclusion=0` и `1` поддерживаются overlay transport.
 
 ## 2. Direct Generic VNDF
 
@@ -51,6 +51,8 @@ IBL    = (1-W)*Radiance(dir1,R1)*Response1 + W*Radiance(dir2,R2)*Response2
 ```
 
 Material AO исключается из stock scalar GTSO для eligible cone path; screen AO остаётся. DFAO остаётся внутри `GatherRadiance`.
+
+Независимый patch `ReflectionEnvironmentPixelShader.usf` применяет ту же material-visibility policy даже при выключенных paired IBL и cone LUT. В DirectOnly/Full eligible Default Lit material visibility удаляется из stock scalar GTSO, а screen/geometric AO сохраняется; Legacy и unsupported shading models остаются stock.
 
 ## 5. Energy conservation
 

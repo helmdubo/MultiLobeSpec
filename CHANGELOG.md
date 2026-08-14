@@ -1,3 +1,24 @@
+# v0.15.1 — Overlay activation and indirect material-visibility policy
+
+- `Preset`, direct micro-shadowing and indirect material visibility now have independent
+  effective gates. `Preset=Off + MicroShadow=ActivisionWWII` activates the overlay while
+  preserving the stock single-lobe UE BRDF (`MLS_BRDF_ENABLED=0`).
+- The selected indirect profile is no longer silently forced to DirectOnly. DirectOnly is
+  the default; Full RGB diffuse can coexist with direct micro-shadowing.
+- Continuous raw MaterialAO transport is requested by direct micro-shadowing, Full RGB
+  diffuse, or staged cone IBL through one test-covered predicate.
+- `ReflectionEnvironmentPixelShader.usf` now receives an independent, mandatory exact-count
+  policy patch. DirectOnly/Full remove material AO from stock scalar reflection-capture and
+  skylight specular occlusion while preserving screen/geometric AO and stock fallbacks for
+  unsupported shading models.
+- `MLS.Status` reports overlay/BRDF/micro-shadow gates and verifies the dedicated
+  `MLS_REFLECTION_ENV_MATERIAL_VISIBILITY_POLICY` marker. `PatchVersion` = 39.
+- Raw transport now follows the actual UE 5.7 split GenericAO encode/decode branches;
+  the stale compound BasePass-guard rewrite was removed. Both
+  `r.GBufferDiffuseSampleOcclusion=0` and `=1` remain supported without an Engine edit.
+- Cone-aware indirect specular and Lumen/SSR per-lobe pairing remain explicitly unavailable;
+  no engine fork or unvalidated runtime approximation was added.
+
 # v0.14.3 — Instant runtime debug views
 
 - Добавлен plugin-owned runtime selector в битах 28..30 штатного

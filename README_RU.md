@@ -1,4 +1,4 @@
-# MultiLobeSpec v0.14.3 — Generic VNDF micro-visibility для UE 5.7
+# MultiLobeSpec v0.15.1 — Activision micro-visibility для UE 5.7
 
 Экспериментальный editor-only плагин для legacy deferred shading (`r.Substrate=0`). Он реализует горизонтальную смесь двух GGX-лобов, Generic VNDF-based direct micro-shadowing и RGB indirect material visibility. CARD-09 cone-aware Environment BRDF для reflection captures/skylight реализован как staging path, но выключен: overlay-only static LUT не прошёл SM6 compile-cost gate. Файлы движка не изменяются: плагин создаёт content-addressed shader overlay в `Saved/MultiLobeSpec` и remap-ит `/Engine` только после успешного transactional patch.
 
@@ -13,9 +13,10 @@ r.Substrate=False
 
 [ConsoleVariables]
 r.GBufferDiffuseSampleOcclusion=0
+; значение 1 также поддерживается overlay transport
 ```
 
-Это не опциональная рекомендация. В stock UE 5.7 `GBufferAO` может содержать sample mask, единицу или уже преобразованную specular occlusion. При нарушении контракта Generic VNDF и cone-aware IBL fail closed; плагин не меняет restart-required CVars автоматически.
+Это не опциональная рекомендация. В stock UE 5.7 `GBufferAO` может содержать sample mask, единицу или уже преобразованную specular occlusion. Overlay поддерживает `r.GBufferDiffuseSampleOcclusion=0` и `1`, но требует `r.Substrate=0` и `r.AllowStaticLighting=0`; плагин не меняет restart-required CVars автоматически.
 
 Целевой production case v0.14: static meshes, legacy deferred, Default Lit, isotropic BRDF.
 
@@ -28,6 +29,7 @@ r.GBufferDiffuseSampleOcclusion=0
 | Generic VNDF LUT | offline 8192-sample QMC bake; V2 two-bank RGBA8; runtime без Monte Carlo | canonical receipt и SHA-256 binding проверяются fail-closed |
 | Raw MaterialAO transport | BasePass сохраняет исходный AO до `AOMultiBounce` | только при обязательном renderer contract |
 | Indirect diffuse | Direct Only, Raw Scalar AO, RGB Interreflection | реализовано для Lumen/non-Lumen/skylight diffuse |
+| Reflection captures/skylight material visibility | отдельный DirectOnly/Legacy/Full policy до stock GTSO | реализовано exact-count patch; screen/DFAO сохраняются |
 | Captures/skylight IBL | отдельные direction, radiance и response для R1/R2 | реализовано для legacy Default Lit isotropic |
 | Cone-aware EnvBRDF | 32×32×8 `NoV × Roughness × AdjustedCosCone`, RG16_UNORM | staging implementation; выключено и fail-closed из-за static-storage compile gate |
 | Lumen/SSR indirect specular | lobe identity не переносится через pipeline | per-lobe cone pairing не поддержан |
@@ -79,24 +81,26 @@ layout View uniform и Engine binaries не меняются. Обычные
 scene/reflection/planar/VT/custom captures получают mode 0; realtime skylight capture
 дополнительно закрыт через `RenderingReflectionCaptureMask` в HLSL.
 
-После однократного `MLS.Apply` для версии P35 команда `MLS.DebugView 0..5` меняет
+После однократного `MLS.Apply` для версии P39 команда `MLS.DebugView 0..5` меняет
 только атомарный runtime selector, перерисовывает viewport и не вызывает новый overlay,
 remap, shader-cache flush или `RecompileShaders Changed`. То же поведение действует для
 поля Debug View в Project Settings.
 
 ## Семантика material visibility
 
-Material AO трактуется как cosine-weighted micro-visibility, а не как screen-space geometry AO. Для direct lighting значение применяется к полным diffuse/specular contributions каждого лоба. Для indirect diffuse default `RGB Interreflection` использует:
+Material AO трактуется как cosine-weighted micro-visibility, а не как screen-space geometry AO. `Preset` управляет только BRDF; выбранный direct micro-shadow mode может активировать overlay при `Preset=Off`, сохраняя vanilla single-lobe UE BRDF. Default indirect profile — `Direct Only`.
+
+Для direct lighting visibility применяется к полным diffuse/specular contributions. Для Full indirect diffuse используется:
 
 ```hlsl
 V_rgb = saturate(V / max(1 - Albedo * (1 - V), 1e-4));
 ```
 
-Screen AO, DFAO и geometric occlusion остаются в своих stock путях. Для capture/skylight specular material visibility сначала переводится в cone, затем корректируется отдельно по roughness каждого лоба.
+Screen AO, DFAO и geometric occlusion остаются в своих stock путях. В `Direct Only` и `Full` material texture удаляется из stock scalar specular occlusion reflection captures/skylight; `UE Legacy` сохраняет исходный multiply. Cone-integrated response остаётся staging-функцией и fail-closed выключен, поэтому Full profile в production сейчас означает albedo-aware indirect diffuse без заявления о готовом cone-specular.
 
-Raw transport запрашивается для любого активного MLS BRDF overlay: это позволяет
-включить Debug View 3 позднее без перестройки overlay. Capability не может объявить
-material-visibility пути доступными, если исходный `MaterialAO` не сохранён в BasePass.
+Raw transport запрашивается единым predicate: активный direct micro-shadow, Full RGB
+indirect diffuse или staged cone-aware IBL. Capability не может объявить эти пути
+доступными, если исходный `MaterialAO` не сохранён в BasePass.
 
 ## Диагностика Generic VNDF на реальном материале
 

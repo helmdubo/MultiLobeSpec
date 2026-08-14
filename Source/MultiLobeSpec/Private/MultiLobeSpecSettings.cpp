@@ -8,7 +8,7 @@ UMultiLobeSpecSettings::UMultiLobeSpecSettings()
 
 void UMultiLobeSpecSettings::FillConfig(FMLSShaderConfig& Out) const
 {
-	Out.bEnabled = (Preset != EMLSPreset::Off);
+	Out.bBRDFEnabled = (Preset != EMLSPreset::Off);
 
 	switch (Preset)
 	{
@@ -37,27 +37,25 @@ void UMultiLobeSpecSettings::FillConfig(FMLSShaderConfig& Out) const
 
 	Out.bPatchEnvBRDF = bPatchEnvBRDF;
 	Out.MicroShadowMode = static_cast<int32>(MicroShadowMode);
-	Out.bMicroShadow = (MicroShadowMode != EMLSMicroShadowMode::Off)
-		&& (Preset != EMLSPreset::Off);
+	Out.bMicroShadow = (MicroShadowMode != EMLSMicroShadowMode::Off);
 	Out.MicroShadowDiffuseStrength = MicroShadowDiffuseStrength;
 	Out.MicroShadowSpecularStrength = MicroShadowSpecularStrength;
 
-	Out.bLumenDualBlur = bLumenDualBlur && (Preset != EMLSPreset::Off);
+	Out.bLumenDualBlur = bLumenDualBlur && Out.bBRDFEnabled;
 	Out.LumenBlurWeight = Out.EnvLobe2Weight;
-	Out.bTwoSampleIBL = bTwoSampleIBL && (Preset != EMLSPreset::Off);
+	Out.bTwoSampleIBL = bTwoSampleIBL && Out.bBRDFEnabled;
+	Out.IndirectMaterialVisibilityMode = static_cast<int32>(IndirectMaterialVisibility);
 	Out.bConeAwareIndirectSpecular = bConeAwareIndirectSpecular
 		&& Out.bTwoSampleIBL
 		&& Out.bPatchEnvBRDF
-		&& (Preset != EMLSPreset::Off);
+		&& IndirectMaterialVisibility == EMLSIndirectMaterialVisibility::RGBInterreflection;
 
-	// Direct micro-shadow modes consume Material AO exclusively as micro-visibility.
-	// The map must not reappear as legacy black scalar AO in indirect lighting.
-	Out.IndirectMaterialVisibilityMode = Out.bMicroShadow
-		? static_cast<int32>(EMLSIndirectMaterialVisibility::DirectOnly)
-		: static_cast<int32>(IndirectMaterialVisibility);
+	Out.bEnabled = Out.bBRDFEnabled
+		|| Out.bMicroShadow
+		|| IndirectMaterialVisibility == EMLSIndirectMaterialVisibility::RGBInterreflection;
 
 	// Debug is session-only and excluded from the content-addressed overlay identity.
-	Out.DebugView = (Preset != EMLSPreset::Off) ? static_cast<int32>(DebugView) : 0;
+	Out.DebugView = Out.bEnabled ? static_cast<int32>(DebugView) : 0;
 	Out.bPatchEnvBRDFApprox = bPatchEnvBRDF;
 	Out.DiffuseModel = (DiffuseModel == EMLSDiffuse::Chan) ? 1 : 0;
 

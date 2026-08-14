@@ -106,20 +106,12 @@ void FMultiLobeSpecModule::StartupModule()
 		FMultiLobeSpecModule::Get().ApplyFromSettings();
 	}));
 
-	static FAutoConsoleCommand CmdIndirect(TEXT("MLS.IndirectVisibility"), TEXT("Legacy-only indirect AO policy 0..2 (no-op while any micro-shadow mode is active)."), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	static FAutoConsoleCommand CmdIndirect(TEXT("MLS.IndirectVisibility"), TEXT("Indirect material-visibility policy: 0 Direct Only, 1 UE Legacy, 2 Activision RGB diffuse."), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
 	{
 		if (Args.IsEmpty()) return;
 		UMultiLobeSpecSettings* S = GetMutableDefault<UMultiLobeSpecSettings>();
 		S->IndirectMaterialVisibility = static_cast<EMLSIndirectMaterialVisibility>(FMath::Clamp(FCString::Atoi(*Args[0]), 0, 2));
 		S->SaveConfig();
-		if (S->MicroShadowMode != EMLSMicroShadowMode::Off)
-		{
-			// FillConfig forces Direct Only for every active micro-shadow mode, so the
-			// stored value cannot take effect until the user returns to Legacy.
-			UE_LOG(LogMultiLobeSpec, Warning,
-				TEXT("MLS.IndirectVisibility stored %d, but MicroShadowMode=%d forces 'Direct Only' — the setting only takes effect after MLS.MicroShadow 0."),
-				static_cast<int32>(S->IndirectMaterialVisibility), static_cast<int32>(S->MicroShadowMode));
-		}
 		FMultiLobeSpecModule::Get().ApplyFromSettings();
 	}));
 
@@ -221,7 +213,9 @@ bool FMultiLobeSpecModule::SetRuntimeDebugView(int32 DebugView, bool bPersistSet
 	const int32 Requested = FMath::Clamp(DebugView, 0, 5);
 	UMultiLobeSpecSettings* Settings = GetMutableDefault<UMultiLobeSpecSettings>();
 	if (bPersistSetting) Settings->DebugView = static_cast<EMLSDebugView>(Requested);
-	const int32 Effective = (Settings->Preset != EMLSPreset::Off && bOverlayActive) ? Requested : 0;
+	FMLSShaderConfig Config;
+	Settings->FillConfig(Config);
+	const int32 Effective = (Config.bEnabled && bOverlayActive) ? Requested : 0;
 	if (!RuntimeViewExtension.IsValid()) return false;
 	RuntimeViewExtension->SetDebugView(Effective);
 	FEditorSupportDelegates::RedrawAllViewports.Broadcast();
@@ -230,8 +224,8 @@ bool FMultiLobeSpecModule::SetRuntimeDebugView(int32 DebugView, bool bPersistSet
 		UE_LOG(LogMultiLobeSpec, Warning,
 			TEXT("Debug view %d requested but forced to 0: %s."),
 			Requested,
-			Settings->Preset == EMLSPreset::Off
-				? TEXT("Preset is Off (vanilla engine)")
+			!Config.bEnabled
+				? TEXT("all MLS shading features are disabled")
 				: TEXT("overlay is not active — run MLS.Apply and check MLS.Status"));
 		return true;
 	}
@@ -287,12 +281,13 @@ void FMultiLobeSpecModule::LogStatus() const
 		EngineMapping ? **EngineMapping : TEXT("<missing>"));
 
 	UE_LOG(LogMultiLobeSpec, Display,
-		TEXT("Effective config: enabled=%d microShadowMode=%d microShadow=%d indirectVisibility=%d%s tonemap=%d debugViewRuntime=%d"),
+		TEXT("Effective config: overlayEnabled=%d brdfEnabled=%d microShadowMode=%d microShadowEnabled=%d indirectVisibility=%d rawVisibilityTransport=%d tonemap=%d debugViewRuntime=%d"),
 		Config.bEnabled ? 1 : 0,
+		Config.bBRDFEnabled ? 1 : 0,
 		Config.MicroShadowMode,
 		Config.bMicroShadow ? 1 : 0,
 		Config.IndirectMaterialVisibilityMode,
-		Config.bMicroShadow ? TEXT(" (forced Direct Only by active micro-shadow)") : TEXT(""),
+		Config.NeedsRawMaterialVisibilityTransport() ? 1 : 0,
 		Config.TonemapMode,
 		RuntimeViewExtension.IsValid() ? RuntimeViewExtension->GetDebugView() : -1);
 
@@ -319,6 +314,7 @@ void FMultiLobeSpecModule::LogStatus() const
 		for (const FString& Line : Lines)
 		{
 			if (Line.StartsWith(TEXT("#define MLS_ENABLED"))
+				|| Line.StartsWith(TEXT("#define MLS_BRDF_ENABLED"))
 				|| Line.StartsWith(TEXT("#define MLS_MICROSHADOW"))
 				|| Line.StartsWith(TEXT("#define MLS_INDIRECT_VISIBILITY_MODE"))
 				|| Line.StartsWith(TEXT("#define MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT")))
@@ -338,9 +334,10 @@ void FMultiLobeSpecModule::LogStatus() const
 		{ TEXT("Private/BasePassPixelShader.usf"),            TEXT("MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT"),      Config.NeedsRawMaterialVisibilityTransport() },
 		{ TEXT("Private/BasePassPixelShader.usf"),            TEXT("MLS_SAMPLE_OCCLUSION_TRANSPORT_SUPPORTED"),   Config.NeedsRawMaterialVisibilityTransport() },
 		{ TEXT("Private/GBufferHelpers.ush"),                 TEXT("MLS_GBUFFER_RAW_VISIBILITY_TRANSPORT"),       Config.NeedsRawMaterialVisibilityTransport() },
-		{ TEXT("Private/DiffuseIndirectComposite.usf"),       TEXT("MLS_NONLUMEN_RGB_INTERREFLECTION"),           Config.bEnabled },
-		{ TEXT("Private/Lumen/LumenScreenProbeGather.usf"),   TEXT("MLS_LUMEN_RGB_INTERREFLECTION"),              Config.bEnabled },
-		{ TEXT("Private/SkyLightingDiffuseShared.ush"),       TEXT("MLS_SKYLIGHT_RGB_INTERREFLECTION"),           Config.bEnabled },
+		{ TEXT("Private/DiffuseIndirectComposite.usf"),       TEXT("MLS_NONLUMEN_MATERIAL_VISIBILITY_POLICY"),     Config.bEnabled },
+		{ TEXT("Private/Lumen/LumenScreenProbeGather.usf"),   TEXT("MLS_LUMEN_MATERIAL_VISIBILITY_POLICY"),        Config.bEnabled },
+		{ TEXT("Private/SkyLightingDiffuseShared.ush"),       TEXT("MLS_SKYLIGHT_MATERIAL_VISIBILITY_POLICY"),     Config.bEnabled },
+		{ TEXT("Private/ReflectionEnvironmentPixelShader.usf"), TEXT("MLS_REFLECTION_ENV_MATERIAL_VISIBILITY_POLICY"), Config.bEnabled },
 	};
 	for (const FMarkerCheck& Check : Checks)
 	{

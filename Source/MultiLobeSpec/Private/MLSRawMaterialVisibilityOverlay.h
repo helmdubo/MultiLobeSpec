@@ -9,7 +9,9 @@
  * The stock legacy GBuffer reuses GenericAO for an 8-bit diffuse-indirect
  * sample mask when GBUFFER_HAS_DIFFUSE_SAMPLE_OCCLUSION is compiled. MLS
  * micro-shadowing instead needs the continuous material visibility value.
- * This post-patch changes only the immutable overlay copy:
+ * UE 5.7 keeps the GenericAO encode/decode behind its own
+ * GBUFFER_HAS_DIFFUSE_SAMPLE_OCCLUSION branches, so no BasePass compile guard
+ * rewrite is needed. This post-patch changes only the immutable overlay copy:
  *
  *  - BasePass keeps MaterialAO instead of the stock specular-occlusion value;
  *  - GBufferPreEncode stores that scalar in GenericAO;
@@ -23,7 +25,6 @@ public:
 	static bool Patch(const FString& OverlayDir, FString& OutError);
 
 private:
-	static bool PatchBasePassGuard(const FString& OverlayDir, FString& OutError);
 	static bool PatchGBufferHelpers(const FString& OverlayDir, FString& OutError);
 	static void UpdateCapabilityReceipt(const FString& OverlayDir);
 };

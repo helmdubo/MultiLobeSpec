@@ -8,7 +8,7 @@
 UENUM()
 enum class EMLSPreset : uint8
 {
-	Off UMETA(DisplayName = "Off (vanilla engine)"),
+	Off UMETA(DisplayName = "Dual Lobe Off (vanilla BRDF)"),
 	Subtle UMETA(DisplayName = "Dual Lobe — Subtle"),
 	Cinematic UMETA(DisplayName = "Dual Lobe — Cinematic"),
 	Custom UMETA(DisplayName = "Custom")
@@ -38,9 +38,9 @@ enum class EMLSMicroShadowMode : uint8
 UENUM()
 enum class EMLSIndirectMaterialVisibility : uint8
 {
-	DirectOnly UMETA(DisplayName = "Direct Only / Micro-Shadow Only"),
+	DirectOnly UMETA(DisplayName = "Activision Direct Only (Recommended)"),
 	RawScalarAO UMETA(DisplayName = "UE Legacy Material AO"),
-	RGBInterreflection UMETA(DisplayName = "RGB Interreflection (WWII full-stack experiment)")
+	RGBInterreflection UMETA(DisplayName = "Activision Full Diffuse (cone specular staged)")
 };
 
 UENUM()
@@ -107,8 +107,8 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "Micro Shadowing", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "MicroShadowMode != EMLSMicroShadowMode::Off", DisplayName = "Specular Strength"))
 	float MicroShadowSpecularStrength = 1.0f;
 
-	UPROPERTY(EditAnywhere, config, AdvancedDisplay, Category = "Micro Shadowing", meta = (DisplayName = "Legacy Indirect Material AO", EditCondition = "MicroShadowMode == EMLSMicroShadowMode::Off"))
-	EMLSIndirectMaterialVisibility IndirectMaterialVisibility = EMLSIndirectMaterialVisibility::RawScalarAO;
+	UPROPERTY(EditAnywhere, config, Category = "Material Visibility", meta = (DisplayName = "Indirect Material Visibility"))
+	EMLSIndirectMaterialVisibility IndirectMaterialVisibility = EMLSIndirectMaterialVisibility::DirectOnly;
 
 	UPROPERTY(EditAnywhere, config, Category = "Lumen Dual Blur")
 	bool bLumenDualBlur = false;
@@ -116,7 +116,7 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "Scope", meta = (DisplayName = "Paired Two-Lobe IBL"))
 	bool bTwoSampleIBL = true;
 
-	UPROPERTY(EditAnywhere, config, Category = "Micro Shadowing", meta = (DisplayName = "Cone-Aware Indirect Specular (Storage Blocked)", EditCondition = "bTwoSampleIBL && bPatchEnvBRDF"))
+	UPROPERTY(EditAnywhere, config, Category = "Material Visibility", meta = (DisplayName = "Cone-Aware Indirect Specular (Storage Blocked)", EditCondition = "IndirectMaterialVisibility == EMLSIndirectMaterialVisibility::RGBInterreflection && bTwoSampleIBL && bPatchEnvBRDF"))
 	bool bConeAwareIndirectSpecular = false;
 
 	/** Session-only: this selector never participates in the overlay identity. */

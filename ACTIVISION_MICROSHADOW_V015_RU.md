@@ -45,7 +45,7 @@ r.GBufferDiffuseSampleOcclusion=1
 2. переносит его через `GenericAO` как continuous scalar;
 3. восстанавливает его в `GBufferAO`;
 4. внутри active permutation выставляет `DiffuseIndirectSampleOcclusion=0`;
-5. принудительно выбирает `Indirect Visibility = Direct Only`.
+5. по умолчанию использует профиль `Indirect Visibility = Direct Only`, но не перезаписывает осознанный выбор Full/Legacy.
 
 Глобальная CVar может оставаться `1`. Engine files не меняются.
 
@@ -75,7 +75,9 @@ r.GBufferDiffuseSampleOcclusion=1
 | Reflection captures/Skylight specular | material visibility не применяется |
 | Lumen/SSR specular | stock response |
 
-Это соответствует **direct microshadowing** Activision. Полный WWII Material Surface Occlusion pipeline также использовал visibility для albedo-aware indirect diffuse и cone-aware indirect specular. Эти indirect-ветки намеренно выключены по пользовательскому требованию, чтобы AO не появлялась в GI/полутенях.
+Это соответствует **direct microshadowing** Activision. Default DirectOnly не переносит material visibility в GI/indirect specular. Full profile отдельно включает albedo-aware indirect diffuse; cone-aware indirect specular остаётся staged и fail-closed выключенным.
+
+Начиная с v0.15.1 `Preset` управляет только dual-lobe BRDF. Поэтому `Preset=Off` вместе с активным Micro Shadow Mode означает `vanilla UE BRDF + Activision microshadow`, а не неактивный plugin. Reflection Environment имеет отдельный обязательный policy marker и в DirectOnly не смешивает material visibility со stock scalar GTSO.
 
 ## Baker presets
 

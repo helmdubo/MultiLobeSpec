@@ -89,38 +89,6 @@ namespace
 	}
 }
 
-bool FMLSRawMaterialVisibilityOverlay::PatchBasePassGuard(
-	const FString& OverlayDir,
-	FString& OutError)
-{
-	const FString Path = OverlayDir / TEXT("Private/BasePassPixelShader.usf");
-	FString Source;
-	if (!FFileHelper::LoadFileToString(Source, *Path))
-	{
-		OutError = FString::Printf(TEXT("Unable to load BasePassPixelShader.usf: %s"), *Path);
-		return false;
-	}
-	NormalizeLineEndings(Source);
-
-	const FString OldGuard =
-		TEXT("#if GBUFFER_HAS_DIFFUSE_SAMPLE_OCCLUSION || ALLOW_STATIC_LIGHTING || SUBSTRATE_ENABLED");
-	const FString NewGuard =
-		TEXT("#if ALLOW_STATIC_LIGHTING || SUBSTRATE_ENABLED // MLS_SAMPLE_OCCLUSION_TRANSPORT_SUPPORTED");
-
-	if (Source.Contains(NewGuard))
-	{
-		return true;
-	}
-	if (CountExact(Source, OldGuard) != 1)
-	{
-		OutError = TEXT("Raw MaterialAO BasePass guard exact-count failure; expected one generated transport guard.");
-		return false;
-	}
-
-	Source.ReplaceInline(*OldGuard, *NewGuard, ESearchCase::CaseSensitive);
-	return SaveAtomic(Path, Source, OutError);
-}
-
 bool FMLSRawMaterialVisibilityOverlay::PatchGBufferHelpers(
 	const FString& OverlayDir,
 	FString& OutError)
@@ -156,7 +124,7 @@ bool FMLSRawMaterialVisibilityOverlay::PatchGBufferHelpers(
 		TEXT("\tRet.IndirectIrradiance = 1;");
 	const FString DecodeReplacement =
 		TEXT("#if MLS_ENABLED && MLS_RAW_MATERIAL_VISIBILITY_TRANSPORT\n")
-		TEXT("\t// GenericAO is repurposed as continuous material visibility while the MLS micro-shadow overlay is active.\n")
+		TEXT("\t// GenericAO is repurposed as continuous material visibility while an MLS raw-visibility consumer is active.\n")
 		TEXT("\tRet.DiffuseIndirectSampleOcclusion = 0x0;\n")
 		TEXT("\tRet.GBufferAO = Ret.GenericAO;\n")
 		TEXT("\tRet.IndirectIrradiance = 1;\n")
@@ -208,8 +176,7 @@ void FMLSRawMaterialVisibilityOverlay::UpdateCapabilityReceipt(const FString& Ov
 	Root->SetNumberField(TEXT("LegacyRawMaterialVisibility_DiffuseSampleOcclusionCVar"), DiffuseSampleOcclusion);
 	Root->SetStringField(
 		TEXT("LegacyRawMaterialVisibility_TransportMode"),
-		TEXT("Overlay-only GenericAO transport; diffuse-indirect sample mask is disabled while direct micro-shadowing is active"));
-	Root->SetBoolField(TEXT("ActivisionDirectMicroShadow_DefaultLit"), true);
+		TEXT("Overlay-only GenericAO transport; diffuse-indirect sample mask is disabled while an MLS raw-visibility consumer is active"));
 	Root->SetBoolField(TEXT("EngineForkRequired"), false);
 
 	FString Output;
@@ -229,10 +196,6 @@ bool FMLSRawMaterialVisibilityOverlay::Patch(
 	const FString& OverlayDir,
 	FString& OutError)
 {
-	if (!PatchBasePassGuard(OverlayDir, OutError))
-	{
-		return false;
-	}
 	if (!PatchGBufferHelpers(OverlayDir, OutError))
 	{
 		return false;

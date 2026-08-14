@@ -1,9 +1,9 @@
 {
 	"FileVersion": 3,
-	"Version": 50,
-	"VersionName": "0.15.0",
+	"Version": 51,
+	"VersionName": "0.15.1",
 	"FriendlyName": "MultiLobeSpec Activision Micro-Shadow (Legacy Overlay)",
-	"Description": "UE 5.7 legacy deferred shader overlay: dual-lobe GGX, Activision/CoD:WWII direct material micro-shadowing, direct-only MaterialAO transport, Poisson/GTAO visibility baking, and experimental Generic VNDF research mode. No engine fork.",
+	"Description": "UE 5.7 legacy deferred shader overlay: independently gated dual-lobe GGX and Activision/CoD:WWII direct material micro-shadowing, explicit indirect MaterialAO policies, Poisson/GTAO visibility baking, and experimental Generic VNDF research mode. No engine fork.",
 	"Category": "Rendering",
 	"CreatedBy": "Mimirhead",
 	"CanContainContent": false,
