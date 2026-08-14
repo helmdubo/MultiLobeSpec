@@ -1,3 +1,36 @@
+# v0.15.2 — Direct-only cavity depth
+
+- New `Direct Cavity Depth` + advanced `Direct Cavity Power` (Micro Shadowing settings,
+  `MLS.CavityDepth <0..1> [power]`): the direct micro-shadow term is additionally
+  multiplied by `lerp(1, V^power, depth)`. Deepens lit-side cavities toward the Full
+  RGB look while cast shadows and indirect lighting stay exactly unchanged — the term
+  lives only in the direct call sites.
+- Default depth is 0.5 (the calibrated brick-wall look); 0 disables. Identity
+  at depth=0 and at `Visibility=1`, preserving the
+  `Visibility=1 == Off` acceptance invariant. Applies uniformly to all micro-shadow
+  modes and to per-lobe specular; Debug View 4 shows the final multiplier including
+  the cavity term.
+- Both knobs participate in the content-addressed overlay identity (covered by an
+  automation test). `PatchVersion` = 40.
+- Baker reworked to a physically calibrated 4-parameter model (reviewer spec):
+  `Surface Size (cm)`, `Relief Height (cm)`, `Occlusion Radius (cm)`,
+  `Quality (samples/texel)`. Everything else is derived: a unit Poisson solve
+  plus the robust P1..P99 height span yields the relief multiplier (the solve is
+  linear, so no second solve); radius converts cm -> texels so 1K/2K/4K maps get
+  the same physical AO; quality splits into slices/steps at the calibrated 1.6
+  ratio (8..32 / 4..32).
+- Fixed calibrated kernel: distribution power 2.35, falloff `1 - smoothstep(0.6R, R, d)`;
+  `Strength`/`OutputPower` are permanently 1 so the asset stays canonical
+  cosine-weighted visibility. Manual `MaxSlope` replaced by P99.95 winsorization
+  plus an absolute tan(85 deg) limit with the clamped fraction reported.
+- Solver and boundary are automatic (FFT for periodic power-of-two, else
+  multigrid; boundary follows the texture's addressing). Physical presets set
+  only Height/Radius/Quality; Surface Size stays the user's.
+- Each bake writes an `.mlsbake.json` calibration receipt next to the AO asset
+  (surface size, height, radius, quality, derived scale, normal-implied height,
+  solver, warnings) and the UI shows a read-only diagnostics report with
+  under-resolved-radius and wrap-repetition warnings.
+
 # v0.15.1 — Overlay activation and indirect material-visibility policy
 
 - `Preset`, direct micro-shadowing and indirect material visibility now have independent

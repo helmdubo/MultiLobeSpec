@@ -26,6 +26,15 @@ struct FMLSShaderConfig
 	float MicroShadowDiffuseStrength = 1.0f;
 	/** 0..1 art-directed strength; physical default is 1. */
 	float MicroShadowSpecularStrength = 1.0f;
+	/**
+	 * 0..1 extra art-directed darkening of the DIRECT term by visibility itself:
+	 * M *= lerp(1, V^CavityPower, CavityDepth). Confined to direct lighting by
+	 * construction, so cast shadows and indirect-lit areas are exactly unchanged.
+	 * 0 disables and reproduces the pure micro-shadow term.
+	 */
+	float MicroShadowCavityDepth = 0.5f;
+	/** Shape of the cavity term; >1 confines the deepening to the darkest cavities. */
+	float MicroShadowCavityPower = 1.0f;
 	/** EMLSMicroShadowMode numeric value. */
 	int32 MicroShadowMode = 0;
 	/** Dual-blur of the reflected image in Lumen (stochastic lobe selection at ray generation). */
@@ -72,7 +81,7 @@ class FMultiLobeShaderPatcher
 {
 public:
 	/** Bump when the patch logic changes to force overlay rebuild. */
-	static constexpr int32 PatchVersion = 39;
+	static constexpr int32 PatchVersion = 40;
 
 	static bool BuildOverlay(const FString& EngineShaderDir, const FString& OverlayDir,
 	                         const FMLSShaderConfig& Cfg, FString& OutError);

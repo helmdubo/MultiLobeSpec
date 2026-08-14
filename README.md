@@ -28,13 +28,24 @@ is the default indirect policy; Full RGB diffuse is an explicit opt-in. The
 reflection-environment policy removes material AO from stock scalar capture/
 skylight specular occlusion in DirectOnly/Full while preserving geometric AO.
 
+`Direct Cavity Depth` (`MLS.CavityDepth <0..1> [power]`) multiplies the direct
+micro-shadow term by `lerp(1, V^power, depth)`: lit-side cavities deepen toward
+the Full RGB look while cast shadows and indirect lighting stay exactly
+unchanged. Default 0.5; set 0 for the pure micro-shadow term.
+
 `MLS.DebugView 0..5` switches through the existing SceneViewExtension/UserFlags
 path on the next rendered frame, without rebuilding the overlay or recompiling
 shaders.
 
-The baker includes calibrated presets for deep debris, medium stone/brick, and
-shallow sand/earth. Items can be removed from the bake list, and successful
-outputs are assigned to the gathered material instances during the same bake.
+The baker takes four physical parameters — Surface Size (cm), Relief Height
+(cm), Occlusion Radius (cm), Quality (samples/texel) — and derives the rest
+(relief multiplier from a unit Poisson solve and the robust P1..P99 height
+span, pixel radius, slice/step split, fixed sampling kernel), so the same
+settings give the same physical AO at 1K/2K/4K. Presets cover deep debris,
+medium stone/brick, and shallow sand/earth; each bake writes an
+`.mlsbake.json` calibration receipt next to the AO asset. Items can be removed
+from the bake list, and successful outputs are assigned to the gathered
+material instances during the same bake.
 
 - [v0.15 Activision profile and domain audit](ACTIVISION_MICROSHADOW_V015_RU.md)
 - [Russian documentation](README_RU.md)

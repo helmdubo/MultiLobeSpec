@@ -8,7 +8,12 @@
 #include "Math/Float16.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
+#include "Dom/JsonObject.h"
+#include "Misc/FileHelper.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 
+#include <algorithm>
 #include <cfloat>
 
 namespace
@@ -403,7 +408,7 @@ namespace
 	void MultigridVCycle(
 		TArray<FMultigridLevel>& Levels,
 		const int32 LevelIndex,
-		const FMLSBakeSettings& Settings)
+		const FMLSDerivedBakeSettings& Settings)
 	{
 		FMultigridLevel& Level = Levels[LevelIndex];
 		const bool bCoarsest = LevelIndex == Levels.Num() - 1;
@@ -429,7 +434,7 @@ namespace
 		const TArray<float>& RHS,
 		const int32 W,
 		const int32 H,
-		const FMLSBakeSettings& Settings,
+		const FMLSDerivedBakeSettings& Settings,
 		TArray<float>& OutHeight)
 	{
 		TArray<FMultigridLevel> Levels;
@@ -515,9 +520,13 @@ namespace
 		SubtractMean(OutRHS);
 	}
 
+	// Decodes UNIT slopes: no relief multiplier and no slope clamp here. The
+	// physical calibration pass scales and winsorizes AFTER the unit Poisson
+	// solve, so local normal, reconstructed height and horizon sampling stay
+	// consistent under the derived relief multiplier.
 	bool DecodeRGNormalToSlopes(
 		UTexture2D* NormalTex,
-		const FMLSBakeSettings& Settings,
+		const FMLSDerivedBakeSettings& Settings,
 		TArray<float>& OutDX,
 		TArray<float>& OutDY,
 		int32& OutW,
@@ -549,44 +558,27 @@ namespace
 		{
 			// Convert the imported convention to image-space Y-down. For a DirectX normal
 			// map the decoded RG already reconstructs N = (-dh/dx,-dh/dy,+1).
+			// Z is ALWAYS reconstructed from RG on the unit sphere: the blue channel
+			// of compressed normal maps is unreliable and the RG-only path is the
+			// project convention for this baker.
 			const float ScreenNY = Settings.bDirectXNormal ? NY : -NY;
-			if (Settings.bReconstructZ)
+			float XY2 = NX * NX + ScreenNY * ScreenNY;
+			if (XY2 >= 0.999f * 0.999f)
 			{
-				float XY2 = NX * NX + ScreenNY * ScreenNY;
-				if (XY2 >= 0.999f * 0.999f)
-				{
-					const float Scale = 0.999f * FMath::InvSqrt(FMath::Max(XY2, MLS_EPS));
-					NX *= Scale;
-					NY = ScreenNY * Scale;
-					XY2 = NX * NX + NY * NY;
-				}
-				else
-				{
-					NY = ScreenNY;
-				}
-				NZ = FMath::Sqrt(FMath::Max(1.0f - XY2, 0.0f));
+				const float Scale = 0.999f * FMath::InvSqrt(FMath::Max(XY2, MLS_EPS));
+				NX *= Scale;
+				NY = ScreenNY * Scale;
+				XY2 = NX * NX + NY * NY;
 			}
 			else
 			{
 				NY = ScreenNY;
-				const float InvLength = FMath::InvSqrt(FMath::Max(NX * NX + NY * NY + NZ * NZ, MLS_EPS));
-				NX *= InvLength;
-				NY *= InvLength;
-				NZ = FMath::Abs(NZ * InvLength);
 			}
+			NZ = FMath::Sqrt(FMath::Max(1.0f - XY2, 0.0f));
 
 			NZ = FMath::Max(NZ, 1.0e-4f);
-			float P = (-NX / NZ) * Settings.ReliefScale;
-			float Q = (-NY / NZ) * Settings.ReliefScale;
-			const float SlopeLength = FMath::Sqrt(P * P + Q * Q);
-			if (Settings.MaxSlope > 0.0f && SlopeLength > Settings.MaxSlope)
-			{
-				const float Scale = Settings.MaxSlope / FMath::Max(SlopeLength, MLS_EPS);
-				P *= Scale;
-				Q *= Scale;
-			}
-			OutDX[Index] = P;
-			OutDY[Index] = Q;
+			OutDX[Index] = -NX / NZ;
+			OutDY[Index] = -NY / NZ;
 		};
 
 		if (Format == TSF_BGRA8)
@@ -728,15 +720,17 @@ namespace
 		const TArray<float>& DY,
 		const int32 W,
 		const int32 H,
-		const FMLSBakeSettings& Settings,
+		const FMLSDerivedBakeSettings& Settings,
 		TArray<float>& OutVisibility)
 	{
 		const int32 SliceCount = FMath::Clamp(Settings.Slices, 1, 64);
 		const int32 StepCount = FMath::Clamp(Settings.StepsPerSide, 1, 64);
 		const float Radius = static_cast<float>(FMath::Max(Settings.RadiusPx, 1));
 		const float DistributionPower = FMath::Max(Settings.SampleDistributionPower, 0.1f);
-		const float FalloffStart = FMath::Clamp(Settings.FalloffStart, 0.0f, 0.999f);
-		const float FalloffDistance = FMath::Max(Radius * (1.0f - FalloffStart), 1.0e-4f);
+		// Fixed calibrated falloff kernel: full contribution up to 0.6R, smooth
+		// fade to zero at R. Material differences are expressed through the
+		// physical Height/Radius, not through a per-material falloff shape.
+		const float FalloffBegin = 0.6f * Radius;
 
 		TArray<FVector2f> Directions;
 		Directions.SetNumUninitialized(SliceCount);
@@ -765,17 +759,8 @@ namespace
 			for (int32 X = 0; X < W; ++X)
 			{
 				const int32 Index = Y * W + X;
-				float P = DX[Index];
-				float Q = DY[Index];
-				if (!Settings.bUseSourceNormalForAO)
-				{
-					P = 0.5f * (
-						Height[ResolveIndex(X + 1, Y, W, H, Settings.Boundary)] -
-						Height[ResolveIndex(X - 1, Y, W, H, Settings.Boundary)]);
-					Q = 0.5f * (
-						Height[ResolveIndex(X, Y + 1, W, H, Settings.Boundary)] -
-						Height[ResolveIndex(X, Y - 1, W, H, Settings.Boundary)]);
-				}
+				const float P = DX[Index];
+				const float Q = DY[Index];
 
 				const float InvNormalLength = FMath::InvSqrt(FMath::Max(1.0f + P * P + Q * Q, MLS_EPS));
 				const float NX = -P * InvNormalLength;
@@ -826,10 +811,10 @@ namespace
 							FMath::Max(Distance * Distance + DZNegative * DZNegative, MLS_EPS));
 						const float SampleCosPositive = DZPositive / SampleDistancePositive;
 						const float SampleCosNegative = DZNegative / SampleDistanceNegative;
-						const float WeightPositive = FMath::Clamp(
-							(Radius - SampleDistancePositive) / FalloffDistance, 0.0f, 1.0f);
-						const float WeightNegative = FMath::Clamp(
-							(Radius - SampleDistanceNegative) / FalloffDistance, 0.0f, 1.0f);
+						const float WeightPositive =
+							1.0f - FMath::SmoothStep(FalloffBegin, Radius, SampleDistancePositive);
+						const float WeightNegative =
+							1.0f - FMath::SmoothStep(FalloffBegin, Radius, SampleDistanceNegative);
 
 						const float WeightedPositive = FMath::Lerp(-SinN, SampleCosPositive, WeightPositive);
 						const float WeightedNegative = FMath::Lerp( SinN, SampleCosNegative, WeightNegative);
@@ -849,10 +834,9 @@ namespace
 					VisibilitySum += CorrectedProjectedNormalLength * (Arc0 + Arc1);
 				}
 
-				float Visibility = FMath::Clamp(VisibilitySum / static_cast<float>(SliceCount), 0.0f, 1.0f);
-				Visibility = FMath::Clamp(1.0f - Settings.Strength * (1.0f - Visibility), 0.0f, 1.0f);
-				Visibility = FMath::Pow(Visibility, FMath::Max(Settings.OutputPower, 0.01f));
-				OutVisibility[Index] = FMath::Clamp(Visibility, 0.0f, 1.0f);
+				// No Strength/OutputPower remap: the asset is canonical cosine-weighted
+				// visibility (cos(theta) = sqrt(1 - V)); art remaps would break that.
+				OutVisibility[Index] = FMath::Clamp(VisibilitySum / static_cast<float>(SliceCount), 0.0f, 1.0f);
 			}
 		});
 	}
@@ -959,14 +943,78 @@ namespace
 			OutDebug[Index] = 1.0f - FMath::Exp(-Error[Index] / Scale);
 		});
 	}
+
+	float PercentileInPlace(TArray<float>& Scratch, const float Fraction)
+	{
+		const int32 Count = Scratch.Num();
+		if (Count <= 0)
+		{
+			return 0.0f;
+		}
+		const int32 Index = FMath::Clamp(
+			static_cast<int32>(Fraction * static_cast<float>(Count - 1) + 0.5f), 0, Count - 1);
+		std::nth_element(Scratch.GetData(), Scratch.GetData() + Index, Scratch.GetData() + Count);
+		return Scratch[Index];
+	}
+
+	void WriteBakeMetadataSidecar(
+		const FString& AOPackageName,
+		const FString& NormalPath,
+		const FMLSPhysicalBakeSettings& Physical,
+		const FMLSBakeDiagnostics& Diagnostics,
+		const int32 W,
+		const int32 H,
+		TArray<FString>& InOutWarnings)
+	{
+		FString MetadataPath;
+		if (!FPackageName::TryConvertLongPackageNameToFilename(AOPackageName, MetadataPath, TEXT(".mlsbake.json")))
+		{
+			InOutWarnings.Add(TEXT("bake metadata sidecar path could not be resolved"));
+			return;
+		}
+
+		const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetStringField(TEXT("schema"), TEXT("MLSBakeMetadataV1"));
+		Root->SetStringField(TEXT("normalTexture"), NormalPath);
+		Root->SetNumberField(TEXT("surfaceSizeCm"), Physical.SurfaceSizeCm);
+		Root->SetNumberField(TEXT("reliefHeightCm"), Physical.ReliefHeightCm);
+		Root->SetNumberField(TEXT("radiusCm"), Physical.OcclusionRadiusCm);
+		Root->SetNumberField(TEXT("samplesPerTexelRequested"), Physical.QualitySamplesPerTexel);
+		Root->SetNumberField(TEXT("samplesPerTexelActual"), Diagnostics.ActualSamplesPerTexel);
+		Root->SetNumberField(TEXT("derivedReliefScale"), Diagnostics.AppliedReliefScale);
+		Root->SetNumberField(TEXT("normalImpliedHeightCm"), Diagnostics.NormalImpliedHeightCm);
+		Root->SetNumberField(TEXT("cmPerTexel"), Diagnostics.CmPerTexel);
+		Root->SetNumberField(TEXT("radiusTexels"), Diagnostics.RadiusTexels);
+		Root->SetNumberField(TEXT("slices"), Diagnostics.Slices);
+		Root->SetNumberField(TEXT("stepsPerSide"), Diagnostics.StepsPerSide);
+		Root->SetNumberField(TEXT("distributionPower"), 2.35);
+		Root->SetStringField(TEXT("falloffKernel"), TEXT("1 - smoothstep(0.6R, R, d)"));
+		Root->SetNumberField(TEXT("strength"), 1.0);
+		Root->SetNumberField(TEXT("outputPower"), 1.0);
+		Root->SetNumberField(TEXT("clampedSlopeFraction"), Diagnostics.ClampedSlopeFraction);
+		Root->SetStringField(TEXT("solver"), Diagnostics.SolverName);
+		Root->SetStringField(TEXT("boundary"), Diagnostics.BoundaryName);
+		Root->SetNumberField(TEXT("width"), W);
+		Root->SetNumberField(TEXT("height"), H);
+
+		FString Output;
+		const TSharedRef<TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>> Writer =
+			TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&Output);
+		if (!FJsonSerializer::Serialize(Root, Writer)
+			|| !FFileHelper::SaveStringToFile(Output + TEXT("\n"), *MetadataPath))
+		{
+			InOutWarnings.Add(FString::Printf(TEXT("bake metadata sidecar write failed: %s"), *MetadataPath));
+		}
+	}
 }
 
 bool FMLSBakerCore::BakeAOForNormal(
 	UTexture2D* NormalTex,
-	const FMLSBakeSettings& Settings,
+	const FMLSPhysicalBakeSettings& Physical,
 	const FString& NormalSuffix,
 	const FString& AOSuffix,
-	FString& OutMessage)
+	FString& OutMessage,
+	FMLSBakeDiagnostics* OutDiagnostics)
 {
 	if (!NormalTex)
 	{
@@ -974,40 +1022,58 @@ bool FMLSBakerCore::BakeAOForNormal(
 		return false;
 	}
 
+	FMLSBakeDiagnostics Diagnostics;
+
+	// ---- Derived configuration: everything below is computed, never authored ----
+	FMLSDerivedBakeSettings Derived;
+	Derived.bDirectXNormal = Physical.bDirectXNormal;
+	Derived.bWriteDebugTextures = Physical.bWriteDebugTextures;
+	Derived.Reconstruction = EMLSHeightReconstruction::Auto;
+	// Boundary follows the texture's own addressing; periodic tiles also drop the
+	// mean slope so the wrap reconstruction stays well-posed.
+	const bool bWrap = NormalTex->AddressX == TA_Wrap && NormalTex->AddressY == TA_Wrap;
+	Derived.Boundary = bWrap ? EMLSBoundaryMode::Wrap : EMLSBoundaryMode::Clamp;
+	Derived.bRemoveMeanSlope = bWrap;
+	MLS_QualityToSampling(Physical.QualitySamplesPerTexel, Derived.Slices, Derived.StepsPerSide);
+	Diagnostics.Slices = Derived.Slices;
+	Diagnostics.StepsPerSide = Derived.StepsPerSide;
+	Diagnostics.ActualSamplesPerTexel = 2 * Derived.Slices * Derived.StepsPerSide;
+	Diagnostics.BoundaryName = bWrap ? TEXT("Wrap (Auto)") : TEXT("Clamp (Auto)");
+
+	// ---- Unit decode + unit Poisson solve --------------------------------------
 	int32 W = 0;
 	int32 H = 0;
 	TArray<float> DX;
 	TArray<float> DY;
 	FString Error;
-	if (!DecodeRGNormalToSlopes(NormalTex, Settings, DX, DY, W, H, Error))
+	if (!DecodeRGNormalToSlopes(NormalTex, Derived, DX, DY, W, H, Error))
 	{
 		OutMessage = FString::Printf(TEXT("%s: %s"), *NormalTex->GetName(), *Error);
 		return false;
 	}
+	const int32 PixelCount = W * H;
+	const float SurfaceSizeCm = FMath::Max(Physical.SurfaceSizeCm, 1.0f);
+	const float CmPerTexel = SurfaceSizeCm / static_cast<float>(W);
+	Diagnostics.CmPerTexel = CmPerTexel;
 
 	TArray<float> RHS;
-	BuildPoissonRHS(DX, DY, W, H, Settings.Boundary, RHS);
+	BuildPoissonRHS(DX, DY, W, H, Derived.Boundary, RHS);
 
 	TArray<float> Height;
-	FString SolverName;
 	const bool bFFTCompatible =
-		Settings.Boundary == EMLSBoundaryMode::Wrap &&
+		Derived.Boundary == EMLSBoundaryMode::Wrap &&
 		IsPowerOfTwoInt(W) &&
 		IsPowerOfTwoInt(H);
-	const bool bTryFFT =
-		Settings.Reconstruction == EMLSHeightReconstruction::PeriodicFFT ||
-		(Settings.Reconstruction == EMLSHeightReconstruction::Auto && bFFTCompatible);
-
 	bool bSolved = false;
-	if (bTryFFT && bFFTCompatible)
+	if (bFFTCompatible)
 	{
 		bSolved = SolvePoissonPeriodicFFT(RHS, W, H, Height);
-		SolverName = TEXT("FFT");
+		Diagnostics.SolverName = TEXT("FFT (Auto)");
 	}
 	if (!bSolved)
 	{
-		bSolved = SolvePoissonMultigrid(RHS, W, H, Settings, Height);
-		SolverName = bTryFFT && !bFFTCompatible ? TEXT("MG (FFT incompatible)") : TEXT("MG");
+		bSolved = SolvePoissonMultigrid(RHS, W, H, Derived, Height);
+		Diagnostics.SolverName = TEXT("Multigrid (Auto)");
 	}
 	if (!bSolved)
 	{
@@ -1016,18 +1082,89 @@ bool FMLSBakerCore::BakeAOForNormal(
 	}
 	SubtractMean(Height);
 
+	// ---- Physical calibration ---------------------------------------------------
+	// Robust peak-to-valley span (P1..P99 of unit reconstructed height, in
+	// texel-height units); min/max would let a single damaged texel rescale the
+	// whole map. The unit solve is linear, so the requested physical height is a
+	// single multiplier on height AND slopes -- no second solve.
+	{
+		TArray<float> Scratch = Height;
+		const float P1 = PercentileInPlace(Scratch, 0.01f);
+		const float P99 = PercentileInPlace(Scratch, 0.99f);
+		Diagnostics.NormalImpliedHeightCm = FMath::Max(P99 - P1, 0.0f) * CmPerTexel;
+	}
+	const float ReliefMultiplier =
+		FMath::Max(Physical.ReliefHeightCm, 0.001f)
+		/ FMath::Max(Diagnostics.NormalImpliedHeightCm, 1.0e-4f);
+	Diagnostics.AppliedReliefScale = ReliefMultiplier;
+
+	ParallelFor(PixelCount, [&Height, &DX, &DY, ReliefMultiplier](const int32 Index)
+	{
+		Height[Index] *= ReliefMultiplier;
+		DX[Index] *= ReliefMultiplier;
+		DY[Index] *= ReliefMultiplier;
+	});
+
+	// Two-stage slope protection instead of an authored MaxSlope: winsorize the
+	// extreme tail above P99.95, then apply the absolute tan(85 deg) limit. The
+	// clamped fraction is reported, not silently absorbed.
+	{
+		TArray<float> Magnitudes;
+		Magnitudes.SetNumUninitialized(PixelCount);
+		ParallelFor(PixelCount, [&Magnitudes, &DX, &DY](const int32 Index)
+		{
+			Magnitudes[Index] = FMath::Sqrt(DX[Index] * DX[Index] + DY[Index] * DY[Index]);
+		});
+		TArray<float> Scratch = Magnitudes;
+		const float WinsorLimit = PercentileInPlace(Scratch, 0.9995f);
+		constexpr float AbsoluteSlopeLimit = 11.43f; // tan(85 deg)
+		const float SlopeLimit = FMath::Clamp(WinsorLimit, 1.0e-3f, AbsoluteSlopeLimit);
+
+		int64 ClampedCount = 0;
+		for (int32 Index = 0; Index < PixelCount; ++Index)
+		{
+			if (Magnitudes[Index] > SlopeLimit)
+			{
+				const float Scale = SlopeLimit / Magnitudes[Index];
+				DX[Index] *= Scale;
+				DY[Index] *= Scale;
+				++ClampedCount;
+			}
+		}
+		Diagnostics.ClampedSlopeFraction =
+			static_cast<float>(ClampedCount) / static_cast<float>(FMath::Max(PixelCount, 1));
+		if (Diagnostics.ClampedSlopeFraction > 0.001f)
+		{
+			Diagnostics.Warnings.Add(FString::Printf(
+				TEXT("requested height cannot be reproduced without clamping %.2f%% of normal slopes"),
+				Diagnostics.ClampedSlopeFraction * 100.0f));
+		}
+	}
+
+	// ---- Radius: physical -> texels, with tile-sanity warnings ------------------
+	Diagnostics.RadiusTexels = Physical.OcclusionRadiusCm / CmPerTexel;
+	Derived.RadiusPx = FMath::Max(FMath::RoundToInt(Diagnostics.RadiusTexels), 1);
+	if (Diagnostics.RadiusTexels < 2.0f)
+	{
+		Diagnostics.Warnings.Add(FString::Printf(
+			TEXT("occlusion radius is %.2f texels at this density; AO is under-resolved below 2 texels"),
+			Diagnostics.RadiusTexels));
+	}
+	const float TileMinCm = SurfaceSizeCm * FMath::Min(1.0f, static_cast<float>(H) / static_cast<float>(W));
+	if (bWrap && Physical.OcclusionRadiusCm > 0.45f * TileMinCm)
+	{
+		Diagnostics.Warnings.Add(FString::Printf(
+			TEXT("occlusion radius %.1f cm exceeds 45%% of the %.1f cm tile; occluders repeat through the wrap"),
+			Physical.OcclusionRadiusCm, TileMinCm));
+	}
+
 	TArray<float> ResidualError;
 	const float GradientResidualRMS = ComputeGradientResidualRMS(
-		Height,
-		DX,
-		DY,
-		W,
-		H,
-		Settings.Boundary,
-		Settings.bWriteDebugTextures ? &ResidualError : nullptr);
+		Height, DX, DY, W, H, Derived.Boundary,
+		Derived.bWriteDebugTextures ? &ResidualError : nullptr);
 
 	TArray<float> Visibility;
-	ComputeOrthographicGTAO(Height, DX, DY, W, H, Settings, Visibility);
+	ComputeOrthographicGTAO(Height, DX, DY, W, H, Derived, Visibility);
 
 	FString BaseName = NormalTex->GetName();
 	if (!NormalSuffix.IsEmpty() && BaseName.EndsWith(NormalSuffix, ESearchCase::IgnoreCase))
@@ -1040,19 +1177,24 @@ bool FMLSBakerCore::BakeAOForNormal(
 	TArray<uint16> AO16;
 	ConvertUnitFloatToG16(Visibility, AO16);
 	if (!CreateOrUpdateGrayscaleTexture(
-		PackageFolder,
-		AOAssetName,
-		W,
-		H,
-		AO16,
-		Settings.Boundary,
-		Error))
+		PackageFolder, AOAssetName, W, H, AO16, Derived.Boundary, Error))
 	{
 		OutMessage = FString::Printf(TEXT("%s: %s"), *NormalTex->GetName(), *Error);
 		return false;
 	}
 
-	if (Settings.bWriteDebugTextures)
+	// Physical calibration receipt next to the baked asset: re-bakes and the
+	// assignment tool can detect an incompatible SurfaceSize/Height/Radius setup.
+	WriteBakeMetadataSidecar(
+		PackageFolder / AOAssetName,
+		NormalTex->GetPathName(),
+		Physical,
+		Diagnostics,
+		W,
+		H,
+		Diagnostics.Warnings);
+
+	if (Derived.bWriteDebugTextures)
 	{
 		TArray<float> HeightDebug;
 		TArray<float> ResidualDebug;
@@ -1061,13 +1203,7 @@ bool FMLSBakerCore::BakeAOForNormal(
 		BuildHeightDebug(Height, HeightDebug);
 		ConvertUnitFloatToG16(HeightDebug, Debug16);
 		if (!CreateOrUpdateGrayscaleTexture(
-			PackageFolder,
-			BaseName + TEXT("_tex_height"),
-			W,
-			H,
-			Debug16,
-			Settings.Boundary,
-			Error))
+			PackageFolder, BaseName + TEXT("_tex_height"), W, H, Debug16, Derived.Boundary, Error))
 		{
 			OutMessage = FString::Printf(TEXT("%s: AO saved, height debug failed: %s"), *NormalTex->GetName(), *Error);
 			return false;
@@ -1076,13 +1212,7 @@ bool FMLSBakerCore::BakeAOForNormal(
 		BuildResidualDebug(ResidualError, GradientResidualRMS, ResidualDebug);
 		ConvertUnitFloatToG16(ResidualDebug, Debug16);
 		if (!CreateOrUpdateGrayscaleTexture(
-			PackageFolder,
-			BaseName + TEXT("_tex_graderr"),
-			W,
-			H,
-			Debug16,
-			Settings.Boundary,
-			Error))
+			PackageFolder, BaseName + TEXT("_tex_graderr"), W, H, Debug16, Derived.Boundary, Error))
 		{
 			OutMessage = FString::Printf(TEXT("%s: AO saved, residual debug failed: %s"), *NormalTex->GetName(), *Error);
 			return false;
@@ -1098,15 +1228,34 @@ bool FMLSBakerCore::BakeAOForNormal(
 	}
 	MeanAO /= FMath::Max(1, Visibility.Num());
 
+	FString WarningSummary;
+	for (const FString& Warning : Diagnostics.Warnings)
+	{
+		WarningSummary += FString::Printf(TEXT(" | WARN: %s"), *Warning);
+	}
+
 	OutMessage = FString::Printf(
-		TEXT("%s -> %s | %s Poisson | %dx%d | AO min %.3f mean %.3f | grad RMS %.4f"),
+		TEXT("%s -> %s | %s | %dx%d @ %.4f cm/texel | implied H %.2f cm, applied x%.2f | radius %.1f tex | %dx%d = %d spp | AO min %.3f mean %.3f | grad RMS %.4f%s"),
 		*NormalTex->GetName(),
 		*AOAssetName,
-		*SolverName,
+		*Diagnostics.SolverName,
 		W,
 		H,
+		CmPerTexel,
+		Diagnostics.NormalImpliedHeightCm,
+		Diagnostics.AppliedReliefScale,
+		Diagnostics.RadiusTexels,
+		Diagnostics.Slices,
+		Diagnostics.StepsPerSide,
+		Diagnostics.ActualSamplesPerTexel,
 		MinAO,
 		MeanAO,
-		GradientResidualRMS);
+		GradientResidualRMS,
+		*WarningSummary);
+
+	if (OutDiagnostics)
+	{
+		*OutDiagnostics = MoveTemp(Diagnostics);
+	}
 	return true;
 }

@@ -2,7 +2,7 @@ FReply SMLSBakerTab::OnBake()
 {
 	if (FoundNormals.IsEmpty()) return FReply::Handled();
 
-	FScopedSlowTask Task(FoundNormals.Num(), NSLOCTEXT("MLS", "BakingP2V15", "Generating material visibility..."));
+	FScopedSlowTask Task(FoundNormals.Num(), NSLOCTEXT("MLS", "BakingP2V16", "Generating material visibility..."));
 	Task.MakeDialog(true);
 
 	int32 SuccessCount = 0;
@@ -14,10 +14,13 @@ FReply SMLSBakerTab::OnBake()
 		UTexture2D* Texture = WeakTexture.Get();
 		Task.EnterProgressFrame(1.0f, FText::FromString(Texture ? Texture->GetName() : TEXT("<invalid>")));
 		FString Message;
-		if (Texture && FMLSBakerCore::BakeAOForNormal(Texture, Settings, NormalSuffix, AOSuffix, Message))
+		FMLSBakeDiagnostics Diagnostics;
+		if (Texture && FMLSBakerCore::BakeAOForNormal(Texture, Physical, NormalSuffix, AOSuffix, Message, &Diagnostics))
 		{
 			++SuccessCount;
 			SuccessfulNormals.Add(Texture);
+			LastDiagnostics = MoveTemp(Diagnostics);
+			bHasDiagnostics = true;
 		}
 		Details += Message + LINE_TERMINATOR;
 	}
@@ -34,8 +37,13 @@ FReply SMLSBakerTab::OnBake()
 	if (StatusText.IsValid())
 	{
 		StatusText->SetText(FText::FromString(FString::Printf(
-			TEXT("Preset: %s\nGenerated: %d/%d | Applied: %d | Skipped: %d\n%s"),
-			MLS_BakePresetName(BakePreset), SuccessCount, FoundNormals.Num(), AssignmentCount, AssignmentSkipped, *Details)));
+			TEXT("Preset: %s | Surface %.0f cm, Height %.2f cm, Radius %.1f cm, Quality %d spp\nGenerated: %d/%d | Applied: %d | Skipped: %d\n%s"),
+			MLS_BakePresetName(BakePreset),
+			Physical.SurfaceSizeCm,
+			Physical.ReliefHeightCm,
+			Physical.OcclusionRadiusCm,
+			Physical.QualitySamplesPerTexel,
+			SuccessCount, FoundNormals.Num(), AssignmentCount, AssignmentSkipped, *Details)));
 	}
 	return FReply::Handled();
 }

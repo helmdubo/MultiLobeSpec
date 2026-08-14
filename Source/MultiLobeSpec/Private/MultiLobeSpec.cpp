@@ -115,6 +115,16 @@ void FMultiLobeSpecModule::StartupModule()
 		FMultiLobeSpecModule::Get().ApplyFromSettings();
 	}));
 
+	static FAutoConsoleCommand CmdCavity(TEXT("MLS.CavityDepth"), TEXT("Direct-only cavity deepening: MLS.CavityDepth <0..1> [power 0.25..4]. Rebuilds the overlay."), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.IsEmpty()) return;
+		UMultiLobeSpecSettings* S = GetMutableDefault<UMultiLobeSpecSettings>();
+		S->MicroShadowCavityDepth = FMath::Clamp(FCString::Atof(*Args[0]), 0.0f, 1.0f);
+		if (Args.Num() > 1) S->MicroShadowCavityPower = FMath::Clamp(FCString::Atof(*Args[1]), 0.25f, 4.0f);
+		S->SaveConfig();
+		FMultiLobeSpecModule::Get().ApplyFromSettings();
+	}));
+
 	static FAutoConsoleCommand CmdTonemap(TEXT("MLS.Tonemap"), TEXT("MLS.Tonemap 0..4"), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
 	{
 		if (Args.IsEmpty()) return;
@@ -281,11 +291,13 @@ void FMultiLobeSpecModule::LogStatus() const
 		EngineMapping ? **EngineMapping : TEXT("<missing>"));
 
 	UE_LOG(LogMultiLobeSpec, Display,
-		TEXT("Effective config: overlayEnabled=%d brdfEnabled=%d microShadowMode=%d microShadowEnabled=%d indirectVisibility=%d rawVisibilityTransport=%d tonemap=%d debugViewRuntime=%d"),
+		TEXT("Effective config: overlayEnabled=%d brdfEnabled=%d microShadowMode=%d microShadowEnabled=%d cavityDepth=%.2f cavityPower=%.2f indirectVisibility=%d rawVisibilityTransport=%d tonemap=%d debugViewRuntime=%d"),
 		Config.bEnabled ? 1 : 0,
 		Config.bBRDFEnabled ? 1 : 0,
 		Config.MicroShadowMode,
 		Config.bMicroShadow ? 1 : 0,
+		Config.MicroShadowCavityDepth,
+		Config.MicroShadowCavityPower,
 		Config.IndirectMaterialVisibilityMode,
 		Config.NeedsRawMaterialVisibilityTransport() ? 1 : 0,
 		Config.TonemapMode,
