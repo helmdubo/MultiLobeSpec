@@ -24,8 +24,7 @@ private:
 	void ApplyBakePreset(EMLSBakePreset Preset);
 	void MarkBakePresetCustom();
 	FText GetBakePresetText() const;
-	FText GetReconstructionText() const;
-	FText GetBoundaryText() const;
+	FText GetDiagnosticsText() const;
 	void RefreshFoundNormalList();
 	void RemoveNormalFromBakeList(TWeakObjectPtr<UTexture2D> Normal);
 	void GatherFromSelection(
@@ -39,7 +38,9 @@ private:
 		FString& OutDetails) const;
 	bool PassesMasterFilter(const UMaterialInstanceConstant* Instance) const;
 
-	FMLSBakeSettings Settings;
+	FMLSPhysicalBakeSettings Physical;
+	FMLSBakeDiagnostics LastDiagnostics;
+	bool bHasDiagnostics = false;
 	EMLSBakePreset BakePreset = EMLSBakePreset::StoneBrickMedium;
 	TArray<TWeakObjectPtr<UTexture2D>> FoundNormals;
 	TArray<TWeakObjectPtr<UMaterialInstanceConstant>> FoundInstances;

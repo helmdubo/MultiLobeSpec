@@ -88,8 +88,9 @@ bool FMLSRuntimeDebugBuildIdentityTest::RunTest(const FString& Parameters)
 
 	// Cavity knobs are compile-time defines, so they MUST participate in the
 	// content-addressed identity — otherwise a value change reuses a stale overlay.
+	// Values here must differ from the FMLSShaderConfig defaults (0.5 / 1.0).
 	Config.DebugView = 0;
-	Config.MicroShadowCavityDepth = 0.5f;
+	Config.MicroShadowCavityDepth = 0.25f;
 	const FString CavityDepthBuildId = FMultiLobeShaderPatcher::GetOverlayBuildId(Config);
 	TestNotEqual(TEXT("Cavity depth changes overlay build identity"), CavityDepthBuildId, NormalBuildId);
 	Config.MicroShadowCavityPower = 2.0f;

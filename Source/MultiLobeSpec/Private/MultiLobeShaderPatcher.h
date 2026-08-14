@@ -30,9 +30,9 @@ struct FMLSShaderConfig
 	 * 0..1 extra art-directed darkening of the DIRECT term by visibility itself:
 	 * M *= lerp(1, V^CavityPower, CavityDepth). Confined to direct lighting by
 	 * construction, so cast shadows and indirect-lit areas are exactly unchanged.
-	 * 0 (default) reproduces the pure micro-shadow term.
+	 * 0 disables and reproduces the pure micro-shadow term.
 	 */
-	float MicroShadowCavityDepth = 0.0f;
+	float MicroShadowCavityDepth = 0.5f;
 	/** Shape of the cavity term; >1 confines the deepening to the darkest cavities. */
 	float MicroShadowCavityPower = 1.0f;
 	/** EMLSMicroShadowMode numeric value. */

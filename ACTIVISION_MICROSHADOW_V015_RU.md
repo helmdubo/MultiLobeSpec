@@ -88,14 +88,19 @@ Strength = 1
 Output Power = 1
 ```
 
-| Preset | Relief | Max slope | Radius @ 2048 | Slices | Steps | Distribution | Falloff |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Debris / Deep | 0.82 | 10 | 36 | 16 | 12 | 2.55 | 0.58 |
-| Stone / Brick / Medium | 0.65 | 8 | 28 | 16 | 10 | 2.35 | 0.60 |
-| Sand / Earth / Shallow | 0.38 | 6 | 16 | 12 | 8 | 2.20 | 0.55 |
-| Custom | editable values | | | | | | |
+| Preset | Relief Height | Occlusion Radius | Quality |
+|---|---:|---:|---:|
+| Debris / Deep | 5.0 cm | 15 cm | 520 spp |
+| Stone / Brick / Medium | 2.0 cm | 6 cm | 320 spp |
+| Sand / Earth / Shallow | 0.4 cm | 2 cm | 192 spp |
+| Custom | editable values | | |
 
-Radius масштабируется линейно с texture resolution. Baker позволяет удалить элементы из списка и после успешного bake сразу назначает `<base>_tex_ao` в AO slots найденных material instances. Отдельный assignment workflow не нужен.
+Surface Size задаётся пользователем (ширина одного UV-тайла в сантиметрах) и не
+входит в пресеты. Всё остальное — relief multiplier (unit Poisson solve + robust
+P1..P99 span), pixel radius (cm -> texels), slices/steps (из Quality), sampling
+kernel (distribution 2.35, falloff `1 - smoothstep(0.6R, R, d)`) — вычисляется;
+одинаковые настройки дают одинаковый физический AO на 1K/2K/4K. Каждый bake
+пишет `.mlsbake.json` receipt рядом с AO-ассетом. Baker позволяет удалить элементы из списка и после успешного bake сразу назначает `<base>_tex_ao` в AO slots найденных material instances. Отдельный assignment workflow не нужен.
 
 ## Debug and no-fork
 
