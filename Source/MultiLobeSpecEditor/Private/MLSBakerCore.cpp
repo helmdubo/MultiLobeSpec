@@ -754,7 +754,7 @@ namespace
 		}
 
 		OutVisibility.SetNumUninitialized(W * H);
-		ParallelFor(H, [&Height, &DX, &DY, &OutVisibility, &Directions, &Distances, W, H, SliceCount, StepCount, Radius, FalloffDistance, &Settings](const int32 Y)
+		ParallelFor(H, [&Height, &DX, &DY, &OutVisibility, &Directions, &Distances, W, H, SliceCount, StepCount, Radius, FalloffBegin, &Settings](const int32 Y)
 		{
 			for (int32 X = 0; X < W; ++X)
 			{
@@ -961,15 +961,14 @@ namespace
 		const FString& AOPackageName,
 		const FString& NormalPath,
 		const FMLSPhysicalBakeSettings& Physical,
-		const FMLSBakeDiagnostics& Diagnostics,
 		const int32 W,
 		const int32 H,
-		TArray<FString>& InOutWarnings)
+		FMLSBakeDiagnostics& Diagnostics)
 	{
 		FString MetadataPath;
 		if (!FPackageName::TryConvertLongPackageNameToFilename(AOPackageName, MetadataPath, TEXT(".mlsbake.json")))
 		{
-			InOutWarnings.Add(TEXT("bake metadata sidecar path could not be resolved"));
+			Diagnostics.Warnings.Add(TEXT("bake metadata sidecar path could not be resolved"));
 			return;
 		}
 
@@ -1003,7 +1002,7 @@ namespace
 		if (!FJsonSerializer::Serialize(Root, Writer)
 			|| !FFileHelper::SaveStringToFile(Output + TEXT("\n"), *MetadataPath))
 		{
-			InOutWarnings.Add(FString::Printf(TEXT("bake metadata sidecar write failed: %s"), *MetadataPath));
+			Diagnostics.Warnings.Add(FString::Printf(TEXT("bake metadata sidecar write failed: %s"), *MetadataPath));
 		}
 	}
 }
@@ -1189,10 +1188,9 @@ bool FMLSBakerCore::BakeAOForNormal(
 		PackageFolder / AOAssetName,
 		NormalTex->GetPathName(),
 		Physical,
-		Diagnostics,
 		W,
 		H,
-		Diagnostics.Warnings);
+		Diagnostics);
 
 	if (Derived.bWriteDebugTextures)
 	{
