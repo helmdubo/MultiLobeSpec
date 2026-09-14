@@ -2,6 +2,7 @@
 
 #include "Algo/Sort.h"
 #include "Components/MeshComponent.h"
+#include "Components/SceneComponent.h"
 #include "Editor.h"
 #include "EditorAssetLibrary.h"
 #include "EditorUtilityLibrary.h"
@@ -12,8 +13,10 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "Materials/MaterialInterface.h"
+#include "MaterialShared.h"
 #include "Misc/PackageName.h"
 #include "Misc/ScopedSlowTask.h"
+#include "UObject/UnrealType.h"
 
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
@@ -125,11 +128,8 @@ bool SMLSBakerTab::AssignBakedAOToGathered(
 	TArray<FString> AOParameterNames;
 	ParseNames(NormalParamNames, ExplicitNormalNames);
 	ParseNames(AOParamNames, AOParameterNames);
-	if (AOParameterNames.IsEmpty())
-	{
-		OutDetails = TEXT("No AO parameter names configured.\n");
-		return false;
-	}
+	const bool bAutoAOParameters = AOParameterNames.IsEmpty();
+	if (bAutoAOParameters) ParseNames(TEXT("AO1,AO2,AO3"), AOParameterNames);
 
 	for (const TWeakObjectPtr<UMaterialInstanceConstant>& WeakInstance : FoundInstances)
 	{
@@ -141,6 +141,7 @@ bool SMLSBakerTab::AssignBakedAOToGathered(
 		Instance->GetAllTextureParameterInfo(Infos, Ids);
 		int32 FallbackIndex = 0;
 		bool bChanged = false;
+		TUniquePtr<FMaterialUpdateContext> UpdateContext;
 
 		for (const FMaterialParameterInfo& NormalInfo : Infos)
 		{
@@ -158,9 +159,19 @@ bool SMLSBakerTab::AssignBakedAOToGathered(
 			if (AllowedNormals && !AllowedNormals->Contains(NormalTexture)) continue;
 
 			const int32 AONameIndex = ChooseAOParameterIndex(NormalInfo, AOParameterNames, FallbackIndex++);
-			if (!AOParameterNames.IsValidIndex(AONameIndex))
+			FMaterialParameterInfo AOInfo;
+			bool bHasAOParameter = bAutoAOParameters && FindParameterInfoByNamePreferContext(
+				Infos, NormalInfo.Name.ToString() + TEXT("_ao"), NormalInfo, AOInfo);
+			if (!bHasAOParameter && AOParameterNames.IsValidIndex(AONameIndex))
+			{
+				bHasAOParameter = FindParameterInfoByNamePreferContext(
+					Infos, AOParameterNames[AONameIndex], NormalInfo, AOInfo);
+			}
+			if (!bHasAOParameter)
 			{
 				++OutSkipped;
+				OutDetails += FString::Printf(TEXT("%s: no AO parameter for %s.\n"),
+					*Instance->GetName(), *NormalInfo.Name.ToString());
 				continue;
 			}
 
@@ -170,9 +181,7 @@ bool SMLSBakerTab::AssignBakedAOToGathered(
 			const FString AOName = BaseName + AOSuffix;
 			const FString AOPath = (Folder / AOName) + TEXT(".") + AOName;
 			UTexture2D* AOTexture = Cast<UTexture2D>(UEditorAssetLibrary::LoadAsset(AOPath));
-			FMaterialParameterInfo AOInfo;
-			if (!AOTexture || !FindParameterInfoByNamePreferContext(
-				Infos, AOParameterNames[AONameIndex], NormalInfo, AOInfo))
+			if (!AOTexture)
 			{
 				++OutSkipped;
 				OutDetails += FString::Printf(TEXT("%s: skipped %s -> %s.\n"),
@@ -182,6 +191,9 @@ bool SMLSBakerTab::AssignBakedAOToGathered(
 
 			if (!bChanged)
 			{
+				// Detach live mesh/ISM render states before changing their material.
+				UpdateContext = MakeUnique<FMaterialUpdateContext>();
+				UpdateContext->AddMaterialInstance(Instance);
 				Instance->Modify();
 				bChanged = true;
 			}
