@@ -1,3 +1,38 @@
+
+namespace
+{
+	void GatherActorMaterials(AActor* Actor, TArray<UMaterialInterface*>& OutMaterials)
+	{
+		TInlineComponentArray<UMeshComponent*> Components(Actor);
+		// Mimir's static leaves belong to a level-wide ISM pool, not Actor.
+		// Its reflected, plan-aligned leaf view follows rebuilds and bucket migration.
+		// Read only this placement's references; do not scan the shared pool actor.
+		// Reflection keeps MLS usable without a dependency on MimirComposite.
+		if (Actor->GetClass()->GetPathName() == TEXT("/Script/MimirCompositeEditor.MHCompositeActor"))
+		{
+			const FArrayProperty* Leaves = FindFProperty<FArrayProperty>(Actor->GetClass(), TEXT("LeafPlacementComponents"));
+			const FObjectPropertyBase* Leaf = Leaves ? CastField<FObjectPropertyBase>(Leaves->Inner) : nullptr;
+			if (Leaf && Leaf->PropertyClass->IsChildOf(USceneComponent::StaticClass()))
+			{
+				FScriptArrayHelper View(Leaves, Leaves->ContainerPtrToValuePtr<void>(Actor));
+				for (int32 Index = 0; Index < View.Num(); ++Index)
+				{
+					UMeshComponent* Component = Cast<UMeshComponent>(Leaf->GetObjectPropertyValue(View.GetRawPtr(Index)));
+					if (IsValid(Component)) Components.AddUnique(Component);
+				}
+			}
+		}
+		for (UMeshComponent* Component : Components)
+		{
+			if (!IsValid(Component)) continue;
+			for (int32 Slot = 0; Slot < Component->GetNumMaterials(); ++Slot)
+			{
+				if (UMaterialInterface* Material = Component->GetMaterial(Slot)) OutMaterials.AddUnique(Material);
+			}
+		}
+	}
+}
+
 bool SMLSBakerTab::PassesMasterFilter(const UMaterialInstanceConstant* Instance) const
 {
 	if (MasterFilter.TrimStartAndEnd().IsEmpty()) return true;
@@ -52,22 +87,23 @@ void SMLSBakerTab::GatherFromSelection(
 		{
 			if (AActor* Actor = Cast<AActor>(*It))
 			{
-				TInlineComponentArray<UMeshComponent*> Components(Actor);
-				for (UMeshComponent* Component : Components)
-				{
-					for (int32 Slot = 0; Slot < Component->GetNumMaterials(); ++Slot)
-					{
-						if (UMaterialInterface* Material = Component->GetMaterial(Slot)) Materials.AddUnique(Material);
-					}
-				}
+				GatherActorMaterials(Actor, Materials);
 			}
 		}
 	}
 
+	int32 FilteredInstances = 0;
+	TArray<FString> FilteredMasters;
 	for (UMaterialInterface* Material : Materials)
 	{
 		UMaterialInstanceConstant* Instance = Cast<UMaterialInstanceConstant>(Material);
-		if (!Instance || !PassesMasterFilter(Instance)) continue;
+		if (!Instance) continue;
+		if (!PassesMasterFilter(Instance))
+		{
+			++FilteredInstances;
+			if (UMaterial* Base = Instance->GetBaseMaterial()) FilteredMasters.AddUnique(Base->GetName());
+			continue;
+		}
 		OutInstances.AddUnique(Instance);
 		TArray<UTexture*> Textures;
 		Material->GetUsedTextures(Textures);
@@ -87,6 +123,15 @@ void SMLSBakerTab::GatherFromSelection(
 		return A.IsValid() && B.IsValid() ? A->GetPathName() < B->GetPathName() : A.IsValid();
 	});
 	OutSummary = FString::Printf(TEXT("Found %d normal map(s) and %d material instance(s)."), OutNormals.Num(), OutInstances.Num());
+	if (FilteredInstances > 0)
+	{
+		OutSummary += FString::Printf(TEXT("\nMaster filter excluded %d material instance(s)."), FilteredInstances);
+		if (OutInstances.IsEmpty())
+		{
+			FilteredMasters.Sort();
+			OutSummary += TEXT(" Clear Master filter to include them.\nAvailable masters: ") + FString::Join(FilteredMasters, TEXT(", "));
+		}
+	}
 }
 
 FReply SMLSBakerTab::OnGather()

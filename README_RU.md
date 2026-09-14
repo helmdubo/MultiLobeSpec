@@ -1,6 +1,27 @@
-# MultiLobeSpec v0.15.1 — Activision micro-visibility для UE 5.7
+# MultiLobeSpec v0.15.3 — Activision micro-visibility для UE 5.7
 
 Экспериментальный editor-only плагин для legacy deferred shading (`r.Substrate=0`). Он реализует горизонтальную смесь двух GGX-лобов, Generic VNDF-based direct micro-shadowing и RGB indirect material visibility. CARD-09 cone-aware Environment BRDF для reflection captures/skylight реализован как staging path, но выключен: overlay-only static LUT не прошёл SM6 compile-cost gate. Файлы движка не изменяются: плагин создаёт content-addressed shader overlay в `Saved/MultiLobeSpec` и remap-ит `/Engine` только после успешного transactional patch.
+
+## MLS Baker: композитники в сцене
+
+`Find From Selection` поддерживает выделенный `MHCompositeActor`: собирает материалы
+его текущих листьев, включая ISM-компоненты общего пула уровня. Повторяющиеся меши
+и материалы не дублируются; другие бакеты пула не обходятся. Фильтр master-материала
+и суффикс normal map продолжают применяться. По умолчанию Master filter пуст
+(все master-материалы). Если заданный фильтр исключил материалы, Baker сообщает
+об этом и перечисляет найденные master-материалы.
+
+`Bake + Assign` записывает и сохраняет AO-параметры найденных Material Instance
+только для успешно запечённых normal map. Изменяется сам MI-ассет: результат виден
+во всех размещениях, использующих этот материал. Имена AO-параметров берутся из
+настроек Baker. Пустое поле AO parameter names включает автоматическое
+сопоставление `tex2 -> tex2_ao` (аналогично tex4/tex6), затем fallback на AO1/AO2/AO3.
+Явно введённый список сохраняет ручное сопоставление. Обновление выполняется внутри `FMaterialUpdateContext` для живых
+компонентов сцены.
+
+Интеграционная проверка при включённом MimirComposite:
+`MultiLobeSpec.Editor.Baker.CompositeSelectionAndAssign` (Automation, требуется RHI).
+Без MimirComposite проверка сообщает `NOT RUN`; сам MLS не зависит от этого плагина.
 
 ## Обязательный renderer contract
 

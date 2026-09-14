@@ -13,7 +13,7 @@ void SMLSBakerTab::Construct(const FArguments& Args)
 				.Text(NSLOCTEXT("MLS", "BakerTitleV16", "Material Visibility Baker: physically calibrated RG Normal -> Poisson Height -> Orthographic GTAO"))
 			]
 			MLS_ROW(TEXT("Master filter"),
-				SNew(SEditableTextBox).Text_Lambda([this] { return FText::FromString(MasterFilter); })
+				SNew(SEditableTextBox).HintText(FText::FromString(TEXT("All master materials"))).Text_Lambda([this] { return FText::FromString(MasterFilter); })
 				.OnTextCommitted_Lambda([this](const FText& T, ETextCommit::Type) { MasterFilter = T.ToString(); }))
 			MLS_ROW(TEXT("Bake preset"),
 				SNew(SButton).Text(this, &SMLSBakerTab::GetBakePresetText).OnClicked(this, &SMLSBakerTab::OnCycleBakePreset))
@@ -42,7 +42,7 @@ void SMLSBakerTab::Construct(const FArguments& Args)
 				+ SHorizontalBox::Slot().FillWidth(.5f)[ SNew(SEditableTextBox).Text_Lambda([this] { return FText::FromString(NormalSuffix); }).OnTextCommitted_Lambda([this](const FText& T, ETextCommit::Type) { NormalSuffix = T.ToString(); }) ]
 				+ SHorizontalBox::Slot().FillWidth(.5f)[ SNew(SEditableTextBox).Text_Lambda([this] { return FText::FromString(AOSuffix); }).OnTextCommitted_Lambda([this](const FText& T, ETextCommit::Type) { AOSuffix = T.ToString(); }) ])
 			MLS_ROW(TEXT("AO parameter names"),
-				SNew(SEditableTextBox).Text_Lambda([this] { return FText::FromString(AOParamNames); }).OnTextCommitted_Lambda([this](const FText& T, ETextCommit::Type) { AOParamNames = T.ToString(); }))
+				SNew(SEditableTextBox).HintText(FText::FromString(TEXT("Auto: tex2 -> tex2_ao; Normal1 -> AO1"))).Text_Lambda([this] { return FText::FromString(AOParamNames); }).OnTextCommitted_Lambda([this](const FText& T, ETextCommit::Type) { AOParamNames = T.ToString(); }))
 			MLS_ROW(TEXT("Assign immediately after bake"),
 				SNew(SCheckBox).IsChecked_Lambda([this] { return bAssignAfterBake ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }).OnCheckStateChanged_Lambda([this](ECheckBoxState S) { bAssignAfterBake = S == ECheckBoxState::Checked; }))
 			MLS_ROW(TEXT("Write height / gradient-error debug"),

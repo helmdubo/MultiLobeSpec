@@ -18,6 +18,7 @@ public:
 	void Construct(const FArguments& Args);
 
 private:
+	friend class FMLSBakerCompositeSelectionTest;
 	FReply OnGather();
 	FReply OnBake();
 	FReply OnCycleBakePreset();
@@ -47,9 +48,9 @@ private:
 	TSharedPtr<STextBlock> StatusText;
 	TSharedPtr<SVerticalBox> ListRowsWidget;
 
-	FString MasterFilter = TEXT("rendinst_vcolor_layered");
+	FString MasterFilter;
 	FString NormalParamNames;
-	FString AOParamNames = TEXT("AO1,AO2,AO3");
+	FString AOParamNames;
 	FString NormalSuffix = TEXT("_tex_n");
 	FString AOSuffix = TEXT("_tex_ao");
 	bool bAssignAfterBake = true;
