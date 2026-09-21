@@ -1,4 +1,5 @@
 #include "MultiLobeSpec.h"
+#include "FogMS_BoxRuntime.h"
 #include "MultiLobeSpecSettings.h"
 #include "MultiLobeShaderPatcher.h"
 #include "MultiLobeSpecViewExtension.h"
@@ -18,6 +19,27 @@
 DEFINE_LOG_CATEGORY(LogMultiLobeSpec);
 IMPLEMENT_MODULE(FMultiLobeSpecModule, MultiLobeSpec)
 
+namespace
+{
+	bool FogMS_InDiagnostic = false;
+	float FogMS_PreviousTweak = 1.0f;
+	int32 FogMS_PreviousTemporal = 1;
+
+	void FogMS_ResetDiagnostic()
+	{
+		if (!FogMS_InDiagnostic) return;
+		if (IConsoleVariable* Tweak = IConsoleManager::Get().FindConsoleVariable(TEXT("r.GeneralPurposeTweak")))
+		{
+			Tweak->Set(FogMS_PreviousTweak, ECVF_SetByConsole);
+		}
+		if (IConsoleVariable* Temporal = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricFog.TemporalReprojection")))
+		{
+			Temporal->Set(FogMS_PreviousTemporal, ECVF_SetByConsole);
+		}
+		FogMS_InDiagnostic = false;
+	}
+}
+
 static FString MLS_GetOverlayDir(const FMLSShaderConfig& Cfg)
 {
 	const FString BuildId = FMultiLobeShaderPatcher::GetOverlayBuildId(Cfg);
@@ -35,6 +57,7 @@ static FMLSShaderConfig MLS_ConfigFromSettings()
 {
 	FMLSShaderConfig Config;
 	GetDefault<UMultiLobeSpecSettings>()->FillConfig(Config);
+	Config.FogMS = FFogMSShaderPatcher::ReadConfig();
 	return Config;
 }
 
@@ -81,6 +104,40 @@ void FMultiLobeSpecModule::StartupModule()
 	static FAutoConsoleCommand CmdOff(TEXT("MLS.Disable"), TEXT("Restore previous shader mapping."), FConsoleCommandDelegate::CreateLambda([] { FMultiLobeSpecModule::Get().DisableAndRecompile(); }));
 	static FAutoConsoleCommand CmdCapabilities(TEXT("MLS.Capabilities"), TEXT("Print MLS capability manifest."), FConsoleCommandDelegate::CreateLambda([] { FMultiLobeSpecModule::Get().LogCapabilities(); }));
 	static FAutoConsoleCommand CmdStatus(TEXT("MLS.Status"), TEXT("Print overlay/mapping/config/marker health report."), FConsoleCommandDelegate::CreateLambda([] { FMultiLobeSpecModule::Get().LogStatus(); }));
+	static FAutoConsoleCommand FogMS_Apply(TEXT("FogMS.Apply"), TEXT("Apply FogMS CVars and capture the fog component Extinction Scale; uses the shared MLS overlay."), FConsoleCommandDelegate::CreateLambda([] { FMultiLobeSpecModule::Get().ApplyFromSettings(); }));
+	static FAutoConsoleCommand FogMS_Status(TEXT("FogMS.Status"), TEXT("Print active overlay and requested FogMS settings."), FConsoleCommandDelegate::CreateLambda([] { FMultiLobeSpecModule::Get().LogStatus(); }));
+	static FAutoConsoleCommand FogMS_Debug(TEXT("FogMS.Debug"), TEXT("0 normal, 1 extinction, 2 transmittance, 3 seam error, 4 authored Box density (requires Indirect Shadowing). Temporarily disables fog history; restores it with 0."), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() != 1) return;
+		IConsoleVariable* Tweak = IConsoleManager::Get().FindConsoleVariable(TEXT("r.GeneralPurposeTweak"));
+		IConsoleVariable* Temporal = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricFog.TemporalReprojection"));
+		if (!Tweak || !Temporal) return;
+		const int32 Mode = FMath::Clamp(FCString::Atoi(*Args[0]), 0, 4);
+		if (Mode > 0)
+		{
+			const FMultiLobeSpecModule& Module = FMultiLobeSpecModule::Get();
+			FString ActiveConfig;
+			if (!Module.bOverlayActive || !FFileHelper::LoadFileToString(ActiveConfig, *(Module.ActiveOverlayDir / TEXT("Private/FogMS_Config.ush")))
+				|| !ActiveConfig.Contains(TEXT("#define FOGMS_ENABLED 1")) || !ActiveConfig.Contains(TEXT("#define FOGMS_DEBUG_VIEWS 1")))
+			{
+				UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS.Debug requires an active FogMS overlay with DebugViews=1; use FogMS.Apply first."));
+				return;
+			}
+			if (!FogMS_InDiagnostic)
+			{
+				FogMS_PreviousTweak = Tweak->GetFloat();
+				FogMS_PreviousTemporal = Temporal->GetInt();
+			}
+			Temporal->Set(0, ECVF_SetByConsole);
+			Tweak->Set(static_cast<float>(100 + Mode), ECVF_SetByConsole);
+			FogMS_InDiagnostic = true;
+		}
+		else
+		{
+			FogMS_ResetDiagnostic();
+		}
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS.Debug=%d; temporal reprojection=%d. Requires an active FogMS overlay with DebugViews=1."), Mode, Temporal->GetInt());
+	}));
 
 	static FAutoConsoleCommand CmdPreset(TEXT("MLS.Preset"), TEXT("MLS.Preset 0|1|2|3"), FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
 	{
@@ -135,19 +192,22 @@ void FMultiLobeSpecModule::StartupModule()
 	}));
 
 	const FMLSShaderConfig Config = MLS_ConfigFromSettings();
-	if (Config.bEnabled || Config.TonemapMode != 0) ApplyAndRecompile();
+	if (Config.bEnabled || Config.TonemapMode != 0 || Config.FogMS.bEnabled) ApplyAndRecompile();
 	else SetRuntimeDebugView(0, false);
 }
 
-void FMultiLobeSpecModule::ApplyFromSettings()
+bool FMultiLobeSpecModule::ApplyFromSettings()
 {
 	const FMLSShaderConfig Config = MLS_ConfigFromSettings();
-	if (Config.bEnabled || Config.TonemapMode != 0) ApplyAndRecompile();
-	else DisableAndRecompile();
+	if (Config.bEnabled || Config.TonemapMode != 0 || Config.FogMS.bEnabled) return ApplyAndRecompile();
+	DisableAndRecompile();
+	return !bOverlayActive;
 }
 
 void FMultiLobeSpecModule::ShutdownModule()
 {
+	FogMS_ResetDiagnostic();
+	FFogMSBoxRuntime::Shutdown();
 	if (RuntimeViewExtension.IsValid()) RuntimeViewExtension->SetDebugView(0);
 	RuntimeViewExtension.Reset();
 }
@@ -155,6 +215,11 @@ void FMultiLobeSpecModule::ShutdownModule()
 bool FMultiLobeSpecModule::ApplyInternal(FString& OutError)
 {
 	const FMLSShaderConfig Config = MLS_ConfigFromSettings();
+	if (Config.FogMS.bEnabled && !Config.FogMS.Error.IsEmpty())
+	{
+		OutError = Config.FogMS.Error;
+		return false;
+	}
 	const FString OverlayDir = MLS_GetOverlayDir(Config);
 	const bool bRawTransport = Config.NeedsRawMaterialVisibilityTransport();
 	if (bRawTransport && !MLS_CheckRawMaterialVisibilityTransportPrerequisites(OutError)) return false;
@@ -180,7 +245,7 @@ bool FMultiLobeSpecModule::ApplyInternal(FString& OutError)
 	return true;
 }
 
-void FMultiLobeSpecModule::ApplyAndRecompile()
+bool FMultiLobeSpecModule::ApplyAndRecompile()
 {
 	FString Error;
 	if (!ApplyInternal(Error))
@@ -198,16 +263,22 @@ void FMultiLobeSpecModule::ApplyAndRecompile()
 		{
 			Item->SetCompletionState(SNotificationItem::CS_Fail);
 		}
-		return;
+		return false;
 	}
 	const FMLSShaderConfig Config = MLS_ConfigFromSettings();
 	UE_LOG(LogMultiLobeSpec, Log, TEXT("Overlay active: %s | MicroShadow=%d | IndirectVisibility=%d"), *ActiveOverlayDir, Config.MicroShadowMode, Config.IndirectMaterialVisibilityMode);
+	if (!Config.FogMS.bEnabled || !Config.FogMS.bDebugViews) FogMS_ResetDiagnostic();
+	UE_LOG(LogMultiLobeSpec, Log, TEXT("FogMS A1: enabled=%d steps=%d march_cm=%.9g max_cm=%.9g exclude_global=%d extinction_scale=%.9g debug_views=%d. Extinction Scale changes require FogMS.Apply."),
+		Config.FogMS.bEnabled ? 1 : 0, Config.FogMS.Steps, Config.FogMS.MarchDistance, Config.FogMS.MaxDistance,
+		Config.FogMS.bExcludeGlobalLayer ? 1 : 0, Config.FogMS.GlobalExtinctionScale, Config.FogMS.bDebugViews ? 1 : 0);
 	SetRuntimeDebugView(Config.DebugView, false);
 	TriggerRecompile();
+	return true;
 }
 
 void FMultiLobeSpecModule::DisableAndRecompile()
 {
+	FogMS_ResetDiagnostic();
 	SetRuntimeDebugView(0, false);
 	if (!bOverlayActive) return;
 	const FString RestoreDir = PreviousEngineMapping.IsEmpty() ? OriginalEngineShaderDir : PreviousEngineMapping;
@@ -284,6 +355,10 @@ void FMultiLobeSpecModule::LogStatus() const
 	UE_LOG(LogMultiLobeSpec, Display, TEXT("Target overlay for current settings: %s%s"),
 		*TargetDir,
 		(bOverlayActive && TargetDir == ActiveOverlayDir) ? TEXT("  (matches active)") : TEXT("  (NOT the active overlay — settings changed since last apply)"));
+	UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS requested: enabled=%d steps=%d march_cm=%.9g max_cm=%.9g exclude_global=%d extinction_scale=%.9g debug_views=%d error=%s"),
+		Config.FogMS.bEnabled ? 1 : 0, Config.FogMS.Steps, Config.FogMS.MarchDistance, Config.FogMS.MaxDistance,
+		Config.FogMS.bExcludeGlobalLayer ? 1 : 0, Config.FogMS.GlobalExtinctionScale, Config.FogMS.bDebugViews ? 1 : 0,
+		Config.FogMS.Error.IsEmpty() ? TEXT("none") : *Config.FogMS.Error);
 
 	const TMap<FString, FString> Mappings = AllShaderSourceDirectoryMappings();
 	const FString* EngineMapping = Mappings.Find(TEXT("/Engine"));

@@ -1,0 +1,127 @@
+{
+  "snapshot": "FogMS B1 World Current Frame, Package6, 2026-09-21",
+  "engine": "UE5.8.2 CL56702186, source read-only",
+  "build": {
+    "target": "Win64 Editor",
+    "command": "BuildPlugin -StrictIncludes",
+    "result": "PASS",
+    "actions": 36,
+    "log": "Build6.log"
+  },
+  "runtime": {
+    "api": "D3D12 SM6 BindlessAll",
+    "gpu": "RTX3070",
+    "mode": "<FogMSScatteringMode.WORLD_SPACE: 3>",
+    "status": "Active World primary + three current-frame scattering orders (no fog history)",
+    "cvars": {
+      "r.FogMS.World.Indirect": "1",
+      "r.RHICmd.ParallelTranslate.Enable": "false",
+      "r.Lumen.HardwareRayTracing": "1",
+      "r.RayTracing.Culling": "0",
+      "r.LumenScene.GPUDrivenUpdate": "0",
+      "r.RayTracing.Nanite.Mode": "0",
+      "r.Lumen.AsyncCompute": "0",
+      "r.RDG.AsyncCompute": "1",
+      "r.Lumen.TranslucencyVolume.RadianceCache": "0"
+    }
+  },
+  "camera": {
+    "direct": {
+      "MSOnly": {
+        "expected_zero": false,
+        "baseline_rgb_rms": 0.09991156977342004,
+        "max_relative_rgb_rms_error": 5.011040599162967e-06,
+        "within_threshold": true,
+        "interpretation": "MS strength is already applied; raw RGB is compared without another scale."
+      },
+      "BaseIndirect": {
+        "expected_zero": true,
+        "baseline_rgb_rms": 0.0,
+        "max_relative_rgb_rms_error": 0.0,
+        "within_threshold": true,
+        "interpretation": "BaseIndirect has its own denominator and is never pooled with MSOnly."
+      }
+    },
+    "full": {
+      "MSOnly": {
+        "expected_zero": false,
+        "baseline_rgb_rms": 0.1988113616221189,
+        "max_relative_rgb_rms_error": 0.0002650307245224637,
+        "within_threshold": true,
+        "interpretation": "MS strength is already applied; raw RGB is compared without another scale."
+      },
+      "BaseIndirect": {
+        "expected_zero": false,
+        "baseline_rgb_rms": 3.7639862653311296,
+        "max_relative_rgb_rms_error": 0.0006247448249891721,
+        "within_threshold": true,
+        "interpretation": "BaseIndirect has its own denominator and is never pooled with MSOnly."
+      }
+    }
+  },
+  "camera_coverage": {
+    "comparisons_each": 39,
+    "orbit_positions": 12,
+    "dolly_positions": 4,
+    "turn_away_positions": 2,
+    "fov_degrees": [
+      40,
+      90,
+      120
+    ],
+    "all_dump_producer_frames_match": true,
+    "render_frames_between_barrier_measurement": 6,
+    "camera_fov_autosave_restored": true
+  },
+  "radiometry_subset": {
+    "zero_source": "PASS",
+    "zero_albedo": "PASS",
+    "source_double": "exact 2x all texels",
+    "strength_zero": "MS zero, BaseIndirect survives",
+    "rc0_rc1_relative_rms": {
+      "MSOnly": 0.0002237746632836864,
+      "BaseIndirect": 0.0005387705525144533
+    }
+  },
+  "energy_conservation": "NOT CERTIFIED; structural B1 losses and native mismatches documented in FogMS_Energy_Audit.md",
+  "full_gi_baseline_coverage": {
+    "grid_cells": 32768,
+    "centers_in_solid_cubes": 1364,
+    "centers_with_missing_rays": 1364,
+    "centers_missing_all_rays": 858,
+    "centers_outside_solids": 31404,
+    "missing_rays_outside_solids": 0,
+    "rays_outside_solids": 2009856
+  },
+  "soak": {
+    "status": "COMPLETED",
+    "frames": 1800,
+    "seconds": 93.06200000000536,
+    "mode_transitions": 15
+  },
+  "performance": {
+    "single_profile_compute_ms": 1.605,
+    "previous_round_with_copy_ms": 1.708,
+    "scope": "own world passes, not total FogMS or preset impact"
+  },
+  "files": {
+    "installed": 81,
+    "staged_sources": 57,
+    "engine_anchors": 6,
+    "crash_guard": 2
+  },
+  "log_note": "No renderer ensure/error/crash in Package6 verification; finish6 tooling assertion initially expected string0 from bool false, corrected to integer getter.",
+  "owner_feedback": "Improved image; indirect shadows too dark, owner uses strength0.5. External audit requested before next algorithm slice.",
+  "limits": [
+    "g0",
+    "single perspective realtime view",
+    "three damped finite-range orders",
+    "native Lumen update latency",
+    "masked triangles opaque",
+    "32^3 interpolation near geometry",
+    "unsupported source types fail explicitly",
+    "Shipping/stereo/captures not verified",
+    "B2/SSFS/full surface coupling incomplete"
+  ],
+  "full_local_evidence": "FogMS_B1_Report.md lists local logs/readbacks; not included in this compact summary."
+}

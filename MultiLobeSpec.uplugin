@@ -6,9 +6,14 @@
 	"Description": "UE 5.7 legacy deferred shader overlay: independently gated dual-lobe GGX and Activision/CoD:WWII direct material micro-shadowing, explicit indirect MaterialAO policies, Poisson/GTAO visibility baking, and experimental Generic VNDF research mode. No engine fork.",
 	"Category": "Rendering",
 	"CreatedBy": "Mimirhead",
-	"CanContainContent": false,
+	"CanContainContent": true,
 	"IsBetaVersion": true,
 	"Modules": [
+		{
+			"Name": "FogMSRender",
+			"Type": "Editor",
+			"LoadingPhase": "PostConfigInit"
+		},
 		{
 			"Name": "MultiLobeSpec",
 			"Type": "Editor",

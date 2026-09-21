@@ -1,0 +1,220 @@
+// Experimental world-space transfer of the previous native fog source, for g=0 only.
+// RGB output is incoming radiance. Receiver sigma_s, gain and pre-exposure belong to
+// the native fog consumer and must each be applied exactly once there.
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Shared/RayTracingDefinitions.h"
+
+RaytracingAccelerationStructure TLAS;
+Texture3D<float4> SourceHistory;
+Texture2D<float> SourceHistoryDepth;
+SamplerState SourceHistorySampler;
+float4x4 PrevTranslatedWorldToClip;
+float4x4 PrevNativeClipToTranslatedWorld;
+float4x4 PrevNativeTranslatedWorldToClip;
+float4 PrevInvDeviceZToWorldZ;
+float4 PrevGridZAndInvSize;
+float2 PrevViewGridToResourceUV;
+float3 HistoryUVMin;
+float3 HistoryUVMax;
+float4 HistoryClipXYBounds; // minX, maxX, minY, maxY in unjittered NDC.
+float2 HistoryClipDepthBounds; // Positive min/max Clip.w after inverse logarithmic Z mapping.
+int3 HistoryResourceGridSize;
+int2 HistoryViewGridSize;
+uint UseHistoryDepth;
+float3 BoxCenterTranslated;
+float4 BoxAxisX;
+float4 BoxAxisY;
+float4 BoxAxisZ;
+float HistoryInvPreExposure;
+float RangeCm;
+int StepCount;
+int GridSize;
+RWTexture2D<float4> OutSpatial;
+
+// Equal-weight icosahedral vertices. Directions are fixed in world space: neither
+// the camera nor frame jitter rotates the transport quadrature.
+static const float3 FogMS_SpatialDirections[12] =
+{
+	float3(0, 0.5257311121f, 0.8506508084f), float3(0, -0.5257311121f, 0.8506508084f),
+	float3(0, 0.5257311121f, -0.8506508084f), float3(0, -0.5257311121f, -0.8506508084f),
+	float3(0.5257311121f, 0.8506508084f, 0), float3(-0.5257311121f, 0.8506508084f, 0),
+	float3(0.5257311121f, -0.8506508084f, 0), float3(-0.5257311121f, -0.8506508084f, 0),
+	float3(0.8506508084f, 0, 0.5257311121f), float3(0.8506508084f, 0, -0.5257311121f),
+	float3(-0.8506508084f, 0, 0.5257311121f), float3(-0.8506508084f, 0, -0.5257311121f)
+};
+
+bool FogMS_SpatialHistoryTexelValid(int3 Cell)
+{
+	// Reproduce the producer's early-out, VolumetricFog.usf:860-878. It tests
+	// the near face (z-0.5), not the sample's arbitrary world depth or alpha.
+	float SliceDepth = ComputeDepthFromZSlice(PrevGridZAndInvSize.xyz, max(float(Cell.z) - 0.5f, 0.0f));
+	float DeviceZ = 1.0f / ((SliceDepth + PrevInvDeviceZToWorldZ.w) * PrevInvDeviceZToWorldZ.z);
+	float2 NDC = ((float2(Cell.xy) + 0.5f) / float2(HistoryViewGridSize) * 2.0f - 1.0f) * float2(1.0f, -1.0f);
+	float4 Translated = mul(float4(NDC, DeviceZ, 1.0f), PrevNativeClipToTranslatedWorld);
+	if (!all(isfinite(Translated)) || Translated.w == 0.0f) return false;
+	float4 Clip = mul(float4(Translated.xyz / Translated.w, 1.0f), PrevNativeTranslatedWorldToClip);
+	if (!all(isfinite(Clip)) || Clip.w <= 0.0f) return false;
+	// Depth allocation uses ResourceGridSize; its populated sub-rect uses ViewGridSize.
+	int2 DepthCell = min(Cell.xy, HistoryViewGridSize - 1);
+	float SceneDeviceZ = SourceHistoryDepth.Load(int3(DepthCell, 0));
+	return isfinite(SceneDeviceZ) && SceneDeviceZ <= Clip.z / Clip.w;
+}
+
+bool FogMS_SpatialHistoryFootprintValid(float3 UV)
+{
+	if (UseHistoryDepth == 0) return true;
+	float3 Cell = UV * float3(HistoryResourceGridSize) - 0.5f;
+	int3 Base = int3(floor(Cell));
+	float3 Fraction = frac(Cell);
+	// A zeroed, camera-occluded tap is missing information, not empty medium.
+	// Reject any contributing invalid tap; do not renormalize the remaining light.
+	UNROLL
+	for (uint Z = 0; Z < 2; ++Z)
+	{
+		UNROLL
+		for (uint Y = 0; Y < 2; ++Y)
+		{
+			UNROLL
+			for (uint X = 0; X < 2; ++X)
+			{
+				float Weight = (X ? Fraction.x : 1.0f - Fraction.x)
+					* (Y ? Fraction.y : 1.0f - Fraction.y) * (Z ? Fraction.z : 1.0f - Fraction.z);
+				if (Weight > 0.0f && !FogMS_SpatialHistoryTexelValid(clamp(Base + int3(X, Y, Z), 0, HistoryResourceGridSize - 1)))
+					return false;
+			}
+		}
+	}
+	return true;
+}
+
+bool FogMS_ReadSpatialSource(float3 TranslatedPosition, out float4 Source)
+{
+	Source = 0.0f;
+	float4 Clip = mul(float4(TranslatedPosition, 1.0f), PrevTranslatedWorldToClip);
+	if (!all(isfinite(Clip)) || Clip.w <= 0.0f) return false;
+	float LogArgument = Clip.w * PrevGridZAndInvSize.x + PrevGridZAndInvSize.y;
+	if (!isfinite(LogArgument) || LogArgument <= 0.0f) return false;
+	float3 UV;
+	UV.xy = (Clip.xy / Clip.w * float2(0.5f, -0.5f) + 0.5f) * PrevViewGridToResourceUV;
+	UV.z = log2(LogArgument) * PrevGridZAndInvSize.z * PrevGridZAndInvSize.w;
+	// Reject before sampling: a clamp sampler must never extend the lit frustum edge.
+	if (!all(isfinite(UV)) || any(UV < HistoryUVMin) || any(UV > HistoryUVMax)) return false;
+	if (!FogMS_SpatialHistoryFootprintValid(UV)) return false;
+	float4 History = SourceHistory.SampleLevel(SourceHistorySampler, UV, 0);
+	if (!all(isfinite(History)) || any(History < 0.0f)) return false;
+	Source = float4(History.rgb * HistoryInvPreExposure, History.a);
+	return all(isfinite(Source));
+}
+
+bool FogMS_SpatialClipPlane(float AtOrigin, float AlongRay, inout float Distance)
+{
+	// The origin must be in the known domain. An unseen segment between receiver
+	// and a later frustum entry has unknown absorption and must not become vacuum.
+	if (!isfinite(AtOrigin) || !isfinite(AlongRay) || AtOrigin < 0.0f) return false;
+	if (AlongRay < 0.0f) Distance = min(Distance, AtOrigin / -AlongRay);
+	return true;
+}
+
+float FogMS_SpatialHistoryLimit(float3 Origin, float3 Direction, float Distance)
+{
+	float4 O = mul(float4(Origin, 1.0f), PrevTranslatedWorldToClip);
+	float4 D = mul(float4(Direction, 0.0f), PrevTranslatedWorldToClip);
+	// Each inequality is A + B*t >= 0. Perspective division is avoided because
+	// Clip.w is positive throughout the independently clipped logarithmic Z slab.
+	if (!FogMS_SpatialClipPlane(O.x - HistoryClipXYBounds.x * O.w, D.x - HistoryClipXYBounds.x * D.w, Distance)
+		|| !FogMS_SpatialClipPlane(HistoryClipXYBounds.y * O.w - O.x, HistoryClipXYBounds.y * D.w - D.x, Distance)
+		|| !FogMS_SpatialClipPlane(O.y - HistoryClipXYBounds.z * O.w, D.y - HistoryClipXYBounds.z * D.w, Distance)
+		|| !FogMS_SpatialClipPlane(HistoryClipXYBounds.w * O.w - O.y, HistoryClipXYBounds.w * D.w - D.y, Distance)
+		|| !FogMS_SpatialClipPlane(O.w - HistoryClipDepthBounds.x, D.w, Distance)
+		|| !FogMS_SpatialClipPlane(HistoryClipDepthBounds.y - O.w, -D.w, Distance)) return 0.0f;
+	return max(Distance, 0.0f);
+}
+
+float FogMS_SpatialBoxExit(float3 LocalOrigin, float3 Direction)
+{
+	float3 LocalDirection = float3(dot(Direction, BoxAxisX.xyz), dot(Direction, BoxAxisY.xyz), dot(Direction, BoxAxisZ.xyz));
+	float3 Extent = float3(BoxAxisX.w, BoxAxisY.w, BoxAxisZ.w);
+	float Distance = RangeCm;
+	UNROLL
+	for (uint Axis = 0; Axis < 3; ++Axis)
+	{
+		if (abs(LocalDirection[Axis]) > 1.0e-8f)
+		{
+			float Boundary = LocalDirection[Axis] > 0.0f ? Extent[Axis] : -Extent[Axis];
+			Distance = min(Distance, max(0.0f, (Boundary - LocalOrigin[Axis]) / LocalDirection[Axis]));
+		}
+	}
+	return Distance;
+}
+
+float FogMS_SpatialGeometryLimit(float3 Origin, float3 Direction, float MaxDistance)
+{
+	if (MaxDistance <= 0.0f) return 0.0f;
+	// Same translated-world -> TLAS translation as RayTracingCommon.ush, without
+	// material/procedural bindings that this triangle-only query does not consume.
+	FDFVector3 TLASTranslation = MakeDFVector3(View.TLASPreViewTranslationHigh, View.TLASPreViewTranslationLow);
+	RayDesc Ray;
+	Ray.Origin = Origin - DFFastSubtractDemote(PrimaryView.PreViewTranslation, TLASTranslation);
+	Ray.Direction = Direction;
+	Ray.TMin = 0.0f;
+	Ray.TMax = MaxDistance;
+	RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> Query;
+	Query.TraceRayInline(TLAS, RAY_FLAG_NONE, RAY_TRACING_MASK_OPAQUE, Ray);
+	// Nearest committed hit is required. ACCEPT_FIRST_HIT would permit integration
+	// behind a nearer wall when traversal encounters a farther triangle first.
+	while (Query.Proceed()) {}
+	return Query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? min(MaxDistance, Query.CommittedRayT()) : MaxDistance;
+}
+
+float FogMS_SpatialIntegralWeight(float Sigma, float Distance, out float SegmentT)
+{
+	float Tau = Sigma * Distance;
+	SegmentT = exp(-Tau);
+	// q * ds * (1-exp(-tau))/tau is the analytic constant-source segment integral.
+	// This series preserves the exact sigma=0 emissive limit without q/sigma overflow.
+	if (Tau < 1.0e-3f)
+		return Distance * (1.0f - Tau * 0.5f + Tau * Tau / 6.0f - Tau * Tau * Tau / 24.0f);
+	return (1.0f - SegmentT) / Sigma;
+}
+
+[numthreads(8, 4, 1)]
+void SpatialCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(Id >= uint(GridSize))) return;
+	float3 Extent = float3(BoxAxisX.w, BoxAxisY.w, BoxAxisZ.w);
+	float3 LocalOrigin = ((float3(Id) + 0.5f) / float(GridSize) * 2.0f - 1.0f) * Extent;
+	float3 Origin = BoxCenterTranslated + BoxAxisX.xyz * LocalOrigin.x
+		+ BoxAxisY.xyz * LocalOrigin.y + BoxAxisZ.xyz * LocalOrigin.z;
+	float3 Incoming = 0.0f;
+	float ValidSamples = 0.0f;
+	LOOP
+	for (uint DirectionIndex = 0; DirectionIndex < 12; ++DirectionIndex)
+	{
+		float3 Direction = FogMS_SpatialDirections[DirectionIndex];
+		float Distance = FogMS_SpatialHistoryLimit(Origin, Direction, FogMS_SpatialBoxExit(LocalOrigin, Direction));
+		Distance = FogMS_SpatialGeometryLimit(Origin, Direction, Distance);
+		float StepLength = Distance / float(StepCount);
+		float PrefixT = 1.0f;
+		float3 RayIncoming = 0.0f;
+		LOOP
+		for (uint Step = 0; Step < uint(StepCount); ++Step)
+		{
+			if (StepLength <= 0.0f) break;
+			float3 Position = Origin + Direction * ((float(Step) + 0.5f) * StepLength);
+			float4 Source;
+			// Unknown absorption is not vacuum. Stop the ray at the first missing
+			// history segment instead of transporting light across an unseen gap.
+			if (!FogMS_ReadSpatialSource(Position, Source)) break;
+			ValidSamples += 1.0f;
+			float SegmentT;
+			float IntegralWeight = FogMS_SpatialIntegralWeight(Source.a, StepLength, SegmentT);
+			RayIncoming += PrefixT * Source.rgb * IntegralWeight;
+			PrefixT *= SegmentT;
+		}
+		Incoming += RayIncoming / 12.0f;
+	}
+	// Native history is finite-positive, but reject overflow rather than impose a
+	// scene-dependent radiance clamp. Alpha exposes missing history, not extinction.
+	float4 Result = all(isfinite(Incoming)) ? float4(Incoming, ValidSamples / float(12 * StepCount)) : 0.0f;
+	OutSpatial[uint2(Id.x, Id.y + Id.z * uint(GridSize))] = Result;
+}

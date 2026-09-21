@@ -1,0 +1,192 @@
+// B1: fixed Box cells; current-frame primary source and three transport orders.
+// No camera fog source, reprojection, history feedback, or frame-varying quadrature.
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Shared/RayTracingDefinitions.h"
+
+float4 BoxRows[24];
+#include "/Plugin/FogMS/Private/FogMS_Indirect.ush"
+
+#if FOGMS_WORLD_PASS == 1
+#include "/Plugin/FogMS/Private/FogMS_LumenSource.ush"
+#include "/Plugin/FogMS/Private/FogMS_WorldSources.ush"
+#include "/Engine/Private/RayTracing/RayTracingCommon.ush"
+#include "/Engine/Private/RayTracing/RayTracingHitGroupCommon.ush"
+#include "/Engine/Private/RayTracing/TraceRayInline.ush"
+StructuredBuffer<FRayTracingSceneMetadataRecord> RayTracingSceneMetadata;
+#endif
+
+RaytracingAccelerationStructure TLAS;
+Texture3D<float> DensityField;
+Texture3D<float4> SourceField;
+Texture3D<float4> PreviousMS;
+Texture3D<float4> BaseIndirect;
+SamplerState FieldSampler;
+float3 BoxCenterTranslated;
+float4 BoxAxisX;
+float4 BoxAxisY;
+float4 BoxAxisZ;
+float RangeCm;
+float SourceTraceDistance;
+float Strength;
+int StepCount;
+int GridSize;
+int OrderIndex;
+int IndirectEnabled;
+RWTexture3D<float> OutDensity;
+RWTexture3D<float4> OutSource;
+RWTexture3D<float4> OutMS;
+RWTexture3D<float4> OutBaseIndirect;
+RWTexture2D<float4> OutAtlas;
+
+static const float3 TransportDirections[12] =
+{
+ float3(0,.5257311121,.8506508084), float3(0,-.5257311121,.8506508084),
+ float3(0,.5257311121,-.8506508084), float3(0,-.5257311121,-.8506508084),
+ float3(.5257311121,.8506508084,0), float3(-.5257311121,.8506508084,0),
+ float3(.5257311121,-.8506508084,0), float3(-.5257311121,-.8506508084,0),
+ float3(.8506508084,0,.5257311121), float3(.8506508084,0,-.5257311121),
+ float3(-.8506508084,0,.5257311121), float3(-.8506508084,0,-.5257311121)
+};
+
+float3 WorldLocal(float3 P)
+{
+	float3 D = P - BoxCenterTranslated;
+	return float3(dot(D,BoxAxisX.xyz),dot(D,BoxAxisY.xyz),dot(D,BoxAxisZ.xyz));
+}
+float3 WorldUV(float3 P)
+{
+	return WorldLocal(P) / float3(BoxAxisX.w,BoxAxisY.w,BoxAxisZ.w) * .5f + .5f;
+}
+float3 WorldCellPosition(uint3 Id)
+{
+	float3 P = ((float3(Id)+.5f)/float(GridSize)*2-1)*float3(BoxAxisX.w,BoxAxisY.w,BoxAxisZ.w);
+	return BoxCenterTranslated + P.x*BoxAxisX.xyz + P.y*BoxAxisY.xyz + P.z*BoxAxisZ.xyz;
+}
+float WorldExit(float3 P, float3 D, float Limit)
+{
+	float3 L=WorldLocal(P), LD=float3(dot(D,BoxAxisX.xyz),dot(D,BoxAxisY.xyz),dot(D,BoxAxisZ.xyz));
+	float3 E=float3(BoxAxisX.w,BoxAxisY.w,BoxAxisZ.w);
+	UNROLL for(uint A=0;A<3;++A)
+		if(abs(LD[A])>1.e-7f) Limit=min(Limit,max(0.f,((LD[A]>0?E[A]:-E[A])-L[A])/LD[A]));
+	return Limit;
+}
+RayDesc WorldRay(float3 P, float3 D, float Limit)
+{
+	FDFVector3 Translation=MakeDFVector3(View.TLASPreViewTranslationHigh,View.TLASPreViewTranslationLow);
+	RayDesc R;
+	R.Origin=P-DFFastSubtractDemote(PrimaryView.PreViewTranslation,Translation);
+	R.Direction=D; R.TMin=.1f; R.TMax=max(.1f,Limit);
+	return R;
+}
+float WorldGeometryLimit(float3 P,float3 D,float Limit)
+{
+	if(Limit<=.1f) return Limit;
+	RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> Q;
+	Q.TraceRayInline(TLAS,RAY_FLAG_NONE,RAY_TRACING_MASK_OPAQUE,WorldRay(P,D,Limit));
+	while(Q.Proceed()) {}
+	return Q.CommittedStatus()==COMMITTED_TRIANGLE_HIT?min(Limit,Q.CommittedRayT()):Limit;
+}
+float WorldTransmittance(float3 P,float3 D,float Limit)
+{
+	float DS=WorldExit(P,D,Limit)/32.f, Tau=0;
+	LOOP for(uint I=0;I<32;++I)
+		Tau += max(DensityField.SampleLevel(FieldSampler,WorldUV(P+D*((I+.5f)*DS)),0),0.f)*DS;
+	return exp(-min(Tau,80.f));
+}
+
+#if FOGMS_WORLD_PASS == 1
+float3 WorldIncidentDirection(uint I)
+{
+	// Equal solid-angle Fibonacci quadrature, fixed in world axes.
+	float Z=1.f-2.f*(float(I)+.5f)/64.f;
+	float Phi=float(I)*2.399963229728653f;
+	float R=sqrt(max(1.f-Z*Z,0.f));
+	return float3(R*cos(Phi),R*sin(Phi),Z);
+}
+float3 WorldEnvironment(float3 P,float3 D,out float Distance,out bool MissingCard)
+{
+	Distance=SourceTraceDistance; MissingCard=false;
+	FTraceRayInlineContext Context=CreateTraceRayInlineContext();
+	FTraceRayInlineResult Hit=TraceRayInline(TLAS,RAY_FLAG_FORCE_OPAQUE,RAY_TRACING_MASK_OPAQUE,WorldRay(P,D,Distance),Context);
+	if(!Hit.IsHit()) return FogMS_WorldSky(D);
+	Distance=Hit.HitT;
+	float3 N=0;
+#if PLATFORM_SUPPORTS_INLINE_RAY_TRACING_TRIANGLE_NORMALS
+	N=Hit.WorldGeometryNormal;
+#elif PLATFORM_SUPPORTS_INLINE_RAY_TRACING_TRIANGLE_ATTRIBUTES
+	FTriangleBaseAttributes A=LoadInlineRayTracingTriangleAttributes(RayTracingSceneMetadata,
+		Hit.InstanceContributionToHitGroupIndex,RAY_TRACING_NUM_SHADER_SLOTS,Hit.GeometryIndex,Hit.PrimitiveIndex);
+	float3 LN=cross(A.LocalPositions[2]-A.LocalPositions[0],A.LocalPositions[1]-A.LocalPositions[0]);
+	N=normalize(mul(LN,(float3x3)Hit.WorldToObject3x4));
+#endif
+	if(dot(N,D)>0) N=-N;
+	bool Valid;
+	float3 L=FogMS_SurfaceRadiance(Hit.InstanceID,P+D*Distance,N,Valid);
+	MissingCard=!Valid;
+	return L;
+}
+#endif
+
+[numthreads(4,4,4)]
+void WorldLightingCS(uint3 Id:SV_DispatchThreadID)
+{
+	if(any(Id>=uint(GridSize))) return;
+	float3 P=WorldCellPosition(Id);
+#if FOGMS_WORLD_PASS == 0
+	FogMS_IndirectData Data=FogMS_GetIndirectData(false);
+	OutDensity[Id]=Data.Valid?FogMS_IndirectLocalDensity(WorldLocal(P),Data):0.f;
+#elif FOGMS_WORLD_PASS == 1
+	float3 Indirect=0,Direct=0;
+	float Missing=0;
+	if(IndirectEnabled!=0)
+	{
+		LOOP for(uint I=0;I<64;++I)
+		{
+			float3 D=WorldIncidentDirection(I);
+			float Distance; bool MissingCard;
+			float3 L=WorldEnvironment(P,D,Distance,MissingCard);
+			float T=lerp(1.f,WorldTransmittance(P,D,Distance),saturate(BoxRows[7].x));
+			Indirect += L*T/64.f;
+			Missing += MissingCard?1.f/64.f:0.f;
+		}
+	}
+	LOOP for(uint I=0;I<FogMS_WorldLightCount();++I)
+	{
+		float3 D,L; float Distance; bool Shadow;
+		FogMS_WorldLight(I,P,D,Distance,L,Shadow);
+		if(any(L>0.f) && (!Shadow || WorldGeometryLimit(P,D,Distance)>=Distance-.2f))
+			Direct += L*WorldTransmittance(P,D,Distance);
+	}
+	float Sigma=max(DensityField.Load(int4(Id,0)),0.f);
+	OutBaseIndirect[Id]=float4(Indirect,Missing);
+	OutSource[Id]=float4((Direct+Indirect)*saturate(BoxRows[23].rgb)*Sigma,Sigma);
+#elif FOGMS_WORLD_PASS == 2
+	float3 J=0;
+	LOOP for(uint I=0;I<12;++I)
+	{
+		float3 D=TransportDirections[I];
+		float Distance=WorldGeometryLimit(P,D,WorldExit(P,D,RangeCm));
+		float DS=Distance/float(StepCount), T=1.f;
+		LOOP for(uint Step=0;Step<uint(StepCount);++Step)
+		{
+			float3 UV=WorldUV(P+D*((float(Step)+.5f)*DS));
+			float4 Q=SourceField.SampleLevel(FieldSampler,UV,0);
+			float Tau=max(Q.a,0.f)*DS;
+			float SegmentT=exp(-Tau);
+			float W=Tau<1.e-3f ? DS*(1.f-Tau*.5f+Tau*Tau/6.f) : (1.f-SegmentT)/max(Q.a,1.e-20f);
+			J += max(Q.rgb,0.f)*(T*W/12.f);
+			T *= SegmentT;
+		}
+	}
+	// Only one NEW order per iteration. No re-summing of lower source orders.
+	J *= Strength;
+	float Sigma=max(DensityField.Load(int4(Id,0)),0.f);
+	float3 Sum=OrderIndex>0?PreviousMS.Load(int4(Id,0)).rgb:0.f;
+	OutMS[Id]=float4(Sum+J,0.f);
+	OutSource[Id]=float4(J*saturate(BoxRows[23].rgb)*Sigma,Sigma);
+#elif FOGMS_WORLD_PASS == 3
+	uint2 XY=uint2(Id.x,Id.y+Id.z*uint(GridSize));
+	OutAtlas[XY]=float4(PreviousMS.Load(int4(Id,0)).rgb,0.f);
+	OutAtlas[XY+uint2(0,GridSize*GridSize)]=BaseIndirect.Load(int4(Id,0));
+#endif
+}

@@ -1,9 +1,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "FogMS_ShaderPatcher.h"
 
 struct FMLSShaderConfig
 {
+	/** Independent directional fog self-shadowing, disabled by default. */
+	FFogMSConfig FogMS;
 	/** Any MLS shading policy is active (BRDF, direct micro-shadow, or full indirect visibility). */
 	bool  bEnabled = true;
 	/** Dual-lobe/rough-diffuse BRDF features, independent from the overlay master gate. */
@@ -81,7 +84,7 @@ class FMultiLobeShaderPatcher
 {
 public:
 	/** Bump when the patch logic changes to force overlay rebuild. */
-	static constexpr int32 PatchVersion = 40;
+	static constexpr int32 PatchVersion = 41;
 
 	static bool BuildOverlay(const FString& EngineShaderDir, const FString& OverlayDir,
 	                         const FMLSShaderConfig& Cfg, FString& OutError);

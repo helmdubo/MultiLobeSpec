@@ -1,0 +1,95 @@
+#pragma once
+
+// Include after Common.ush. Pair with FFogMSWorldSourcesParameters in the parent
+// shader's parameter struct. All positions/distances are translated world / cm.
+// No native ForwardLightStruct / ReflectionStruct or shader permutation required.
+uint FogMSWorldNumLights;
+float FogMSWorldDistanceBiasSqr;
+StructuredBuffer<float4> FogMSWorldLights;
+TextureCube FogMSWorldSkyTexture;
+SamplerState FogMSWorldSkySampler;
+TextureCube FogMSWorldSkyBlendTexture;
+SamplerState FogMSWorldSkyBlendSampler;
+float3 FogMSWorldSkyColor;
+float FogMSWorldSkyBlend;
+
+uint FogMS_WorldLightCount()
+{
+	return FogMSWorldNumLights;
+}
+
+// Includes the isotropic phase 1/(4*pi), native exposure compensation and the
+// light's volumetric intensity. The caller applies geometry and medium visibility
+// once, then receiver sigma_s. maxDistance=1e27 means a directional light.
+void FogMS_WorldLight(uint Index, float3 TranslatedPosition, out float3 Direction,
+	out float MaxDistance, out float3 IsotropicIncident, out bool CastShadow)
+{
+	Direction = float3(0, 0, 1);
+	MaxDistance = 0;
+	IsotropicIncident = 0;
+	CastShadow = false;
+	if (Index >= FogMSWorldNumLights) return;
+	float4 PositionRadius = FogMSWorldLights[Index * 5u];
+	float4 DirectionType = FogMSWorldLights[Index * 5u + 1u];
+	float4 ColorInverseSquare = FogMSWorldLights[Index * 5u + 2u];
+	float4 SpotFalloffShadow = FogMSWorldLights[Index * 5u + 3u];
+	float4 TangentLength = FogMSWorldLights[Index * 5u + 4u];
+	float Attenuation = 1.0f;
+	if (DirectionType.w < 0.5f)
+	{
+		Direction = DirectionType.xyz;
+		MaxDistance = 1.0e27f;
+	}
+	else
+	{
+		float3 ToLight = PositionRadius.xyz - TranslatedPosition;
+		float DistanceSqr = dot(ToLight, ToLight);
+		MaxDistance = sqrt(max(DistanceSqr, 0.0f));
+		Direction = DistanceSqr > 1.0e-12f ? ToLight * rsqrt(DistanceSqr) : DirectionType.xyz;
+		float NormalizedDistanceSqr = DistanceSqr * PositionRadius.w * PositionRadius.w;
+		if (NormalizedDistanceSqr >= 1.0f) return;
+		if (ColorInverseSquare.w > 0.5f)
+		{
+			float RadiusMask = saturate(1.0f - NormalizedDistanceSqr * NormalizedDistanceSqr);
+			float Falloff = rcp(DistanceSqr + FogMSWorldDistanceBiasSqr);
+			if (TangentLength.w > 0.0f)
+			{
+				// Same line irradiance as CapsuleLight.ush / CapsuleLightIntegrate.ush.
+				// This affects energy only; geometry/medium visibility uses the centre ray.
+				float3 A = ToLight - 0.5f * TangentLength.w * TangentLength.xyz;
+				float3 B = ToLight + 0.5f * TangentLength.w * TangentLength.xyz;
+				float ProductLengths = sqrt(max(dot(A, A) * dot(B, B), 0.0f));
+				Falloff = rcp(max(0.5f * (ProductLengths + dot(A, B)), 0.0f) + FogMSWorldDistanceBiasSqr);
+			}
+			Attenuation = RadiusMask * RadiusMask * Falloff;
+		}
+		else
+		{
+			Attenuation = pow(saturate(1.0f - NormalizedDistanceSqr), SpotFalloffShadow.z);
+		}
+		if (DirectionType.w > 1.5f)
+		{
+			// Native SpotAttenuation(L, -LightData.Direction, SpotAngles).
+			float Cone = saturate((dot(Direction, DirectionType.xyz) - SpotFalloffShadow.x) * SpotFalloffShadow.y);
+			Attenuation *= Cone * Cone;
+		}
+	}
+	IsotropicIncident = ColorInverseSquare.rgb * (Attenuation * 0.07957747154594767f);
+	if (!all(isfinite(IsotropicIncident))) IsotropicIncident = 0;
+	CastShadow = SpotFalloffShadow.w > 0.5f && MaxDistance > 0.01f;
+}
+
+// Escaped sky rays ONLY: radiance, no phase / sigma / View.PreExposure. Native
+// View.SkyLightColor removes RTC cached exposure; C++ folds sky volumetric
+// intensity exactly once. Do not apply this factor to surface GI or emissive hits.
+float3 FogMS_WorldSky(float3 WorldDirection)
+{
+	float3 Radiance = FogMSWorldSkyTexture.SampleLevel(FogMSWorldSkySampler, WorldDirection, 0).rgb;
+	if (FogMSWorldSkyBlend > 0.0f)
+	{
+		float3 Destination = FogMSWorldSkyBlendTexture.SampleLevel(FogMSWorldSkyBlendSampler, WorldDirection, 0).rgb;
+		Radiance = lerp(Radiance, Destination, FogMSWorldSkyBlend);
+	}
+	Radiance *= FogMSWorldSkyColor;
+	return all(isfinite(Radiance)) ? max(Radiance, 0.0f) : 0.0f;
+}
