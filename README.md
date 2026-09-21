@@ -1,5 +1,14 @@
 # MultiLobeSpec v0.15.1
 
+**FogMS audit snapshot (UE 5.8.2, experimental):** this repository also contains
+the independently gated local fog extension, including world-aligned density,
+filtered sun shadows and B1 world-space scattering. Start with
+[the audit handoff](FogMS_External_Audit.md), [the B1 receipt](FogMS_B1_Report.md)
+and [the energy audit](FogMS_Energy_Audit.md). Camera stability and linearity have
+been tested; energy conservation and full native-lighting parity are **not**
+certified. Further algorithm work awaits the owner's independent audit. The
+legacy BRDF documentation below retains its original version context.
+
 UE 5.7 editor plugin for legacy deferred shading. It implements dual-lobe GGX,
 an Activision / Call of Duty: WWII direct material micro-shadow profile, raw
 MaterialAO transport, and a Poisson/GTAO material-visibility baker through a

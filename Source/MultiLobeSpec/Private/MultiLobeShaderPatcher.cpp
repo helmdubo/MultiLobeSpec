@@ -1,5 +1,6 @@
 #include "MultiLobeShaderPatcher.h"
 #include "MultiLobeSpec.h"
+#include "FogMS_BoxRuntime.h"
 
 #include "HAL/PlatformFileManager.h"
 #include "HAL/FileManager.h"
@@ -12,6 +13,9 @@
 #include "HAL/IConsoleManager.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "Components/ExponentialHeightFogComponent.h"
+#include "Engine/World.h"
+#include "UObject/UObjectIterator.h"
 
 static const TCHAR* MLS_ConfigFileName = TEXT("MultiLobeSpecConfig.ush");
 static const TCHAR* MLS_AgXFileName    = TEXT("MLS_AgX.ush");
@@ -470,6 +474,345 @@ static int32 MLS_CountExactOccurrences(const FString& Source, const FString& Nee
 
 // ---------------------------------------------------------------------------
 
+// FogMS is isolated from the BRDF configuration; all shader edits stay in the overlay.
+static TAutoConsoleVariable<int32> FogMS_Enable(TEXT("r.FogMS.Enable"), 0, TEXT("Directional fog self-shadowing. Apply with FogMS.Apply."));
+static TAutoConsoleVariable<int32> FogMS_Steps(TEXT("r.FogMS.Steps"), 16, TEXT("A1 midpoint intervals, 1..64. Apply required."));
+static TAutoConsoleVariable<float> FogMS_MarchDistance(TEXT("r.FogMS.MarchDistance"), 0.0f, TEXT("Density march limit in cm; 0 uses fog grid far depth. Apply required."));
+static TAutoConsoleVariable<float> FogMS_MaxDistance(TEXT("r.FogMS.MaxDistance"), 2000000.0f, TEXT("Total sun-ray length in cm, including analytic continuation. Apply required."));
+static TAutoConsoleVariable<int32> FogMS_ExcludeGlobalLayer(TEXT("r.FogMS.ExcludeGlobalLayer"), 0, TEXT("Subtract analytic height-fog optical depth. Default 0 is physical. Apply required."));
+static TAutoConsoleVariable<int32> FogMS_DebugViews(TEXT("r.FogMS.DebugViews"), 1, TEXT("Compile diagnostic views; FogMS.Debug 0..4 switches them. Apply required."));
+
+FFogMSConfig FFogMSShaderPatcher::ReadConfig()
+{
+	FFogMSConfig Config;
+	Config.bEnabled = FogMS_Enable.GetValueOnGameThread() != 0;
+	if (!Config.bEnabled) return Config;
+	Config.Steps = FogMS_Steps.GetValueOnGameThread();
+	Config.MarchDistance = FogMS_MarchDistance.GetValueOnGameThread();
+	Config.MaxDistance = FogMS_MaxDistance.GetValueOnGameThread();
+	Config.bExcludeGlobalLayer = FogMS_ExcludeGlobalLayer.GetValueOnGameThread() != 0;
+	Config.bDebugViews = FogMS_DebugViews.GetValueOnGameThread() != 0;
+	Config.BoxMode = FFogMSBoxRuntime::GetMode();
+	Config.bIndirectPreview = FFogMSBoxRuntime::IsIndirectPreviewEnabled();
+	if (Config.BoxMode < 0 || Config.BoxMode > 1)
+	{
+		Config.Error = TEXT("FogMS BoxMode must be 0 (global A1) or 1 (live Box).");
+		return Config;
+	}
+	if (Config.Steps < 1 || Config.Steps > 64 || !FMath::IsFinite(Config.MarchDistance)
+		|| !FMath::IsFinite(Config.MaxDistance) || Config.MarchDistance < 0.0f || Config.MaxDistance <= 0.0f)
+	{
+		Config.Error = TEXT("FogMS: require Steps 1..64, finite MarchDistance >= 0 and MaxDistance > 0 (cm).");
+		return Config;
+	}
+
+	// Fog UB does not carry this scalar. Capture the actual component value at Apply.
+	// A global shader define cannot represent different active worlds' scales.
+	bool bFoundFog = false;
+	for (TObjectIterator<UExponentialHeightFogComponent> It; It; ++It)
+	{
+		const UExponentialHeightFogComponent* Fog = *It;
+		const UWorld* World = Fog->GetWorld();
+		if (!World || (World->WorldType != EWorldType::Editor && World->WorldType != EWorldType::PIE && World->WorldType != EWorldType::Game)
+			|| Fog->HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || !Fog->IsRegistered()
+			|| !Fog->ShouldComponentAddToScene() || !Fog->ShouldRender() || !Fog->bEnableVolumetricFog
+			|| Fog->FogMaxOpacity <= UE_DELTA || (Fog->FogDensity + Fog->SecondFogData.FogDensity) * 1000.0f <= UE_DELTA)
+		{
+			continue;
+		}
+		const float Scale = FMath::Max(Fog->VolumetricFogExtinctionScale, 0.0f);
+		if (!FMath::IsFinite(Fog->VolumetricFogExtinctionScale) || (bFoundFog && Scale != Config.GlobalExtinctionScale))
+		{
+			Config.Error = TEXT("FogMS: active fog components/worlds have invalid or different Extinction Scale values. Use one value for this A1 experiment, then Apply.");
+			return Config;
+		}
+		Config.GlobalExtinctionScale = Scale;
+		bFoundFog = true;
+	}
+	if (!bFoundFog)
+	{
+		Config.Error = TEXT("FogMS: no active Exponential Height Fog with Volumetric Fog found. Open the test level and use FogMS.Apply.");
+	}
+	if (Config.Error.IsEmpty() && Config.BoxMode == 1)
+	{
+		FFogMSBoxRuntime::Prepare(Config.BoxDescriptorIndex, Config.Error);
+	}
+	return Config;
+}
+
+static FString FogMS_ShaderPath(const TCHAR* FileName)
+{
+	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("MultiLobeSpec"));
+	return Plugin.IsValid() ? Plugin->GetBaseDir() / TEXT("Shaders/Private") / FileName : FString();
+}
+
+static bool FogMS_PatchIndirectIntegration(FString& Source, FString& OutError)
+{
+	// These exact anchors belong only to the existing Integrate entry point.
+	// Native Lighting and every history operation remain in their original order.
+	auto ReplaceOne = [&Source, &OutError](const TCHAR* Anchor, const FString& Replacement) -> bool
+	{
+		const int32 Count = MLS_CountExactOccurrences(Source, Anchor);
+		if (Count != 1)
+		{
+			OutError = FString::Printf(TEXT("FogMS A1c: Lumen integration expected one anchor, found %d: %s"), Count, Anchor);
+			return false;
+		}
+		Source.ReplaceInline(Anchor, *Replacement, ESearchCase::CaseSensitive);
+		return true;
+	};
+	if (!ReplaceOne(TEXT("#ifdef TranslucencyVolumeIntegrateCS\n[numthreads"),
+		TEXT("#ifdef TranslucencyVolumeIntegrateCS\n#include \"/Engine/Private/FogMS_Indirect.ush\" // FogMS_A1c\n[numthreads"))) return false;
+	if (!ReplaceOne(TEXT("\t\tFTwoBandSHVectorRGB Lighting = (FTwoBandSHVectorRGB)0;\n\t\tbool bNewLightingValid = false;"),
+		TEXT("\t\tFTwoBandSHVectorRGB Lighting = (FTwoBandSHVectorRGB)0;\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n")
+		TEXT("\t\tFogMS_IndirectData FogMS_Medium = FogMS_GetIndirectData(true);\n")
+		TEXT("\t\tfloat3 FogMS_Origin = ComputeCellTranslatedWorldPosition(GridCoordinate, FrameJitterOffset);\n")
+		TEXT("\t\tfloat FogMS_IndirectWeight = 0.0f;\n")
+		TEXT("\t\tif (FogMS_Medium.Valid && GridCenterOffsetFromDepthBuffer < 0.0f)\n")
+		TEXT("\t\t\tFogMS_IndirectWeight = FogMS_Medium.Strength * FogMS_BoxWeight(FogMS_Origin);\n")
+		TEXT("\t\tbool FogMS_UseIndirect = FogMS_IndirectWeight > 0.0f;\n")
+		TEXT("\t\tFTwoBandSHVectorRGB FogMS_Lighting = (FTwoBandSHVectorRGB)0;\n#endif\n")
+		TEXT("\t\tbool bNewLightingValid = false;"))) return false;
+	if (!ReplaceOne(TEXT("\t\t\t\t\tLighting = AddSH(Lighting, MulSH(SHBasisFunction(WorldConeDirection), TraceRadiance));"),
+		TEXT("\t\t\t\t\tLighting = AddSH(Lighting, MulSH(SHBasisFunction(WorldConeDirection), TraceRadiance));\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n\t\t\t\t\tBRANCH\n\t\t\t\t\tif (FogMS_UseIndirect)\n\t\t\t\t\t{\n")
+		TEXT("\t\t\t\t\t\t// Attenuation follows the actual jittered trace; SH projection keeps the native basis.\n")
+		TEXT("\t\t\t\t\t\tfloat2 FogMS_TraceUV;\n\t\t\t\t\t\tfloat FogMS_ConeHalfAngle;\n")
+		TEXT("\t\t\t\t\t\tGetProbeTracingUV(float2(X, Y), GetProbeTexelCenter(GridCoordinate.xy), FogMS_TraceUV, FogMS_ConeHalfAngle);\n")
+		TEXT("\t\t\t\t\t\tfloat3 FogMS_TraceDirection = EquiAreaSphericalMapping(FogMS_TraceUV);\n")
+		TEXT("\t\t\t\t\t\tfloat FogMS_HitDistance = VolumeTraceHitDistance[uint3(GridCoordinate.xy * TranslucencyVolumeTracingOctahedronResolution + uint2(X, Y), GridCoordinate.z)];\n")
+		TEXT("\t\t\t\t\t\tfloat FogMS_T = FogMS_IndirectTransmittance(FogMS_Origin, FogMS_TraceDirection, FogMS_HitDistance, FogMS_Medium);\n")
+		TEXT("\t\t\t\t\t\tfloat3 FogMS_Radiance = TraceRadiance * lerp(1.0f, FogMS_T, FogMS_IndirectWeight);\n")
+		TEXT("\t\t\t\t\t\tFogMS_Lighting = AddSH(FogMS_Lighting, MulSH(SHBasisFunction(WorldConeDirection), FogMS_Radiance));\n")
+		TEXT("\t\t\t\t\t}\n#endif"))) return false;
+	if (!ReplaceOne(TEXT("\t\t\tLighting.B.V *= NormalizeFactor;\n\t\t\tbNewLightingValid = true;"),
+		TEXT("\t\t\tLighting.B.V *= NormalizeFactor;\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n\t\t\tif (FogMS_UseIndirect)\n\t\t\t{\n")
+		TEXT("\t\t\t\tFogMS_Lighting.R.V *= NormalizeFactor;\n")
+		TEXT("\t\t\t\tFogMS_Lighting.G.V *= NormalizeFactor;\n")
+		TEXT("\t\t\t\tFogMS_Lighting.B.V *= NormalizeFactor;\n\t\t\t}\n#endif\n")
+		TEXT("\t\t\tbNewLightingValid = true;"))) return false;
+	const FString NativeFogOutput =
+		TEXT("\t\t// Output for Volumetric Fog which has its own temporal filter\n")
+		TEXT("\t\t{\n")
+		TEXT("\t\t\tfloat3 AmbientLightingVector = float3(Lighting.R.V.x, Lighting.G.V.x, Lighting.B.V.x);\n")
+		TEXT("\t\t\tRWTranslucencyGI0[GridCoordinate] = float4(AmbientLightingVector, 0);\n\n")
+		TEXT("\t\t\tfloat3 LuminanceWeights = AmbientLightingVector.rgb / (dot(AmbientLightingVector, 1) + 0.00001f);\n")
+		TEXT("\t\t\tfloat3 Coefficient0 = float3(Lighting.R.V.y, Lighting.G.V.y, Lighting.B.V.y);\n")
+		TEXT("\t\t\tfloat3 Coefficient1 = float3(Lighting.R.V.z, Lighting.G.V.z, Lighting.B.V.z);\n")
+		TEXT("\t\t\tfloat3 Coefficient2 = float3(Lighting.R.V.w, Lighting.G.V.w, Lighting.B.V.w);\n")
+		TEXT("\t\t\tRWTranslucencyGI1[GridCoordinate] = float4(dot(Coefficient0, LuminanceWeights), dot(Coefficient1, LuminanceWeights), dot(Coefficient2, LuminanceWeights), 0);\n")
+		TEXT("\t\t}");
+	FString PatchedFogOutput = NativeFogOutput;
+	PatchedFogOutput.ReplaceInline(TEXT("Lighting.R."), TEXT("FogMS_CurrentLighting.R."), ESearchCase::CaseSensitive);
+	PatchedFogOutput.ReplaceInline(TEXT("Lighting.G."), TEXT("FogMS_CurrentLighting.G."), ESearchCase::CaseSensitive);
+	PatchedFogOutput.ReplaceInline(TEXT("Lighting.B."), TEXT("FogMS_CurrentLighting.B."), ESearchCase::CaseSensitive);
+	PatchedFogOutput.ReplaceInline(TEXT("\t\t{\n"),
+		TEXT("\t\t{\n\t\t\tFTwoBandSHVectorRGB FogMS_CurrentLighting = Lighting;\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n")
+		TEXT("\t\t\t// Preserve native output outside the Box; its trilinear support forms the transition band.\n")
+		TEXT("\t\t\tif (FogMS_UseIndirect) FogMS_CurrentLighting = FogMS_Lighting;\n#endif\n"), ESearchCase::CaseSensitive);
+	return ReplaceOne(*NativeFogOutput, PatchedFogOutput);
+}
+
+FString FFogMSShaderPatcher::GetIdentity(const FFogMSConfig& Config)
+{
+	if (!Config.bEnabled) return TEXT("FogMS=0");
+	FString SourceIdentity = TEXT("common:") + MLS_HashFileSHA1(FogMS_ShaderPath(TEXT("FogMS_Common.ush")))
+		+ TEXT("|indirect:") + MLS_HashFileSHA1(FogMS_ShaderPath(TEXT("FogMS_Indirect.ush")));
+	const TCHAR* NativeSources[] = {
+		TEXT("Private/DeferredLightPixelShaders.usf"),
+		TEXT("Private/VolumetricFog.usf"),
+		TEXT("Private/Lumen/LumenTranslucencyVolumeLighting.usf"),
+		TEXT("Private/Lumen/LumenTranslucencyVolumeLightingShared.ush"),
+		TEXT("Private/Lumen/LumenTranslucencyVolumeHardwareRayTracing.usf")
+	};
+	for (const TCHAR* NativeSource : NativeSources)
+	{
+		SourceIdentity += FString(TEXT("|")) + NativeSource + TEXT(":")
+			+ MLS_HashFileSHA1(FPaths::EngineDir() / TEXT("Shaders") / NativeSource);
+	}
+	return FString::Printf(TEXT("FogMS=1|a1b=1|a1c=1|a1e=1|fields=1|receiver=2|world=1|boxabi=24|steps=%d|march=%.9g|max=%.9g|exclude=%d|scale=%.9g|debug=%d|box=%d|preview=%d|srv=%u|source=%s"),
+		Config.Steps, Config.MarchDistance, Config.MaxDistance, Config.bExcludeGlobalLayer ? 1 : 0,
+		Config.GlobalExtinctionScale, Config.bDebugViews ? 1 : 0, Config.BoxMode, Config.bIndirectPreview ? 1 : 0, Config.BoxDescriptorIndex, *SourceIdentity);
+}
+
+bool FFogMSShaderPatcher::PatchOverlay(const FString& OverlayDir, const FFogMSConfig& Config, FString& OutError)
+{
+	// Off is a byte-identical copy of the stock fog shader: no include or generated config.
+	if (!Config.bEnabled) return true;
+	if (!Config.Error.IsEmpty()) { OutError = Config.Error; return false; }
+	const FEngineVersion& EngineVersion = FEngineVersion::Current();
+	if (EngineVersion.GetMajor() != 5 || EngineVersion.GetMinor() != 8 || EngineVersion.GetPatch() != 2
+		|| EngineVersion.GetChangelist() != 56702186)
+	{
+		OutError = TEXT("FogMS A1/A1b/A1c anchors are verified only for UE 5.8.2 CL 56702186.");
+		return false;
+	}
+	const FString FullOverlay = FPaths::ConvertRelativePathToFull(OverlayDir);
+	const FString EngineDir = FPaths::ConvertRelativePathToFull(FPaths::EngineDir());
+	if (FPaths::IsUnderDirectory(FullOverlay, EngineDir) || FullOverlay == EngineDir)
+	{
+		OutError = TEXT("FogMS refuses to write inside Engine.");
+		return false;
+	}
+	FString Source;
+	const FString ShaderPath = OverlayDir / TEXT("Private/VolumetricFog.usf");
+	if (!FFileHelper::LoadFileToString(Source, *ShaderPath))
+	{
+		OutError = TEXT("FogMS: overlay VolumetricFog.usf not found.");
+		return false;
+	}
+	const bool bCRLF = Source.Contains(TEXT("\r\n"));
+	Source.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
+	if (Config.BoxMode == 1)
+	{
+		const FString SurfacePath = OverlayDir / TEXT("Private/DeferredLightPixelShaders.usf");
+		FString SurfaceSource;
+		if (!FFileHelper::LoadFileToString(SurfaceSource, *SurfacePath))
+		{
+			OutError = TEXT("FogMS A1e: deferred surface overlay shader not found.");
+			return false;
+		}
+		const bool bSurfaceCRLF = SurfaceSource.Contains(TEXT("\r\n"));
+		SurfaceSource.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
+		const TCHAR* IncludeAnchor = TEXT("#include \"LightDataUniforms.ush\"");
+		const TCHAR* ColorAnchor = TEXT("\tLightDataColor *= AttenuationRGB;");
+		if (MLS_CountExactOccurrences(SurfaceSource, IncludeAnchor) != 1 || MLS_CountExactOccurrences(SurfaceSource, ColorAnchor) != 1)
+		{
+			OutError = TEXT("FogMS A1e: expected unique deferred include and light-color anchors.");
+			return false;
+		}
+		SurfaceSource.ReplaceInline(IncludeAnchor,
+			TEXT("#include \"LightDataUniforms.ush\"\n#if LIGHT_SOURCE_SHAPE == 0 && USE_HAIR_LIGHTING == 0\n#include \"/Engine/Private/FogMS_Indirect.ush\" // FogMS_A1e\n#endif"), ESearchCase::CaseSensitive);
+		SurfaceSource.ReplaceInline(ColorAnchor,
+			TEXT("\tLightDataColor *= AttenuationRGB;\n#if LIGHT_SOURCE_SHAPE == 0 && USE_HAIR_LIGHTING == 0\n")
+			TEXT("\tLightDataColor *= FogMS_SurfaceSunTransmittance(InTranslatedWorldPosition, DeferredLightUniforms.Direction);\n#endif"), ESearchCase::CaseSensitive);
+		if (bSurfaceCRLF) SurfaceSource.ReplaceInline(TEXT("\n"), TEXT("\r\n"));
+		if (!FFileHelper::SaveStringToFile(SurfaceSource, *SurfacePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+		{
+			OutError = TEXT("FogMS A1e: failed to write deferred surface overlay shader.");
+			return false;
+		}
+	}
+	FString LumenSource;
+	const FString LumenShaderPath = OverlayDir / TEXT("Private/Lumen/LumenTranslucencyVolumeLighting.usf");
+	const bool bPatchIndirect = Config.BoxMode == 1 && Config.bIndirectPreview;
+	bool bLumenCRLF = false;
+	// A disabled preview must not read the resident Box from an async Lumen pass.
+	// Leave the cloned stock TLV file untouched, including its original encoding.
+	if (bPatchIndirect)
+	{
+		if (!FFileHelper::LoadFileToString(LumenSource, *LumenShaderPath))
+		{
+			OutError = TEXT("FogMS A1c: overlay LumenTranslucencyVolumeLighting.usf not found.");
+			return false;
+		}
+		bLumenCRLF = LumenSource.Contains(TEXT("\r\n"));
+		LumenSource.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
+		if (!FogMS_PatchIndirectIntegration(LumenSource, OutError)) return false;
+	}
+	auto ReplaceOne = [&Source, &OutError](const TCHAR* Anchor, const FString& Replacement) -> bool
+	{
+		const int32 Count = MLS_CountExactOccurrences(Source, Anchor);
+		if (Count != 1)
+		{
+			OutError = FString::Printf(TEXT("FogMS: expected one anchor, found %d: %s"), Count, Anchor);
+			return false;
+		}
+		Source.ReplaceInline(Anchor, *Replacement, ESearchCase::CaseSensitive);
+		return true;
+	};
+	if (!ReplaceOne(TEXT("#ifdef LightScatteringCS"),
+		TEXT("#include \"/Engine/Private/FogMS_Indirect.ush\" // FogMS_A1\n\n#ifdef LightScatteringCS"))) return false;
+	if (!ReplaceOne(TEXT("\tuint3 GridCoordinate = DispatchThreadId;\n\tfloat3 LightScattering = 0;\n\tuint NumSuperSamples = 1;"),
+		TEXT("\tuint3 GridCoordinate = DispatchThreadId;\n\tfloat3 LightScattering = 0;\n\tuint NumSuperSamples = 1;\n")
+		TEXT("#if FOGMS_ENABLED\n\tfloat4 FogMS_Tau = 0;\n\tfloat FogMS_Weight = 0;\n\tfloat FogMS_Transmittance = 1;\n\tbool FogMS_HasDirectional = false;\n")
+		TEXT("\tFogMS_ScatteringSettings FogMS_MS = FogMS_GetScatteringSettings();\n\tbool FogMS_UseOctaves = false;\n#endif"))) return false;
+	if (!ReplaceOne(TEXT("\t\t\tfloat ShadowFactor = 1;"),
+		TEXT("\t\t\tfloat ShadowFactor = 1;\n#if FOGMS_ENABLED\n")
+		TEXT("\t\t\t// Evaluate medium visibility at the native jittered receiver, including supersamples.\n\t\t\t{\n")
+		TEXT("\t\t\t\tfloat3 FogMS_Position = TranslatedWorldPosition;\n")
+		TEXT("\t\t\t\tFogMS_Tau = 0;\n\t\t\t\tFogMS_Transmittance = 1;\n")
+		TEXT("\t\t\t\tFogMS_Weight = FogMS_BoxWeight(FogMS_Position);\n")
+		TEXT("\t\t\t\tBRANCH\n\t\t\t\tif (FogMS_Weight > 0)\n\t\t\t\t{\n")
+		TEXT("\t\t\t\t\tFogMS_Tau = FogMS_EvaluateDirectional(FogMS_Position, InDirectionalLightDirection, FrameJitterOffsets[SampleIndex].z);\n")
+		TEXT("\t\t\t\t\tFogMS_Transmittance = lerp(1.0f, exp(-FogMS_Tau.w), FogMS_Weight);\n\t\t\t\t}\n")
+		TEXT("\t\t\t\tFogMS_UseOctaves = FogMS_Weight > 0 && FogMS_MS.Mode == FOGMS_MS_OCTAVES && FogMS_MS.ExtraOctaves > 0 && FogMS_MS.Factors.x > 0;\n")
+		TEXT("\t\t\t\tFogMS_HasDirectional = true;\n\t\t\t}\n")
+		TEXT("\t\t\t// Preserve the previous A1 operation order when the approximation is off.\n")
+		TEXT("\t\t\tif (!FogMS_UseOctaves) ShadowFactor *= FogMS_Transmittance;\n#endif"))) return false;
+	if (!ReplaceOne(TEXT("\t\t\tLightScattering += DirectionalLightColor * LightFunctionColor * ShadowFactor * PhaseFunction(PhaseG, dot(InDirectionalLightDirection, -CameraVector));"),
+		TEXT("#if FOGMS_ENABLED\n\t\t\tBRANCH\n\t\t\tif (FogMS_UseOctaves)\n\t\t\t{\n")
+		TEXT("\t\t\t\t// ShadowFactor contains geometry/cloud visibility only in this branch.\n")
+		TEXT("\t\t\t\tfloat FogMS_NativePhase = PhaseFunction(PhaseG, dot(InDirectionalLightDirection, -CameraVector));\n")
+		TEXT("\t\t\t\tfloat FogMS_Phase = FogMS_Transmittance * FogMS_NativePhase\n")
+		TEXT("\t\t\t\t\t+ FogMS_Weight * FogMS_OctavePhase(FogMS_Tau.w, FogMS_NativePhase, FogMS_MS);\n")
+		TEXT("\t\t\t\tLightScattering += DirectionalLightColor * LightFunctionColor * ShadowFactor * FogMS_Phase;\n")
+		TEXT("\t\t\t}\n\t\t\telse\n#endif\n\t\t\t{\n")
+		TEXT("\t\t\t\tLightScattering += DirectionalLightColor * LightFunctionColor * ShadowFactor * PhaseFunction(PhaseG, dot(InDirectionalLightDirection, -CameraVector));\n\t\t\t}"))) return false;
+	if (!ReplaceOne(TEXT("\t\t\tLightScattering += max(DotSH(TranslucencyGISH, RotatedHGZonalHarmonic), 0);"),
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n")
+		TEXT("\t\t\tLightScattering += FogMS_WorldIndirect(TranslatedWorldPosition, max(DotSH(TranslucencyGISH, RotatedHGZonalHarmonic), 0));\n")
+		TEXT("#else\n\t\t\tLightScattering += max(DotSH(TranslucencyGISH, RotatedHGZonalHarmonic), 0);\n#endif"))) return false;
+	if (!ReplaceOne(TEXT("\tfloat4 PreExposedScatteringAndExtinction = float4(View.PreExposure * (LightScattering * MaterialScatteringAndExtinction.xyz + MaterialEmissive), Extinction);"),
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n\tLightScattering += FogMS_SpatialIncident(ComputeCellTranslatedWorldPosition(GridCoordinate, 0.5f));\n#endif\n")
+		TEXT("\tfloat4 PreExposedScatteringAndExtinction = float4(View.PreExposure * (LightScattering * MaterialScatteringAndExtinction.xyz + MaterialEmissive), Extinction);\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE && USE_TEMPORAL_REPROJECTION\n\tif (FogMS_BoxHistoryChanged()) HistoryAlpha = 0;\n#endif"))) return false;
+	if (!ReplaceOne(TEXT("\t// Visualize history rejection for debugging purposes"),
+		TEXT("#if FOGMS_ENABLED && FOGMS_DEBUG_VIEWS\n")
+		TEXT("\tif (FogMS_DebugMode() != 0)\n\t{\n")
+		TEXT("\t\t// FogMS.Debug disables temporal reprojection before these raw diagnostics are written.\n")
+		TEXT("\t\tfloat FogMS_Error = abs(FogMS_Tau.x + FogMS_Tau.y - FogMS_Tau.z) / max(FogMS_Tau.z, 1.0e-4f);\n")
+		TEXT("\t\tPreExposedScatteringAndExtinction.rgb = float3(MaterialScatteringAndExtinction.a, FogMS_HasDirectional ? FogMS_Transmittance : 2.0f, FogMS_Weight > 0 ? saturate(FogMS_Error) : 2.0f);\n")
+		TEXT("#if FOGMS_BOX_MODE\n\t\t// Authored heterogeneous density has no homogeneous seam-error reference.\n")
+		TEXT("\t\tif (FogMS_Weight > 0 && FogMS_BoxRow(6).w > 0.5f) PreExposedScatteringAndExtinction.z = 3.0f;\n#endif\n")
+		TEXT("\t\tif (FogMS_DebugMode() == 104)\n\t\t{\n#if FOGMS_BOX_MODE\n")
+		TEXT("\t\t\tPreExposedScatteringAndExtinction.rgb = FogMS_AuthoredDensity(ComputeCellTranslatedWorldPosition(GridCoordinate, 0.5f)).xxx;\n")
+		TEXT("#else\n\t\t\tPreExposedScatteringAndExtinction.rgb = 0.0f;\n#endif\n\t\t}\n")
+		TEXT("\t}\n#endif\n\t// Visualize history rejection for debugging purposes"))) return false;
+	if (!ReplaceOne(TEXT("\t\tRWIntegratedLightScattering[LayerCoordinate] = float4(AccumulatedLighting, AccumulatedTransmittance);"),
+		TEXT("\t\tRWIntegratedLightScattering[LayerCoordinate] = float4(AccumulatedLighting, AccumulatedTransmittance);\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_DEBUG_VIEWS\n\t\tif (FogMS_DebugMode() != 0)\n\t\t{\n")
+		TEXT("\t\t\t// Display the local froxel value, not an accumulated camera-ray integral.\n")
+		TEXT("\t\t\tRWIntegratedLightScattering[LayerCoordinate] = float4(View.PreExposure * FogMS_DisplayDiagnostic(PreExposedScatteringAndExtinction.rgb, FogMS_DebugMode()), 0);\n")
+		TEXT("\t\t}\n#endif"))) return false;
+
+	const FString Defines = FString::Printf(
+		TEXT("// Generated by FogMS.Apply. Edit CVars, not this content-addressed file.\n")
+		TEXT("#ifndef FOGMS_CONFIG_USH\n#define FOGMS_CONFIG_USH\n#define FOGMS_ENABLED 1\n#define FOGMS_BOX_DATA_ROWS 24\n")
+		TEXT("#define FOGMS_STEPS %d\n#define FOGMS_SMARCH_CM %.9ef\n#define FOGMS_SMAX_CM %.9ef\n")
+		TEXT("#define FOGMS_EXCLUDE_GLOBAL_LAYER %d\n#define FOGMS_GLOBAL_EXTINCTION_SCALE %.9ef\n#define FOGMS_DEBUG_VIEWS %d\n")
+		TEXT("#define FOGMS_BOX_MODE %d\n#define FOGMS_BOX_DATA_SRV %uu\n#endif\n"),
+		Config.Steps, Config.MarchDistance, Config.MaxDistance, Config.bExcludeGlobalLayer ? 1 : 0,
+		Config.GlobalExtinctionScale, Config.bDebugViews ? 1 : 0, Config.BoxMode, Config.BoxDescriptorIndex);
+	FString CommonSource;
+	FString IndirectSource;
+	if (!FFileHelper::LoadFileToString(CommonSource, *FogMS_ShaderPath(TEXT("FogMS_Common.ush")))
+		|| !FFileHelper::LoadFileToString(IndirectSource, *FogMS_ShaderPath(TEXT("FogMS_Indirect.ush")))
+		|| !FFileHelper::SaveStringToFile(CommonSource, *(OverlayDir / TEXT("Private/FogMS_Common.ush")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)
+		|| !FFileHelper::SaveStringToFile(IndirectSource, *(OverlayDir / TEXT("Private/FogMS_Indirect.ush")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)
+		|| !FFileHelper::SaveStringToFile(Defines, *(OverlayDir / TEXT("Private/FogMS_Config.ush")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+	{
+		OutError = TEXT("FogMS: failed to stage common/indirect shader/config. Previous overlay remains active.");
+		return false;
+	}
+	if (bCRLF) Source.ReplaceInline(TEXT("\n"), TEXT("\r\n"));
+	if (bLumenCRLF) LumenSource.ReplaceInline(TEXT("\n"), TEXT("\r\n"));
+	if (!FFileHelper::SaveStringToFile(Source, *ShaderPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+	{
+		OutError = TEXT("FogMS: failed to save patched overlay VolumetricFog.usf.");
+		return false;
+	}
+	if (bPatchIndirect && !FFileHelper::SaveStringToFile(LumenSource, *LumenShaderPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+	{
+		OutError = TEXT("FogMS A1c: failed to save patched overlay LumenTranslucencyVolumeLighting.usf.");
+		return false;
+	}
+	return true;
+}
+
 FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 {
 	FString LUTIncludePath;
@@ -485,7 +828,7 @@ FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 	const bool bHaveConeEnvArtifactPaths = MLS_GetConeEnvArtifactPaths(ConeEnvIncludePath, ConeEnvManifestPath);
 	const FString ConeEnvIncludeDigest = bHaveConeEnvArtifactPaths ? MLS_HashFileSHA1(ConeEnvIncludePath) : TEXT("missing");
 	const FString ConeEnvManifestDigest = bHaveConeEnvArtifactPaths ? MLS_HashFileSHA1(ConeEnvManifestPath) : TEXT("missing");
-	const FString Identity = FString::Printf(
+	FString Identity = FString::Printf(
 		TEXT("engine=%s|patch=%d|enabled=%d|brdf=%d|w=%.9g|envw=%.9g|scale=%.9g|offset=%.9g|core=%.9g|")
 		TEXT("env=%d|enva=%d|diff=%d|tone=%d|micro=%d|md=%.9g|ms=%.9g|cavd=%.9g|cavp=%.9g|mmode=%d|")
 		TEXT("lumen=%d|lumenw=%.9g|ibl=%d|coneibl=%d|indirectvis=%d|lut=%s|lutmanifest=%s|lutvalidation=%s|coneenv=%s|conemanifest=%s"),
@@ -503,6 +846,7 @@ FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig& Cfg)
 		Cfg.IndirectMaterialVisibilityMode,
 		*LUTIncludeDigest, *LUTManifestDigest, *LUTValidationDigest,
 		*ConeEnvIncludeDigest, *ConeEnvManifestDigest);
+	Identity += TEXT("|") + FFogMSShaderPatcher::GetIdentity(Cfg.FogMS);
 
 	FTCHARToUTF8 Utf8(*Identity);
 	return FSHA1::HashBuffer(Utf8.Get(), static_cast<uint64>(Utf8.Length())).ToString().ToLower();
@@ -2727,6 +3071,10 @@ bool FMultiLobeShaderPatcher::BuildOverlay(const FString& EngineShaderDir, const
 
 	if (bFreshCopy)
 	{
+		if (!FFogMSShaderPatcher::PatchOverlay(OverlayDir, Cfg.FogMS, OutError))
+		{
+			return false;
+		}
 		if (!MLS_CopyVNDFArtifacts(
 			OverlayDir,
 			Cfg.MicroShadowMode == 4,

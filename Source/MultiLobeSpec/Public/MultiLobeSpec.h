@@ -28,6 +28,8 @@ class MULTILOBESPEC_API FMultiLobeSpecModule : public IModuleInterface
 public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
+	// Live FogMS shaders retain a plugin-owned descriptor until the editor exits.
+	virtual bool SupportsDynamicReloading() override { return false; }
 
 	static FMultiLobeSpecModule& Get()
 	{
@@ -35,10 +37,10 @@ public:
 	}
 
 	/** Build/refresh overlay from current settings, remap, flush, recompile. */
-	void ApplyAndRecompile();
+	bool ApplyAndRecompile();
 
 	/** Decide from settings whether anything (BRDF preset OR tonemapper) needs the overlay, and apply/disable accordingly. */
-	void ApplyFromSettings();
+	bool ApplyFromSettings();
 
 	/** Restore vanilla engine shader mapping, flush, recompile. */
 	void DisableAndRecompile();

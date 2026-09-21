@@ -1,0 +1,78 @@
+#pragma once
+
+#include "/Engine/Private/Common.ush"
+
+// This adapter belongs to the plugin world-source shader, not a native Lumen pass.
+// Use always-resident cards without changing native page-feedback/update state.
+#ifndef SURFACE_CACHE_FEEDBACK
+#define SURFACE_CACHE_FEEDBACK 0
+#elif SURFACE_CACHE_FEEDBACK != 0
+#error FogMS_LumenSource requires SURFACE_CACHE_FEEDBACK=0
+#endif
+#ifndef SURFACE_CACHE_HIGH_RES_PAGES
+#define SURFACE_CACHE_HIGH_RES_PAGES 0
+#elif SURFACE_CACHE_HIGH_RES_PAGES != 0
+#error FogMS_LumenSource requires SURFACE_CACHE_HIGH_RES_PAGES=0
+#endif
+#ifndef ENABLE_VISUALIZE_MODE
+#define ENABLE_VISUALIZE_MODE 0
+#elif ENABLE_VISUALIZE_MODE != 0
+#error FogMS_LumenSource requires ENABLE_VISUALIZE_MODE=0
+#endif
+
+// Rewrite only this include's symbols; the C++ side owns its UB registration.
+#define LumenCardScene FogMSLumenCardScene
+#define DirectLightingAtlas FogMSLumenDirectLightingAtlas
+#define IndirectLightingAtlas FogMSLumenIndirectLightingAtlas
+#define FinalLightingAtlas FogMSLumenFinalLightingAtlas
+#define DepthAtlas FogMSLumenDepthAtlas
+#define AlbedoAtlas FogMSLumenAlbedoAtlas
+#define NormalAtlas FogMSLumenNormalAtlas
+#define EmissiveAtlas FogMSLumenEmissiveAtlas
+#define RadiosityNumFramesAccumulatedAtlas FogMSLumenRadiosityNumFramesAccumulatedAtlas
+#define OneOverCachedLightingPreExposure FogMSLumenOneOverCachedLightingPreExposure
+#define SurfaceCacheUpdateFrameIndex FogMSLumenSurfaceCacheUpdateFrameIndex
+#define DiffuseColorBoost FogMSLumenDiffuseColorBoost
+#include "/Engine/Private/Lumen/SurfaceCache/LumenSurfaceCacheSampling.ush"
+#undef DiffuseColorBoost
+#undef SurfaceCacheUpdateFrameIndex
+#undef OneOverCachedLightingPreExposure
+#undef RadiosityNumFramesAccumulatedAtlas
+#undef EmissiveAtlas
+#undef NormalAtlas
+#undef AlbedoAtlas
+#undef DepthAtlas
+#undef FinalLightingAtlas
+#undef IndirectLightingAtlas
+#undef DirectLightingAtlas
+#undef LumenCardScene
+
+float FogMSLumenSurfaceCacheDepthBias;
+uint FogMSLumenInstanceMapCount;
+
+// Returns scene-linear outgoing surface radiance (reflected diffuse + emissive).
+// The caller applies medium attenuation and receiver scattering exactly once.
+// A geometric hit without a card remains an occluding hit with Valid=false;
+// neither sky fallback nor camera-fog history is used here.
+float3 FogMS_SurfaceRadiance(uint GPUSceneInstanceIndex, float3 TranslatedWorldPosition,
+	float3 WorldNormal, out bool Valid)
+{
+	Valid = false;
+	float NormalLengthSquared = dot(WorldNormal, WorldNormal);
+	if (GPUSceneInstanceIndex >= FogMSLumenInstanceMapCount
+		|| !all(isfinite(TranslatedWorldPosition)) || !all(isfinite(WorldNormal))
+		|| !isfinite(NormalLengthSquared) || NormalLengthSquared <= 1.0e-12f)
+		return 0.0f;
+
+	uint MeshCardsIndex = GetMeshCardsIndexFromSceneInstanceIndex(GPUSceneInstanceIndex);
+	if (MeshCardsIndex >= FogMSLumenCardScene.NumMeshCards) return 0.0f;
+
+	// Match native CalculateSurfaceCacheLighting's world-space card coordinates.
+	// Native card transforms themselves use float world space in this UE version.
+	float3 WorldPosition = TranslatedWorldPosition - DFHackToFloat(PrimaryView.PreViewTranslation);
+	FSurfaceCacheSample Sample = EvaluateRayHitFromSurfaceCache(
+		uint2(0, 0), MeshCardsIndex, WorldPosition, WorldNormal * rsqrt(NormalLengthSquared),
+		0.0f, FogMSLumenSurfaceCacheDepthBias, false);
+	Valid = Sample.bValid && all(isfinite(Sample.Radiance));
+	return Valid ? max(Sample.Radiance, 0.0f) : 0.0f;
+}

@@ -4,8 +4,11 @@
 **Корень исходников:** `D:\PersonalProjects\UE5\UE_5.8\Engine` — все пути ниже относительно него.
 **Проект заказчика:** `D:\PersonalProjects\UE5\MimirHead_portfolio 5.7 5.8 - 3`.
 **Дата аудита:** 2026-09-19. Режим: только чтение, код не писался.
+**Актуализация:** 2026-09-20, по `FogMS_Research_Note_01.md` v1.3, решениям заказчика и сверке контракта A1. Утверждение модели не означает приёмку реализации: компиляция и визуальная проверка заказчиком впереди.
 
-Маркировка утверждений: **VERIFIED (файл:строка)** — прочитано в исходнике; **NOT FOUND** — искали, не нашли; **ASSUMED** — вывод/оценка без прямой строки.
+Маркировка утверждений: **VERIFIED (файл:строка)** — прочитано в исходнике; **NOT FOUND** — искали, не нашли; **ASSUMED** — вывод/оценка без прямой строки; **DERIVED** — математический вывод; **DECISION** — решение заказчика; **HYPOTHESIS** — непроверенная ветка исследования.
+
+**DECISION — граница проекта:** файлы установленного Engine не изменять; Engine FORK/PATCH запрещены. Читать исходники для исследования разрешено. Все изменения шейдеров FogMS доставляются оверлеем из плагина MultiLobeSpec.
 
 Сокращения: VF — Volumetric Fog; LFV — Local Fog Volume; VSM — Virtual Shadow Maps; RT — ray tracing; HWRT — hardware ray tracing; MS — multiple scattering; RGS — ray generation shader; CS — compute shader; PS — pixel shader.
 
@@ -13,15 +16,15 @@
 
 ## 0. Резюме для заказчика (что важно знать до чтения)
 
-1. **Свет с RT-тенями в туман уже попадает и уже затенён трассировкой.** В 5.8 есть отдельные RGS-проходы `InjectShadowedLocalLightRGS` и `InjectShadowedDirectionalLightRGS`, привязывающие TLAS. Они включаются cvar `r.VolumetricFog.InjectRaytracedLights` (по умолчанию 0), а **в проекте заказчика он уже = 1** (`Config/DefaultEngine.ini:22`). Гипотеза kickoff §4 «источники с RT-тенями в туман не попадают» — **неверна для этого проекта**.
-2. **TLAS уже привязан к проходам тумана** движком. Значит, «привязка TLAS требует патча движка» — верно только для *нового* прохода; существующая инфраструктура (`View.GetRayTracingSceneLayerViewChecked`, `RayTracing::BindStaticUniformBufferBindings`, `View.MaterialRayTracingData`) есть и используется внутри `VolumetricFog.cpp`.
+1. **Свет с RT-тенями в туман уже попадает и уже затенён трассировкой.** В 5.8 есть отдельные RGS-проходы `InjectShadowedLocalLightRGS` и `InjectShadowedDirectionalLightRGS`, привязывающие TLAS. Они включаются cvar `r.VolumetricFog.InjectRaytracedLights` (по умолчанию 0), а **в проекте заказчика он уже = 1** (`Config/DefaultEngine.ini:22`).
+2. **TLAS уже привязан к RGS-проходам тумана** движком. Существующая инфраструктура (`View.GetRayTracingSceneLayerViewChecked`, `RayTracing::BindStaticUniformBufferBindings`, `View.MaterialRayTracingData`) используется внутри `VolumetricFog.cpp`. Плагин может получить TLAS публично для своего прохода (§8.3), но это не добавляет TLAS или новые ресурсы в штатный `LightScatteringCS`.
 3. **Самозатенения среды нет.** Ни один проход не маршит extinction к источнику. Единственные «объёмные» тени на туман — тень облаков (`CloudShadowmap`) и DF-конус вверх для sky occlusion.
-4. **Фаза применяется в сторону камеры прямо при инжекции** каждого источника (`PhaseFunction(PhaseG, dot(L, -CameraVector))`). В `LightScattering` и в истории лежит уже «фазированная» величина — всенаправленного поля нигде нет. Это подтверждает п. 3 §3 kickoff: пространственный перенос из этого буфера корректен только при g = 0.
-5. **Emissive не умножается на scattering** — прибавляется отдельно (`VolumetricFog.usf:1169`). Инвариант «σs = 0 не даёт света» нарушается штатным Emissive, это надо учесть в тестовой сцене.
+4. **Фаза применяется в сторону камеры прямо при инжекции** каждого источника (`PhaseFunction(PhaseG, dot(L, -CameraVector))`). В `LightScattering` и в истории лежит уже «фазированная» величина. **DERIVED:** её пространственный перенос как изотропного source term размерно корректен при g = 0, без деления на σs; ограничения — `FogMS_Research_Note_01.md` §2.1–2.3 и §12 п.3.
+5. **Emissive не умножается на scattering** — прибавляется отдельно (`VolumetricFog.usf:1169`), как самостоятельный физический источник. Инвариант: **при σs = 0 вклад MS равен нулю** (`FogMS_HANDOVER.md` §9); штатный emissive этим не запрещён, в тестовой сцене он = 0.
 6. **История хранит pre-exposed `LightScattering`** (до интегрирования), blend = `lerp(new, history, 0.9)`.
 7. Sky/Lumen GI приходят как **SH2 (two-band)** из Lumen Translucency GI Volume, свёртка с зональной гармоникой HG — то есть Lumen уже даёт «мягкий заполняющий свет», но без учёта среды между точками.
-8. **Граница оверлея подтверждена, но причина другая.** TLAS плагину доступен публично (`FXRenderingUtils.h:89`), inline RT в compute на D3D12 SM6 доступен (требует bindless). Что недоступно — **плотность (`VBufferA`) и вход в `LightScatteringCS`**: они RDG-локальны внутри `ComputeVolumetricFog`, а между ближайшими хуками (`PostTLASBuild` до `RenderLights`, `PostOpaque` после тумана) точки вставки нет. A1/A1b/A2 — оверлей `VolumetricFog.usf` (глобальные шейдеры, перекомпиляция секунды). Этап B — патч движка.
-9. **MegaLights в проекте, по оценке, выключен** (`r.MegaLights.EnableForProject` default 0, в конфиге не задан) — подтвердить отсутствие PPV-override. Тени в тумане сейчас решает per-light enum `CastRaytracedShadow`: RT → жёсткий 1 луч/froxel; Disabled → VSM.
+8. **Граница оверлея подтверждена.** TLAS плагину доступен публично (`FXRenderingUtils.h:89`), inline RT в compute на D3D12 SM6 доступен при bindless. Текущие `VBufferA` и `LightScattering` RDG-локальны внутри `ComputeVolumetricFog`; между ближайшими хуками (`PostTLASBuild` до `RenderLights`, `PostOpaque` после тумана) точки вставки нет. A1 проектируется как оверлей `VolumetricFog.usf`, но передача масштаба аналитической плотности требует отдельного решения (§13.1). **B без изменения Engine — HYPOTHESIS до мини-аудита №2** (`FogMS_Research_Note_01.md` §5); Engine FORK/PATCH запрещены.
+9. **DECISION 2026-09-20: MegaLights в проекте не используется.** Поддержка отложена, правила совместимости — `FogMS_Research_Note_01.md` §3.8. Тени в тумане сейчас решает per-light enum `CastRaytracedShadow`: RT → жёсткий 1 луч/froxel; Disabled → VSM.
 
 ---
 
@@ -94,7 +97,7 @@ Forward shading: `ComputeVolumetricFog` вызывается раньше, до 
 | `VolumetricFog.VBufferB` | RGBA16F, 3D | 1713 | rgb = emissive (плотность излучения), a = 0 |
 | `VolumetricFog.LocalShadowedLightScattering` | RGBA16F, 3D (RenderTargetable) | 955 / 1043 | Σ по затенённым локальным источникам, **pre-exposed**, фаза применена |
 | `VolumetricFog.RaytracedShadowVolume` | `PF_R16F`, 3D | 651–657 | RT-видимость directional (0/1, один луч, джиттер) |
-| `VolumetricFog.ConservativeDepthTexture` | `PF_R16F`, 2D ResourceGrid.xy | 1641 | консервативная глубина для отсечения froxel'ов за геометрией |
+| `VolumetricFog.ConservativeDepthTexture` | `PF_R16F`, 2D ResourceGrid.xy | 1641 | консервативная глубина для отсечения освещения froxel'ов за геометрией; плотность `VBufferA` этим не обнуляется (§2.4) |
 | `VolumetricFog.LightScattering` | RGBA16F, 3D (без RT-флага) | 1780 | см. §2.3 |
 | `VolumetricFog.IntegratedLightScattering` | RGBA16F, 3D | 2002 | см. §2.4 |
 | `ViewState.LightScatteringHistory` | extracted `LightScattering` | 2038 | + `LightScatteringHistoryPreExposure` (2039) |
@@ -109,7 +112,7 @@ Forward shading: `ComputeVolumetricFog` вызывается раньше, до 
 - Z: `CalculateGridZParams(Near, Far, DepthDistributionScale, GridSizeZ)` (`RenderCore/Public/RenderUtils.h:721–738`): `slice = log2(z·B + O)·S`, `S = r.VolumetricFog.DepthDistributionScale`, `Near = max(NearClip, VolumetricFogStartDistance) + 9.5 см`, `Far = VolumetricFogDistance` (StartDistance + View Distance, `SceneCore.cpp:430`). Обратная формула в шейдере: `ComputeDepthFromZSlice` (`Common.ush:2437–2441`). Слои сгущаются у камеры логарифмически.
 - Cvars сетки (`VolumetricFog.cpp`): `r.VolumetricFog.GridPixelSize` = **16** (118), `r.VolumetricFog.GridSizeZ` = **64** (126), `r.VolumetricFog.DepthDistributionScale` = **32** (110).
 
-Бюджет из kickoff (GridPixelSize 4, 128 слоёв) — против дефолта 16×64. Полный список cvars — §11.
+**Оценка качества:** GridPixelSize 4 и 128 слоёв значительно дороже штатных 16 px × 64 слоя; это не дефолт движка. Полный список cvars — §11.
 
 ---
 
@@ -124,6 +127,8 @@ Forward shading: `ComputeVolumetricFog` вызывается раньше, до 
 - `Extinction = max(GlobalDensity · GlobalExtinctionScale, 0)` (178); `Scattering = Albedo · Extinction` (180). **Альбедо ≤ 1 гарантирует σs ≤ σt.**
 - LFV в froxel-сетку: extinction считается в **1/м**, затем `*= 1/METER_TO_CENTIMETER` (269–270), ограничивается `LFVMaxDensityIntoVolumetricFog` (272). Radial и height складываются через −log(A − AB + B) (264–266) — это не сумма σt, а «покрытие», документированный компромисс Epic.
 - Emissive: `VBufferB = GlobalEmissive (·GlobalDensity при PROJECT_EXPFOG_MATCHES_VFOG) + Σ LFVExtinction·LFV.Emissive` (291–295). Масштаб `EmissiveUnitScale = 1/10000` если проект **не** в режиме ExpFogMatchesVFog (`SceneCore.cpp:425`). **В проекте заказчика режим включён** (`r.SupportExpFogMatchesVolumetricFog=True`) → масштаб 1, emissive следует плотности.
+
+**VERIFIED — контракт масштаба для A1:** `GlobalExtinctionScale` объявлен в `VolumetricFog.usf:135`, применяется в `MaterialSetupCS:178`, привязан как параметр этого прохода (`VolumetricFog.cpp:353, 1737`). Его **нет** ни в `LightScatteringCS::FParameters` (`VolumetricFog.cpp:1145–1201`), ни в `FFogUniformParameters` (`FogRendering.h:16–44`). Наличие объявления в общем `.usf` и привязки `Fog` UB не означает доставки этого значения в `LightScatteringCS`. В A1 написан захват того же свойства компонента при Apply с передачей отдельным define (§13.1); UE-проверка ещё впереди.
 
 **VERIFIED** `FinalIntegrationCS` (1221–1249): `Transmittance = exp(−σt · StepLength)`, StepLength в см. Следовательно **σt в `VBufferA.a` — в 1/см**, интегрирование энергосохраняющее по Frostbite (`(S − S·T)/σt`).
 
@@ -158,11 +163,12 @@ out.a   = VBufferA.a   (σt, без pre-exposure)
 **VERIFIED**:
 - В историю уходит **`LightScattering`** (до интегрирования), `QueueTextureExtraction` (2038); сохраняется `PreExposure` кадра (2039).
 - Формула: `out = lerp(new, history·(PrevInvPreExposure·PreExposure), HistoryAlpha)` (1177–1179). Extinction в `.a` тоже блендится (lerp по всему float4) — «Leave extinction untouched» в комментарии относится лишь к масштабу экспозиции.
-- `HistoryAlpha = HistoryWeight` = `r.VolumetricFog.HistoryWeight` = **0.9** (150–156; 327), т.е. новый кадр входит с весом **0.1**. Это подтверждает арифметику kickoff §3 (`1 − β + β·k`).
+- `HistoryAlpha = HistoryWeight` = `r.VolumetricFog.HistoryWeight` = **0.9** (150–156; 327), т.е. новый кадр входит с весом **0.1**. **DERIVED:** для режима ошибки с собственным значением k и весом нового кадра β это даёт множитель `1 − β + β·k` (`FogMS_HANDOVER.md` §4).
 - `HistoryWeight = 0`, если `!bTemporalHistoryIsValid` (327): требуется `TemporalReprojection && ViewState && !bCameraCut && !bPrevTransformsReset && bRealtimeUpdate && LightScatteringHistory` (1617–1626).
 - Per-voxel сброс: `HistoryAlpha = 0`, если HistoryUV вне [0, PrevUVMax) или `FixupHistoryUV` не нашёл валидных соседей по prev conservative depth (894–903, 777–842). При сбросе — суперсэмплинг `HistoryMissSupersampleCount` (4 → округляется до 1/4/8/16, 289–305).
 - Джиттер: Halton(2,3,5) по номеру кадра (270–281) + опционально `LightScatteringSampleJitterMultiplier` (по умолчанию 0).
 - Репроекция: `ComputeHistoryVolumeUVFromTranslatedPos(..., UnjitteredPrevTranslatedWorldToClip)` — по мировой позиции центра ячейки, трилинейный сэмпл (856, 1177).
+- **VERIFIED — уточнение ConservativeDepth:** `MaterialSetupCS` вычисляет плотность и пишет `VBufferA` по проверке границ ресурса (`VolumetricFog.usf:153–180, 287–297`), в том числе за conservative depth; `ApplyDepthConstraintsToOffset` корректирует позицию выборки, а не удаляет все такие ячейки. Именно `LightScatteringCS` при тесте за глубиной пишет `float4(0,0,0,0)` и выходит (`VolumetricFog.usf:860–878`). Поэтому в извлекаемой истории такие ячейки имеют нулевые rgb **и α**, хотя текущий `VBufferA` содержит плотность. Плотность текущего кадра и `LightScatteringHistory.a` здесь не взаимозаменяемы; полный разбор вокселизации — Q5 мини-аудита №2.
 
 ### 2.5 `IntegratedLightScattering` и его применение
 
@@ -217,7 +223,7 @@ RT-проходы дополнительно требуют `View.bHasRayTracing
 
 | Вопрос | Ответ |
 |---|---|
-| Включён ли в проекте | `r.MegaLights.EnableForProject` default **0** (`MegaLights.cpp:26–31`), в конфиге проекта не задан; `IsRequested` читает `FinalPostProcessSettings.bMegaLights` (531–538) — PPV может включить. **Оценка: выключен; подтвердить у заказчика** (нет ли PPV с MegaLights) |
+| Включён ли в проекте | **DECISION 2026-09-20: заказчик MegaLights не использует**, поддержка отложена. Механизм включения VERIFIED: `r.MegaLights.EnableForProject` default **0** (`MegaLights.cpp:26–31`), `IsRequested` читает `FinalPostProcessSettings.bMegaLights` (531–538); это нужно учитывать при будущем подключении |
 | Выход | `MegaLights.Volume.ResolvedLighting`, `Texture3D`, **`PF_FloatRGB`** (reference mode: `PF_A32B32G32R32F`), размер **= ResourceGrid тумана** (`MegaLightsResolve.cpp:845–849`, `MegaLights.cpp:1810`); создаётся только если `UseVolume() && bShouldRenderVolumetricFog` (823) |
 | Своя сетка трассировки | при `r.MegaLights.Volume.Unified = 1`: `GridPixelSize` 8 × `GridSizeZ` 128, `DownsampleMode` 2 → трассировка на **½ разрешения по каждой оси**, стохастическая трилинейная реконструкция (`MegaLightsVolumeShading.usf:175–260`); `NumSamplesPerVoxel` 2 |
 | HWRT для froxel'ов | **да**: `VolumeHardwareRayTraceLightSamples` (`MegaLightsRayTracing.cpp:1684–1733`, `MegaLightsVolumeHardwareRayTracing.usf:39–60`), fallback — Global SDF |
@@ -233,7 +239,7 @@ RT-проходы дополнительно требуют `View.bHasRayTracing
 - Локальные: атлас в обеих инжекциях и в grid-цикле (`USE_LIGHT_FUNCTION_ATLAS`); `r.LightFunctionAtlas` = 1, `r.VolumetricFog.UsesLightFunctionAtlas` = 1 (alias `r.VolumetricFog.LightFunction`, `LightFunctionAtlas.cpp:89–101`).
 - Мёртвый код: `extern int GVolumetricFogLightFunction` в `VolumetricFogLightFunction.cpp:27–31` — переменной в движке нет.
 
-### 3.4 Итог для проекта заказчика (HWRT-тени, MegaLights предположительно выкл.)
+### 3.4 Итог для проекта заказчика (HWRT-тени, MegaLights не используется)
 
 1. Локальные Point/Spot/Rect с `Cast Ray Traced Shadows` (или UseProjectSetting при `r.RayTracing.Shadows=1`) → **`InjectShadowedLocalLightRGS`**: один жёсткий луч видимости на froxel к источнику, без мягкости/площади. Итог в `LocalShadowedLightScattering`.
 2. Directional с RT-тенями → `InjectShadowedDirectionalLightRGS` → `RaytracedShadowVolume` (R16F, 1 луч, джиттер по кадру) × cloud shadow × static.
@@ -259,7 +265,7 @@ RT-проходы дополнительно требуют `View.bHasRayTracing
 - Источник радианса: cone-трассировка из froxel (`TraceFromVolume` = 1) по Global SDF **или HWRT** (`r.Lumen.TranslucencyVolume.HardwareRayTracing` = 1, требует `Lumen::UseHardwareRayTracing`; `.cpp:818–830`, `LumenTranslucencyVolumeHardwareRayTracing.cpp:23–44`) + Lumen Radiance Cache для дальнего сегмента (`RadianceCache` = 1). 9 лучей/froxel (`TracingOctahedronResolution` = 3), пространственный фильтр 3 прохода, **свой temporal blend с весом 0.9** (`Temporal.HistoryWeight`, `.cpp:115–120`), Halton-джиттер.
 - **Sky light внутри:** `ApplySkylightToTraceResult` для промахов (`.usf:149`, `LumenTracingCommon.ush:50–61`) + skylight leaking (`.usf:153`). Sky приходит **затенённым геометрией** через трассировку — это и есть «Lumen Dynamic GI + shadowed Skylight».
 - **Emissive поверхностей:** через Lumen surface cache FinalLighting = `CombineFinalLighting(Albedo, Emissive, Direct, Indirect)` (`LumenSceneLighting.usf:501–505, 699–724`). **Иного пути emissive поверхностей в туман нет** (VERIFIED по перечню входов `LightScatteringCS`).
-- **HZB-отсечение:** froxel'ы за HZB получают **ноль** GI (`LumenTranslucencyVolumeLightingShared.ush:120–138`) — за перегородками в тумане indirect отсутствует. Для тестовой сцены kickoff (перегородка с обходом) это источник артефакта, не связанный с MS.
+- **HZB-отсечение:** froxel'ы за HZB получают **ноль** GI (`LumenTranslucencyVolumeLightingShared.ush:120–138`) — в этих ячейках indirect отсутствует. В тестовой сцене с перегородкой и обходом (`FogMS_HANDOVER.md` §9) это источник артефакта, не связанный с MS.
 
 ### 4.3 Sky без Lumen и static lighting
 
@@ -301,9 +307,9 @@ Clamp 0.01 1/см (= 1 1/м) на плотность LFV в сетке — жё�
 
 **VERIFIED — отсутствует.** В `LightScatteringCS` и в обеих инжекциях тень берётся только от геометрии (shadow map / VSM / RT) и от облаков; ни одна ветка не читает `VBufferA` до применения к источнику. `VBufferA` читается единожды на выходе (1161). Единственный марш по объёму — `HemisphereConeTraceAgainstGlobalDistanceField` для sky (651–707), и он маршит SDF геометрии, не extinction.
 
-Следствие для A1: марш τ к источнику придётся писать поверх `VBufferA` (доступен в `LightScatteringCS` как SRV, 1795) — в оверлее это возможно для directional (данные и позиция источника есть в `ForwardLightStruct`), но **не для локальных затенённых источников**: их инжекция идёт в отдельных PS/RGS-проходах, куда `VBufferA` **не привязан** (структура параметров 454–462; 1058–1063). Для них потребуется либо C++-привязка, либо перенос самозатенения в `LightScatteringCS` как множитель на `LocalShadowedLightScattering` (что некорректно: сумма по источникам уже сложена).
+Следствие для A1: марш τ к источнику придётся писать поверх `VBufferA` (доступен в `LightScatteringCS` как SRV, 1795) — в оверлее это возможно для directional (данные и направление источника есть в `ForwardLightStruct`), но **не для локальных затенённых источников**: их инжекция идёт в отдельных PS/RGS-проходах, куда `VBufferA` **не привязан** (структура параметров 454–462; 1058–1063). Масштабирование готового `LocalShadowedLightScattering` не даёт per-light самозатенение: сумма по источникам уже сложена. Изменение C++-привязок штатных проходов движка запрещено; локальное самозатенение остаётся вне A1.
 
-Граничное условие вне сетки: `VBufferA` существует только в froxel-сетке до `VolumetricFogDistance`; за ней — аналитический height fog (`CombineVolumetricFog`, `HeightFogCommon.ush:584`). Гипотеза kickoff (снаружи — только аналитический height fog) согласуется с данными.
+Граничное условие: `VBufferA` существует только в froxel-сетке до `VolumetricFogDistance`. Штатный композит использует аналитический height fog (`CombineVolumetricFog`, `HeightFogCommon.ush:584`); LFV также имеет отдельный аналитический путь за VF-дистанцией (§5.1). **DERIVED — модель A1:** продолжение луча учитывает только аналитический height fog; плотность LFV и volume-материалов вне фрустума для этого марша недоступна. Обрывать весь вклад τ на границе сетки нельзя: это создаёт зависимость от поворота камеры (`FogMS_Research_Note_01.md` §3.2–3.4).
 
 ---
 
@@ -341,6 +347,8 @@ Clamp 0.01 1/см (= 1 1/м) на плотность LFV в сетке — жё�
 ### 8.1 Что привязано в `LightScatteringCS`
 
 **VERIFIED** `VolumetricFog.cpp:1145–1201`: View, ForwardLightStruct (light grid + directional), ForwardDirLightShadowStruct (CSM), Fog, LightFunctionAtlas, SceneTextures, VolumetricFogParameters (UB `VolumetricFog` + матрицы + джиттер + HistoryWeight), MegaLightsVolume, VBufferA/B, LocalShadowedLightScattering, DirectionalLightLightFunctionTexture, CloudShadowmapTexture, ConservativeDepthTexture (+Prev), LightScatteringHistory, RaytracedShadowsVolume, LumenGIVolumeStruct, VirtualShadowMapSamplingParameters, AOParameters, GlobalDistanceFieldParameters, RWLightScattering. **TLAS не привязан** к `LightScatteringCS`; TLAS есть только у RGS-проходов (661, 1060) — это **pipeline RGS** (`SF_RayGen`, `View.MaterialRayTracingData.PipelineState` + SBT), не inline.
+
+**VERIFIED:** `GlobalExtinctionScale` в этом списке отсутствует; его нет и внутри `Fog` UB (`FogRendering.h:16–44`). Он привязан к `MaterialSetupCS` (`VolumetricFog.cpp:353, 1737`), а не ко всем entry point общего `.usf`. Риск точного аналитического продолжения A1 — §2.1 и §13.1.
 
 Пермутации: TemporalReprojection, DistanceFieldSkyOcclusion, LumenGI, VirtualShadowMap, RaytracedShadowsVolume, SampleLightFunctionAtlas, MegaLights, LightSoftFading, SuperSampling, Ubershader (1122–1143). Ubershader-режим переводит ветки в динамические `IF_UBERSHADER(b…)` (1944–1976).
 
@@ -386,22 +394,24 @@ Clamp 0.01 1/см (= 1 1/м) на плотность LFV в сетке — жё�
 
 ### 8.5 Оверлей MultiLobeSpec (механизм доставки)
 
-**VERIFIED** в этом репозитории: `Source/MultiLobeSpec/Private/MultiLobeShaderPatcher.h:67–98` — плагин копирует весь `Engine/Shaders` в `Saved/MultiLobeSpec/<buildid>`, патчит текст, ремапит `/Engine` (`MultiLobeSpec.cpp:173`), затем `RecompileShaders Changed`. Editor-only (`README_RU.md:59`). README уже фиксирует границу: «Production-активация требует Texture3D/SRV и renderer binding — это изменение C++ renderer contract/engine fork» (`README_RU.md:170`).
+**VERIFIED** в этом репозитории: `Source/MultiLobeSpec/Private/MultiLobeShaderPatcher.h:67–98` — плагин копирует весь `Engine/Shaders` в `Saved/MultiLobeSpec/<buildid>`, патчит текст, ремапит `/Engine` (`MultiLobeSpec.cpp:173`), затем `RecompileShaders Changed`. Editor-only (`README_RU.md:59`). Исходные файлы установленного Engine не меняются.
+
+**DECISION 2026-09-20:** FogMS размещается внутри MultiLobeSpec отдельной изолированной группой с файлами `FogMS_*`, defines `FOGMS_*` и собственным выключателем, независимым от BRDF-пресетов. Причина — единый remap `/Engine`. Изменение Engine и его fork запрещены; вынос общего патчера за рамками A1.
 
 ### 8.6 Вывод: что куда умещается
 
 | Требование | Вердикт |
 |---|---|
-| Марш τ по `VBufferA` к directional-источнику внутри `LightScatteringCS` (A1) | **Оверлей** — ресурс уже привязан (1795), шейдер глобальный |
-| Октавы по Wrenninge на уже посчитанном свете (A1b) | **Оверлей** — только `VolumetricFog.usf` |
-| Переинтерпретация истории (A2) | **Оверлей** для эксперимента; корректная модель — только отдельный буфер (C++) |
-| Самозатенение для локальных затенённых источников | **C++**: `VBufferA` не привязан к `InjectShadowedLocalLightPS/RGS` (454–462, 1058–1063) |
+| Марш τ_in по `VBufferA` к directional-источнику внутри `LightScatteringCS` (часть A1) | **Оверлей** — ресурс уже привязан (1795), шейдер глобальный. Обязательное продолжение τ_out требует решения контракта `GlobalExtinctionScale` (§13.1) |
+| Октавы по конвенции Epic (A1b) | **Оверлей**, поверх τ к источнику; только после разбора A1, без изменения материалов |
+| Интегрирование source term из истории (A2) | **DERIVED:** размерно корректный эксперимент в оверлее при g = 0, без деления на σs; фазовая ошибка, лаг, нули истории за depth и отсутствие occlusion остаются ограничениями (§12 п.3) |
+| Самозатенение для локальных затенённых источников | В текущем оверлее **недоступно**: `VBufferA` не привязан к `InjectShadowedLocalLightPS/RGS` (454–462, 1058–1063). Изменять C++-контракт штатных проходов Engine запрещено |
 | Debug-виды через `View.GeneralPurposeTweak` | **Оверлей**; cvar есть в non-shipping (`SceneRendering.cpp:437–454`, присвоение 2026–2039), в Shipping = 1.0 |
-| Новый низкоразрешённый буфер MS с inline HWRT (этап B) | **C++-проход в плагине возможен только как отдельный pass на `PostTLASBuild` (до теней/Lumen) или `PostOpaque` (после тумана)**; TLAS доступен публично. Но **вход (плотность) и выход (source term тумана) недоступны** → без патча движка плагин не может ни прочитать `VBufferA`, ни добавить свой буфер в `LightScatteringCS` |
-| Вставка прохода между `LightScatteringCS` и `FinalIntegrationCS`, новый вход в `LightScatteringCS`, публикация `VBufferA` | **Патч движка / source build** |
-| Правка `HeightFogCommon.ush` / `LocalFogVolumeCommon.ush` | оверлей технически может, но **полная перекомпиляция материалов** (§9) |
+| Новый низкоразрешённый буфер MS с inline HWRT (этап B) | TLAS доступен публично; отдельный plugin pass возможен на `PostTLASBuild` или `PostOpaque`. Текущий `VBufferA` и вход нового ресурса в штатный `LightScatteringCS` через эти хуки не опубликованы. **B без изменения Engine — HYPOTHESIS**, пути получения данных и доставки результата проверяет мини-аудит №2 (`FogMS_Research_Note_01.md` §5, §7) |
+| Вставка прохода между `LightScatteringCS` и `FinalIntegrationCS`, новый вход в `LightScatteringCS`, публикация текущего `VBufferA` | В проверенном штатном контракте нет точки расширения. Engine FORK/PATCH **запрещены**, это не разрешённая будущая задача |
+| Правка `HeightFogCommon.ush` / `LocalFogVolumeCommon.ush` в оверлее | **Не входит в A1**: вызывает полную перекомпиляцию материалов (§9); эти файлы не менять |
 
-**Оценка для этапа B (не факт):** минимальный патч движка = (1) экспорт/публикация `VBufferA` и `LightScattering` UAV наружу `ComputeVolumetricFog` через делегат или view-extension callback с параметрами, (2) один дополнительный `Texture3D` вход в `LightScatteringCS`, складываемый в `LightScattering` до умножения на σs. Порядок «5 строк C++ + 1 include» — оценка, требует проверки на исходниках при проектировании B.
+**DERIVED — оценка сложности, не план изменения Engine:** нефазированное поле потребовало бы второй цели накопления также в `InjectShadowedLocalLightPS/RGS`, где фаза уже применяется до суммы, плюс создания ресурса и его привязок. Порядок — **десятки строк в трёх шейдерах и C++**, а не несколько строк и один include (`FogMS_Research_Note_01.md` §2.4). Такая оценка описывает недоступный в разрешённой границе renderer contract; реализация через Engine FORK/PATCH запрещена. Для B исследуется только гипотеза без изменения движка, до результатов мини-аудита №2 её осуществимость не подтверждена.
 
 ## 9. Область перекомпиляции (критерий 7)
 
@@ -417,13 +427,13 @@ Clamp 0.01 1/см (= 1 1/м) на плотность LFV в сетке — жё�
 | `FogSeparateComposition.usf/.ush`, `FogScreenSpaceScattering.ush`, `HeightFogPixelShader.usf` | GLOBAL-ONLY | все FSSS-шейдеры глобальные (`FogRendering.cpp:296–330`, `FogSeparateComposition.cpp:98–191, 391–424`) |
 | `Engine/Public/SceneView.h` (новый член View UB) | полная + пересборка движка | ASSUMED: смена layout View UB инвалидирует все шейдеры |
 
-Полный список include `VolumetricFog.usf` — §8.1/§1 (строки 7–53, 372, 380). Практическое правило для оверлея: **всё, что нужно A1/A1b/A2, живёт в `VolumetricFog.usf` и не трогает материалы.**
+Полный список include `VolumetricFog.usf` — §8.1/§1 (строки 7–53, 372, 380). Практическая граница A1: **математика живёт в `VolumetricFog.usf` и отдельном `FogMS_*` include оверлея; материалы не менять.** Возможность формулы в шейдере не доказывает наличие всех её параметров в проходе: контракт масштаба — §13.1.
 
 ### 9.1 Эталон октав — Volumetric Cloud (вопрос J)
 
 **VERIFIED** `Shaders/Private/VolumetricCloud.usf` (отчёт D):
 - `MSCOUNT = 1 + MATERIAL_VOLUMETRIC_ADVANCED_MULTISCATTERING_OCTAVE_COUNT` (339–343; default define 0 → 282–283). Ссылка на Wrenninge в комментарии (339).
-- Коэффициенты по октавам (`SetupParticipatingMediaContext`, 374–401): `σs[ms] = σs[ms−1]·MsSFactor`, `σt[ms] = σt[ms−1]·MsEFactor`, затем `MsSFactor *= MsSFactor`, `MsEFactor *= MsEFactor` (390–393) — факторы **самоквадрируются** на каждой октаве, поэтому σs[i] = σs[0]·a^(2^i − 1) (a, a³, a⁷, …), а не aⁱ, как в упрощённой записи kickoff §3. Для kickoff это уточнение формулы.
+- Коэффициенты по октавам (`SetupParticipatingMediaContext`, 374–401): `σs[ms] = σs[ms−1]·MsSFactor`, `σt[ms] = σt[ms−1]·MsEFactor`, затем `MsSFactor *= MsSFactor`, `MsEFactor *= MsEFactor` (390–393) — факторы **самоквадрируются** на каждой октаве, поэтому σs[i] = σs[0]·a^(2^i − 1) (a, a³, a⁷, …). Эту конвенцию использует `FogMS_Research_Note_01.md` §4.
 - Фаза по октавам (`SetupParticipatingMediaPhaseContext`, 413–430): `Phase[ms] = lerp(IsotropicPhase(), Phase[0], MsPhaseFactor)`, `MsPhaseFactor *= MsPhaseFactor` (424–428) — не `p(cⁱ·g)`, а lerp к изотропии.
 - Входы из материала (746–755): `MsScattFactor = GetVolumetricAdvancedMaterialOutput3` (saturate при `bClampMultiScatteringContribution`), `MsExtinFactor = Output4`, `MsPhaseFactor = Output5`.
 - Параметры на **узле материала** `UMaterialExpressionVolumetricAdvancedMaterialOutput` (`Engine/Public/Materials/MaterialExpressionVolumetricAdvancedMaterialOutput.h`): `MultiScatteringApproximationOctaveCount` = 0 (clamp 0–2; 64), `ConstMultiScatteringContribution` = 0.5 (68), `ConstMultiScatteringOcclusion` = 0.5 (72), `ConstMultiScatteringEccentricity` = 0.5 (76), `bClampMultiScatteringContribution` = true (92). На `VolumetricCloudComponent` MS-свойств нет (NOT FOUND).
@@ -431,32 +441,32 @@ Clamp 0.01 1/см (= 1 1/м) на плотность LFV в сетке — жё�
 
 **Для A1b:** конвенция Epic — три фактора (contribution, occlusion, eccentricity) с самоквадрированием на каждой октаве; октавы применяются к **transmittance к источнику** (τ), которого в VF нет → A1b зависит от A1 (марш τ).
 
-## 10. Что в kickoff оказалось неверным или неточным (критерий 7)
+## 10. Сводка проверенных фактов и границ (критерий 7)
 
-| Утверждение kickoff §4 | Статус | Факт |
+| Вопрос | Статус | Факт |
 |---|---|---|
-| `InjectRaytracedLights` = 0 → RT-источники в туман не попадают/без теней | **Неточно для проекта** | Cvar есть, default 0, но **в проекте = 1**; при 1 есть полноценные RGS-проходы с TLAS для локальных и directional |
-| Затенённые локальные — `InjectShadowedLocalLightPS` | VERIFIED + дополнение | плюс `InjectShadowedLocalLightRGS` для RT |
-| HistoryWeight ≈ 0.9 | VERIFIED | 0.9 |
-| Фаза в сторону камеры внутри light scattering | VERIFIED | и внутри инжекций тоже |
-| Sky через SH | VERIFIED | SH2 (two-band), при Lumen — внутри Lumen-объёма |
-| Самозатенения нет | VERIFIED | нет |
-| `VolumetricFog.usf` — только глобальные | VERIFIED | да |
-| Между light scattering и интегрированием нет точки расширения | VERIFIED | нет |
-| «Привязка TLAS требует патча» | **Уточнено** | инфраструктура есть в рендерере; патч нужен для *нового* прохода/буфера, а не для TLAS как такового |
-| Emissive входит в source term как σs·L | **Неверно** | emissive прибавляется без σs (1169) |
-| Бюджет 480×270×128 | Оценка | дефолт движка 16 px × 64 слоя; ResourceGrid ≥ ViewGrid |
+| RT-источники в тумане | VERIFIED | `InjectRaytracedLights` default 0, **в проекте = 1**; при 1 есть RGS-проходы с TLAS для локальных и directional (§3) |
+| Инжекция затенённых локальных | VERIFIED | `InjectShadowedLocalLightPS` и `InjectShadowedLocalLightRGS` для RT (§3) |
+| HistoryWeight | VERIFIED | 0.9 (§2.4) |
+| Фаза в сторону камеры | VERIFIED | в `LightScatteringCS` и в инжекциях, до суммирования (§2.2) |
+| Sky через SH | VERIFIED | SH2 (two-band), при Lumen — внутри Lumen-объёма (§4) |
+| Самозатенение среды | VERIFIED | в штатном VF отсутствует (§6) |
+| Класс `VolumetricFog.usf` | VERIFIED | глобальные шейдеры (§9) |
+| Хук между light scattering и интегрированием | NOT FOUND | внутри `ComputeVolumetricFog` нет делегата или ViewExtension-вызова (§8.2) |
+| Доступ плагина к TLAS | VERIFIED | публичный `FXRenderingUtils`, без изменения Engine; это не даёт доступ к текущему `VBufferA` и не меняет входы штатного `LightScatteringCS` (§8.3–8.4) |
+| Emissive в source term | VERIFIED / DERIVED | прибавляется без σs (`VolumetricFog.usf:1169`); инвариант ограничивает вклад **MS** при σs = 0, а не эмиссию |
+| Размер сетки | VERIFIED | дефолт движка 16 px × 64 слоя; ResourceGrid ≥ ViewGrid (§1.4) |
 | FSSS-свойство `FSSSSceneColorScatteringAmountScale` | VERIFIED | имя точное |
-
-| MegaLights затеняет froxel'ы трассировкой | VERIFIED | да, `MegaLightsVolume` на сетке тумана, HWRT на ½ разрешения; в проекте, по оценке, MegaLights выключен |
-| «Lumen поставляет GI пониженного качества, предположительно через Translucency Volume» | VERIFIED с уточнением | через **Lumen Translucency GI Volume** (SH2, 32 px, HWRT-трассировка), не через классический Translucency Lighting Volume |
-| «RT Shadows могут быть deprecated в пользу MegaLights» (вопрос) | Опровергнуто | RT-тени живы; MegaLights имеет приоритет в `GetLightOcclusionType` |
-| Единицы плотности «1/см? 1/м?» | VERIFIED | всё в 1/см внутри сетки; UI-параметры: height fog `/1000`, LFV и volume-материалы `/100` |
-| FSSS: «есть ли буфер только тумана» | Ответ: нет | Texture0 = туман + перенесённый scene color; при Scale = 0 — только туман, но 2D после интегрирования |
-| Октавы `Σ aⁱ·L·exp(−bⁱτ)·p(cⁱg)` | Уточнено | у Epic факторы самоквадрируются по октавам, фаза — lerp к изотропии (`VolumetricCloud.usf:390–393, 424–428`) |
+| Тени MegaLights в froxel'ах | VERIFIED / DECISION | `MegaLightsVolume` на сетке тумана, HWRT на ½ разрешения (§3.2); заказчик MegaLights не использует (2026-09-20) |
+| Путь GI Lumen | VERIFIED | **Lumen Translucency GI Volume** (SH2, 32 px, HWRT-трассировка), не классический Translucency Lighting Volume (§4) |
+| Статус RT Shadows | VERIFIED | RT-тени поддерживаются; MegaLights имеет приоритет в `GetLightOcclusionType` (§3.1) |
+| Единицы плотности | VERIFIED | 1/см внутри сетки; UI-параметры: height fog `/1000`, LFV и volume-материалы `/100` (§2.1) |
+| Отдельный FSSS-буфер только тумана | NOT FOUND | Texture0 = туман + перенесённый scene color; при Scale = 0 — только туман, но 2D после интегрирования (§7) |
+| Октавы Epic | VERIFIED | факторы самоквадрируются по октавам, фаза — lerp к изотропии (`VolumetricCloud.usf:390–393, 424–428`) |
 | `View.GeneralPurposeTweak` доступен в non-shipping | VERIFIED | `SceneRendering.cpp:437–454`; в Shipping/Test = 1.0 |
-| `FSceneViewExtensionBase` не достаёт внутрь fog pipeline | VERIFIED + уточнение | ближайший хук `PostTLASBuild` — до `RenderLights`; `PostOpaque` — после тумана |
-| «Этап B требует патча движка» | **Подтверждено** | не из-за TLAS (он публичен через `FXRenderingUtils`), а из-за недоступности `VBufferA` и входа в `LightScatteringCS` |
+| Хуки вокруг fog pipeline | VERIFIED | ближайший `PostTLASBuild` — до `RenderLights`; `PostOpaque` — после тумана (§8.2) |
+| Реализуемость B без изменения Engine | HYPOTHESIS | проверяется мини-аудитом №2; недоступность текущего `VBufferA` через проверенные хуки не доказывает невозможность всех альтернативных путей. Engine FORK/PATCH запрещены (§8.6) |
+| Масштаб аналитической плотности в `LightScatteringCS` | VERIFIED / реализация требует UE-проверки | `GlobalExtinctionScale` привязан только к `MaterialSetupCS`, отсутствует в параметрах `LightScatteringCS` и `Fog` UB. A1 читает scale активного компонента при Apply и передаёт собственным define (§13.1) |
 
 ---
 
@@ -487,38 +497,66 @@ Clamp 0.01 1/см (= 1 1/м) на плотность LFV в сетке — жё�
 
 ## 12. Пробелы и риски, найденные по ходу (сигнал заказчику)
 
-1. **Инвариант 2 kickoff («σs = 0 не даёт света») уже нарушен штатно:** emissive прибавляется без σs (`VolumetricFog.usf:1169`). В тестовой сцене emissive должен быть 0, иначе инвариант неприменим.
+1. **Инвариант MS и штатная эмиссия — разные условия.** Emissive физически корректно прибавляется без σs (`VolumetricFog.usf:1169`). **DERIVED:** при σs = 0 вклад **MS** обязан быть нулевым; самостоятельный emissive допустим. В тестовой сцене emissive = 0. В пространственном режиме эмиссия, уже содержащаяся в source term истории, должна рассеиваться наравне с другими источниками (`FogMS_Research_Note_01.md` §2.2).
 2. **Потолок плотности LFV в сетке = 0.01 1/см** (`r.LocalFogVolume.MaxDensityIntoVolumetricFog`). «Плотный, материальный» локальный объём упрётся в него. Поднимать — можно, но cvar защищает от лика истории при репроекции; при поднятии нужно измерять лаг.
-3. **История хранит уже фазированную и уже умноженную на σs величину** (`LightScattering`). Для A2 «оператор по единицам» это значит: чтобы получить поле входящего света, надо делить на σs (ноль там, где среды нет) — деление невозможно. Практически A2 придётся вести на **отдельном** буфере, а не на `LightScatteringHistory`; переиспользовать можно только репроекцию (`ComputeHistoryVolumeUVFromTranslatedPos`) и `FixupHistoryUV`.
+3. **История хранит source term q, который можно интегрировать без деления на σs. DERIVED** (`FogMS_Research_Note_01.md` §2.1): `L(x, ω) = ∫ T(x, s)·V(x, s)·q(x + s·ω) ds`, затем `q_MS(x) = σs(x)/(4π) · ∫_Ω L(x, ω) dω`. Здесь q — `LightScatteringHistory.rgb` с поправкой экспозиции как в `VolumetricFog.usf:1177–1179`, а σs(x) — **текущий** `VBufferA.rgb`. Размерности: q [яркость/см] → интеграл по ds [яркость] → интеграл по углам [яркость·ср] → σs/(4π) [1/см/ср] → q_MS [яркость/см]. A2 в оверлее при **g = 0** размерно корректен. Реальные ограничения: история уже фазирована при g ≠ 0 (§2.2), лаг `1 − β + β·k`, нули за `ConservativeDepth` (§2.4), отсутствие подтверждённого пути геометрической видимости V для gather. Устойчивость требует `ρ(K) < 1` всего дискретного оператора, а не только ограничения одного коэффициента; отдельный буфер сам по себе эти проблемы не решает.
 4. **Две сетки и два temporal-фильтра с весом 0.9 в цепочке:** Lumen Translucency Volume (32 px, свой blend 0.9) → VF (16 px, blend 0.9). Любая новая итерация MS поверх этого получает лаг ≥ двух каскадов истории. Измерять временную реакцию (инвариант 6) нужно с учётом Lumen-объёма отдельно.
-5. **Lumen HZB-отсечение обнуляет GI за перегородками** — тестовая сцена kickoff (перегородка с обходом) покажет тёмную зону, которую MS обязан заполнить, а Lumen — нет. Это надо зафиксировать как baseline в A0, чтобы не приписать эффект MS.
+5. **Lumen HZB-отсечение обнуляет GI в ячейках за HZB** (`LumenTranslucencyVolumeLightingShared.ush:120–138`). В тестовой сцене с перегородкой и обходом (`FogMS_HANDOVER.md` §9) нужно зафиксировать эту тёмную зону как baseline A0 и отдельно оценивать вклад MS; улучшение не должно маскировать потерю входных данных.
 6. **Локальные затенённые источники инжектятся в проходах без доступа к `VBufferA`** (структуры параметров `VolumetricFog.cpp:454–462`, RGS аналогично). Самозатенение среды для них в оверлее недостижимо; для directional — достижимо в `LightScatteringCS`.
 7. **Один глобальный g** на весь froxel-объём; per-volume g LFV теряется. Если сцена заказчика использует LFV с разными g, режим «Пространственный» (g = 0) изменит и LFV-вид.
 8. **Directional light в тумане только один** (`SelectedForwardDirectionalLightProxy`, 1576–1587). Вторая directional-лампа в туман не попадёт вовсе.
-9. **MegaLights**: в конфиге проекта cvar не задан (default движка `r.MegaLights.EnableForProject` = 0, `MegaLights.cpp:26–31`; см. §3.2). Если MegaLights окажется включён, локальные источники уйдут в `MegaLightsVolume` со своим разрешением и шумоподавлением, и таблица §3 меняется. **Уточнить у заказчика** (п. §10 kickoff).
+9. **DECISION 2026-09-20: MegaLights не используется**, поддержка отложена. При будущем включении локальные источники могут уйти в `MegaLightsVolume` со своим разрешением и шумоподавлением, а при `r.MegaLights.DirectionalLights = 1` ветка directional A1/A1b пропускается (`VolumetricFog.usf:941`). Сейчас требуется компиляционная совместимость всех пермутаций и сохранение готового вклада `MegaLightsVolume`; отдельную поддержку не реализовывать (`FogMS_Research_Note_01.md` §3.8).
 10. **`r.RayTracing.Shadows=True` + `r.Shadow.Virtual.Enable=1` одновременно** в конфиге: для источника с occlusion = `Raytraced` (enum `CastRaytracedShadow` = Enabled или UseProjectSetting) VSM **не строится** (`ShadowSetup.cpp:6404–6409`) — в тумане у такого источника только RT-луч (жёсткая тень, 1 sample/froxel). Источники с `CastRaytracedShadow = Disabled` идут через VSM. Это значит, что в проекте **вид тени в тумане зависит от per-light enum**, а не от глобального cvar — учесть при A0.
 11. **Inline RT на D3D12 SM6 требует bindless** (`bInlineRayTracingRequiresBindless=true`). Для этапа B это проектное требование (`r.D3D12.Bindless.*`), которое надо проверить в конфиге заказчика до проектирования C++.
-12. **MegaLights в §12 п.9** — по `IsRequested` включение идёт через `FinalPostProcessSettings.bMegaLights`; default проекта 0. Нужно подтверждение, что в уровнях нет PPV с override.
+12. **VERIFIED — `GlobalExtinctionScale` не доставлен в `LightScatteringCS`.** Он объявлен в `VolumetricFog.usf:135`, применяется в `MaterialSetupCS:169–178` и привязан в `VolumetricFog.cpp:353, 1737`, но отсутствует в `LightScatteringCS::FParameters:1145–1201` и `FogRendering.h:16–44`. A1 считывает scale из активного компонента при Apply и фиксирует отдельным define; изменение scale/карты требует нового Apply, разные scale активных компонентов/миров отвергаются. Код написан; его сборка/UE-приёмка и шовный тест ещё не выполнены.
+13. **VERIFIED — `VBufferA.a` и `LightScatteringHistory.a` различаются за conservative depth.** `MaterialSetupCS` продолжает писать плотность (`VolumetricFog.usf:153–180, 287–297`), а `LightScatteringCS` за depth обнуляет весь float4 и выходит (`860–878`). Для A1 доступна текущая плотность; для A2/B использование history α теряет её в этих ячейках. Это ограничение данных, а не отсутствие среды в сцене; Q5 мини-аудита №2 уточняет весь путь вокселизации.
 
-## 13. Предложение по этапу A1 (черновик, ждёт подтверждения)
+## 13. Утверждённая спецификация A1 и критерии приёмки
 
-**Цель A1:** самозатенение среды для **одного directional light**, явная граница области, debug-виды Extinction / Transmittance. Без MS. Оверлей, без C++.
+**DECISION 2026-09-20:** A1 принят с поправками `FogMS_Research_Note_01.md` §3, включая аналитическое продолжение за сеткой. Размещение внутри MultiLobeSpec подтверждено заказчиком. Здесь зафиксированы модель и критерии; результат реализации ещё требует компиляции и визуальной приёмки заказчиком.
 
-**Где:** только `Shaders/Private/VolumetricFog.usf`, ветка directional в `LightScatteringCS` (943–989). `VBufferA` уже привязан (SRV, `VolumetricFog.cpp:1795`) и прочитан в 1161 — марш τ к источнику делается по нему до применения `ShadowFactor`.
+**Цель A1:** самозатенение среды для **одного directional light** до штатного интегрирования VF. Extinction, локальные источники и MS не меняются. Все изменения — в файлах плагина и его shader overlay; Engine FORK/PATCH запрещены.
 
-**Что писать (оценка, ≤6 файлов):**
-1. `VolumetricFog.usf` — функция марша `τ = Σ σt(x + s·L)·Δs` по `VBufferA` в froxel-UV (нужна обратная проекция world→grid: `ComputeZSliceFromDepth` + `TranslatedWorldToClip` уже доступны), `ShadowFactor *= exp(−τ)`; N шагов и длина — через defines; граница: за пределами сетки (UV вне [0,1] или Z > `MaxDistance`) — марш прекращается (документированный компромисс из kickoff §3).
-2. `VolumetricFog.usf` — debug-режим через define: вывод в `LightScattering.rgb` значения `σt` / `exp(−τ)` вместо света.
-3. Патч-функция в `MultiLobeShaderPatcher` (C++ плагина, не движка) — якоря по строкам 946–952 и 1161; параметры через `MultiLobeSpecConfig.ush` defines. *(1 файл C++ плагина + 1 .ush конфиг.)*
+### 13.1 Модель и контракт данных
 
-**Критерии приёмки (≤7):**
-1. Все новые defines = 0 → шейдер побайтно совпадает с vanilla (diff оверлея пуст, кроме `#if`-обёрток).
-2. Directional light + однородный туман: `exp(−τ)` вдоль луча к солнцу монотонно убывает с глубиной проникновения; при σt → 0 множитель → 1.
-3. Debug-вид Extinction показывает `VBufferA.a`; debug-вид Transmittance показывает `exp(−τ)`; переключение — одним define/cvar-ом (`View.GeneralPurposeTweak`, доступен в non-shipping — `SceneRendering.cpp:437–454`).
-4. Поворот камеры в статичной сцене не меняет тень внутри сетки сверх допуска; на границе сетки поведение документировано.
-5. Производительность: время `LightScattering` измерено при N = 8/16/32 шагов (заказчик снимает `ProfileGPU`).
-6. Локальные источники **не** затрагиваются (явно записано как ограничение A1).
+**DERIVED** (`FogMS_Research_Note_01.md` §3.1–3.5):
 
-**Что не входит в A1:** октавы (A1b), локальные источники, MS, изменения C++ рендерера.
+`ShadowFactor *= exp(−τ_eff)`
 
-**Оценки:** «почти наверняка влезет в оверлей» — оценка; риск — стоимость марша при GridPixelSize 4/128 слоёв (16.6 M ячеек × N шагов).
+`τ = τ_in + τ_out`
+
+`τ_eff = τ`, если `FOGMS_EXCLUDE_GLOBAL_LAYER = 0` (**утверждённый дефолт**).
+
+`τ_eff = max(τ − τ_ref, 0)`, если `FOGMS_EXCLUDE_GLOBAL_LAYER = 1`.
+
+- **τ_in:** марш в мировых сантиметрах от центра froxel к источнику по трилинейному `VBufferA.a`; источник выборки скрыт за `FOGMS_SAMPLE_EXTINCTION(uvw)`. Неравномерное квадратичное распределение шагов, выборка в интервале, вес — его мировая длина Δs. Джиттер берётся из существующего покадрового источника; N и S_march задаются defines. Ориентиры заметки: N = 8/16, 32–64 для Max; S_march порядка VF-дистанции.
+- **Переход за сетку:** при выходе world → froxel UVW за границы марш передаёт точку выхода в аналитику. Если достигнут S_march внутри сетки, аналитика продолжается от последней точки. Обнуление дальнейшей τ на границе фрустума не соответствует утверждённой модели.
+- **τ_out:** аналитический интеграл двух height-fog слоёв от точки продолжения до **общего конца луча S_max от исходного froxel** (define; ориентир 10–20 км), то есть длиной `S=max(S_max−S_in,0)`. Для `ρ_i(z) = D_i·2^(−F_i·(z − H_i))` вдоль `z(s) = p_z + s·L_z` интеграл длиной S равен `ρ_i(p_z)·(1 − 2^(−F_i·L_z·S))/(F_i·L_z·ln2)`; при малом показателе используется устойчивое симметричное разложение с правильным горизонтальным пределом.
+- **τ_ref:** полностью аналитическая τ height fog из исходной мировой точки. Сумма τ_in + τ_out и τ_ref должны описывать один и тот же отрезок до одной конечной точки, иначе шовный тест измеряет также несовпадение длин.
+- **Единицы и множители:** τ_out и τ_ref используют те же два слоя, множитель 0.5 и эффективный `GlobalExtinctionScale`, что `MaterialSetupCS` (`VolumetricFog.usf:169–178`). Поведение `PROJECT_EXPFOG_MATCHES_VFOG` нельзя подменять конвенцией экранного fog; вызов `CalculateLineIntegralShared` без проверки не доказывает совпадение. `HeightFogCommon.ush` и `LocalFogVolumeCommon.ush` не менять.
+
+**VERIFIED — место вставки:** ветка directional в `LightScatteringCS`, `VolumetricFog.usf:943–989`; штатные геометрические и cloud-тени вычисляются в 946–976, фаза — в 988. `VBufferA` уже привязан как SRV (`VolumetricFog.cpp:1795`), итоговый source term и extinction пишутся в `VolumetricFog.usf:1169`, история смешивается в 1177–1179. Новый множитель применяется к directional до его суммирования; готовые `LocalShadowedLightScattering` и `MegaLightsVolume` не масштабируются.
+
+**VERIFIED — пробел штатной привязки:** `GlobalExtinctionScale` есть в `MaterialSetupCS` (`VolumetricFog.usf:135, 178`; `VolumetricFog.cpp:353, 1737`), но **нет** в параметрах `LightScatteringCS` (`VolumetricFog.cpp:1145–1201`) и `Fog` UB (`FogRendering.h:16–44`). Само объявление scalar в общем `.usf` не делает его доступным другому проходу. **Реализация A1:** `FFogMSShaderPatcher::ReadConfig` читает `UExponentialHeightFogComponent::VolumetricFogExtinctionScale`, затем передаёт `FOGMS_GLOBAL_EXTINCTION_SCALE`. После изменения свойства/карты необходим Apply; неоднозначность между активными компонентами/мирами — отказ. Этот путь не изменяет Engine; сборка UE и визуальная приёмка остаются PENDING.
+
+**Организация кода (≤6 файлов для A1):** отдельный `FogMS_*` include оверлея с чистыми функциями марша и аналитики; входы задаются явно, без зависимости от локальных переменных directional-ветки. Патчер плагина доставляет defines `FOGMS_*` и вставки по проверенным анкерам. Собственный выключатель независим от BRDF-пресетов. Debug-переключение — `View.GeneralPurposeTweak` (`SceneRendering.cpp:437–454`); конкретные команды и ожидаемый результат обязательны в протоколе для заказчика.
+
+### 13.2 Семь критериев приёмки A1
+
+Источник: `FogMS_Research_Note_01.md` §3.7. **Приёмка ещё не выполнена.**
+
+1. Все новые эффекты выключены (defines включения = 0) → **рендер побитно совпадает с vanilla**. Патченный `VolumetricFog.usf` компилируется во всех пермутациях, включая **MegaLights и Ubershader**; тождество результата не подменять совпадением текста шейдера.
+2. **Шовный тест:** сцена только с height fog. Debug-вид `|τ_in + τ_out − τ_ref|` ≈ 0 по всему экрану; допуск фиксируется в протоколе, ориентир — **≤5% от τ_ref**, с явной обработкой τ_ref около нуля. Это общая проверка единиц, длин шагов, репроекции и множителей.
+3. Debug-виды: **Extinction** (`VBufferA.a`), **Transmittance** (`exp(−τ)`), **Seam error**. Переключение через `View.GeneralPurposeTweak`.
+4. Поворот камеры на **360°** в статичной сцене с height fog: яркость тумана в фиксированной мировой точке не меняется заметно. Оценка заказчика плюс debug Transmittance; условия сцены и экспозиции фиксируются в протоколе.
+5. `FOGMS_EXCLUDE_GLOBAL_LAYER = 1` в чистом height fog → **визуально vanilla**.
+6. Заказчик снимает **`ProfileGPU` → `LightScattering` при N = 8/16/32**; значения и конфигурация сетки заносятся в отчёт.
+7. **Локальные источники не затронуты** — это явно записано как ограничение A1.
+
+### 13.3 Ограничения и остановка этапа
+
+- LFV и volume-материалы **вне фрустума** не затеняют луч A1: их плотности там нет в `VBufferA`. Аналитика продолжает только height fog.
+- За `ConservativeDepth` текущий `VBufferA` сохраняет плотность, но `LightScatteringCS` обнуляет освещение и α истории (§2.4); влияние вокселизации уточняет Q5 мини-аудита №2.
+- Локальные источники и sky/Lumen-ambient остаются без нового самозатенения. Физичный дефолт может затемнить туман относительно поверхностей, где это ослабление солнца не применяется (`FogMS_Research_Note_01.md` §3.5).
+- MegaLights сейчас не используется. При `r.MegaLights.DirectionalLights = 1` штатная directional-ветка пропускается (`VolumetricFog.usf:941`) и A1/A1b не действует на такой источник. Все пермутации должны компилироваться; вклад `MegaLightsVolume` остаётся штатным.
+- MS, октавы A1b и дальнейшие режимы не входят в A1. После реализации A1, протокола проверки и мини-аудита №2 — **стоп до разбора заказчиком и исследователем** (`FogMS_HANDOVER.md` §6).

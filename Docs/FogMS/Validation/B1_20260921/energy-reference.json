@@ -1,0 +1,420 @@
+{
+  "scope": "independent 1D homogeneous cell-average reference; not GPU or user-scene measurement",
+  "limits": "B1-like variants retain only order count/damping/shadow blend. No range cutoff, geometry, density aliasing, Lumen or native compositing; optimistic full coverage.",
+  "reference_acceptance": "white furnace J=1 and escaped+absorbed=input within 2e-12",
+  "results": [
+    {
+      "optical_thickness": 0.1,
+      "albedo": 1,
+      "cells": 128,
+      "directions": 64,
+      "reference_mean_J": 1.0,
+      "reference_center_J": 0.9999999999999998,
+      "reference_flux": {
+        "escaped_input_ratio": 1.0,
+        "absorbed_input_ratio": 0.0,
+        "balance_relative_error": 0.0
+      },
+      "variants": [
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.8876719825407067,
+          "center_J": 0.8812406586743902,
+          "rms_reference_error": 0.11250134252613482,
+          "escaped_input_ratio": 0.9812055988473916,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.018794401152608442
+        },
+        {
+          "damping": 0.5,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.9112542822939955,
+          "center_J": 0.9061538715494913,
+          "rms_reference_error": 0.08888346196054782,
+          "escaped_input_ratio": 0.985151347598906,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.014848652401094009
+        },
+        {
+          "damping": 1,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.9992885702955927,
+          "center_J": 0.9992411045331688,
+          "rms_reference_error": 0.0007128233143559481,
+          "escaped_input_ratio": 0.9998809745920102,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.00011902540798980343
+        },
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 0.5,
+          "extra_orders": 3,
+          "mean_J": 0.9740699375924693,
+          "center_J": 0.9725852380209369,
+          "rms_reference_error": 0.02597007636657537,
+          "escaped_input_ratio": 0.9956614565609145,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.004338543439085463
+        }
+      ]
+    },
+    {
+      "optical_thickness": 1,
+      "albedo": 1,
+      "cells": 128,
+      "directions": 64,
+      "reference_mean_J": 0.9999999999999998,
+      "reference_center_J": 0.9999999999999998,
+      "reference_flux": {
+        "escaped_input_ratio": 0.9999999999999996,
+        "absorbed_input_ratio": 0.0,
+        "balance_relative_error": -4.440892098500626e-16
+      },
+      "variants": [
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.4935249611724426,
+          "center_J": 0.4362243712680115,
+          "rms_reference_error": 0.5096410890232977,
+          "escaped_input_ratio": 0.6119244254098013,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.3880755745901987
+        },
+        {
+          "damping": 0.5,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.5541681230941377,
+          "center_J": 0.5017244176637445,
+          "rms_reference_error": 0.44878796482635863,
+          "escaped_input_ratio": 0.658581825035871,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.34141817496412896
+        },
+        {
+          "damping": 1,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.8561994064679395,
+          "center_J": 0.8334387052568132,
+          "rms_reference_error": 0.14530757993590723,
+          "escaped_input_ratio": 0.8904160449565324,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.10958395504346763
+        },
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 0.5,
+          "extra_orders": 3,
+          "mean_J": 0.8814612159192632,
+          "center_J": 0.8679752699624333,
+          "rms_reference_error": 0.11928584364610964,
+          "escaped_input_ratio": 0.9091791410750534,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.09082085892494662
+        }
+      ]
+    },
+    {
+      "optical_thickness": 4,
+      "albedo": 1,
+      "cells": 128,
+      "directions": 64,
+      "reference_mean_J": 1.0,
+      "reference_center_J": 1.0000000000000004,
+      "reference_flux": {
+        "escaped_input_ratio": 1.0,
+        "absorbed_input_ratio": 0.0,
+        "balance_relative_error": 0.0
+      },
+      "variants": [
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.17170383555720234,
+          "center_J": 0.06732028594042538,
+          "rms_reference_error": 0.8365489777726742,
+          "escaped_input_ratio": 0.274303938227015,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.7256960617729851
+        },
+        {
+          "damping": 0.5,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.20273136968738492,
+          "center_J": 0.08917400816888663,
+          "rms_reference_error": 0.8067118384030134,
+          "escaped_input_ratio": 0.3097866080423157,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.6902133919576843
+        },
+        {
+          "damping": 1,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.3757664413854459,
+          "center_J": 0.22334779020157092,
+          "rms_reference_error": 0.6407975679408314,
+          "escaped_input_ratio": 0.4972822994622015,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.5027177005377985
+        },
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 0.5,
+          "extra_orders": 3,
+          "mean_J": 0.8016490352524623,
+          "center_J": 0.7758011142760308,
+          "rms_reference_error": 0.20041638128074452,
+          "escaped_input_ratio": 0.826728672288007,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.17327132771199305
+        }
+      ]
+    },
+    {
+      "optical_thickness": 8,
+      "albedo": 1,
+      "cells": 128,
+      "directions": 64,
+      "reference_mean_J": 0.9999999999999982,
+      "reference_center_J": 0.9999999999999978,
+      "reference_flux": {
+        "escaped_input_ratio": 0.9999999999999987,
+        "absorbed_input_ratio": 0.0,
+        "balance_relative_error": -1.3322676295501878e-15
+      },
+      "variants": [
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.08671926400334326,
+          "center_J": 0.007091930831711056,
+          "rms_reference_error": 0.9202851660724165,
+          "escaped_input_ratio": 0.25679576583479363,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.7432042341652063
+        },
+        {
+          "damping": 0.5,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.10268702877538491,
+          "center_J": 0.01028923050367596,
+          "rms_reference_error": 0.9059150356593954,
+          "escaped_input_ratio": 0.28863529583059266,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.7113647041694073
+        },
+        {
+          "damping": 1,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.19235956196550325,
+          "center_J": 0.03173524063177684,
+          "rms_reference_error": 0.8278221655494723,
+          "escaped_input_ratio": 0.4535209416275574,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.5464790583724426
+        },
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 0.5,
+          "extra_orders": 3,
+          "mean_J": 0.7799200960598061,
+          "center_J": 0.7596904278494184,
+          "rms_reference_error": 0.22187982493681785,
+          "escaped_input_ratio": 0.8221831756774897,
+          "absorbed_input_ratio": 0.0,
+          "balance_relative_error": -0.17781682432251034
+        }
+      ]
+    },
+    {
+      "optical_thickness": 4,
+      "albedo": 0.9,
+      "cells": 32,
+      "directions": 64,
+      "reference_mean_J": 0.545864026893047,
+      "reference_center_J": 0.44716466218760353,
+      "reference_flux": {
+        "escaped_input_ratio": 0.5633087784855617,
+        "absorbed_input_ratio": 0.4366912215144375,
+        "balance_relative_error": -7.771561172376096e-16
+      },
+      "variants": [
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.16560900973866663,
+          "center_J": 0.06343439086859398,
+          "rms_reference_error": 0.6879941317701569,
+          "escaped_input_ratio": 0.2397573238948163,
+          "absorbed_input_ratio": 0.1324872077909333,
+          "balance_relative_error": -0.6277554683142504
+        },
+        {
+          "damping": 0.5,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.1916355552267328,
+          "center_J": 0.08150772076273287,
+          "rms_reference_error": 0.6415584006662838,
+          "escaped_input_ratio": 0.26678664917689454,
+          "absorbed_input_ratio": 0.15330844418138623,
+          "balance_relative_error": -0.5799049066417192
+        },
+        {
+          "damping": 1,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.331398503057753,
+          "center_J": 0.18834811571161436,
+          "rms_reference_error": 0.3955512841836348,
+          "escaped_input_ratio": 0.4044992540619855,
+          "absorbed_input_ratio": 0.26511880244620234,
+          "balance_relative_error": -0.33038194349181216
+        },
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 0.5,
+          "extra_orders": 3,
+          "mean_J": 0.7701707114244635,
+          "center_J": 0.7414848605472922,
+          "rms_reference_error": 0.4205233561923371,
+          "escaped_input_ratio": 0.718832457952298,
+          "absorbed_input_ratio": 0.6161365691395706,
+          "balance_relative_error": 0.3349690270918686
+        }
+      ]
+    },
+    {
+      "optical_thickness": 4,
+      "albedo": 0.9,
+      "cells": 64,
+      "directions": 64,
+      "reference_mean_J": 0.5454555056678791,
+      "reference_center_J": 0.44634298458721733,
+      "reference_flux": {
+        "escaped_input_ratio": 0.5636355954656966,
+        "absorbed_input_ratio": 0.4363644045343032,
+        "balance_relative_error": -2.220446049250313e-16
+      },
+      "variants": [
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.16555042463748215,
+          "center_J": 0.06320193624559206,
+          "rms_reference_error": 0.6878182202436567,
+          "escaped_input_ratio": 0.24069333656701203,
+          "absorbed_input_ratio": 0.1324403397099857,
+          "balance_relative_error": -0.6268663237230023
+        },
+        {
+          "damping": 0.5,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.19153971871901893,
+          "center_J": 0.08120693504079783,
+          "rms_reference_error": 0.6414163555564429,
+          "escaped_input_ratio": 0.2676846383562931,
+          "absorbed_input_ratio": 0.15323177497521512,
+          "balance_relative_error": -0.5790835866684918
+        },
+        {
+          "damping": 1,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.3311017927221356,
+          "center_J": 0.18765558859823214,
+          "rms_reference_error": 0.39561968034017764,
+          "escaped_input_ratio": 0.4051736456226104,
+          "absorbed_input_ratio": 0.26488143417770843,
+          "balance_relative_error": -0.32994492019968114
+        },
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 0.5,
+          "extra_orders": 3,
+          "mean_J": 0.7701522933574958,
+          "center_J": 0.7414161709557903,
+          "rms_reference_error": 0.42159631305983464,
+          "escaped_input_ratio": 0.7190895579241319,
+          "absorbed_input_ratio": 0.6161218346859965,
+          "balance_relative_error": 0.33521139261012833
+        }
+      ]
+    },
+    {
+      "optical_thickness": 4,
+      "albedo": 0.9,
+      "cells": 128,
+      "directions": 64,
+      "reference_mean_J": 0.5453487972192719,
+      "reference_center_J": 0.4461334701803574,
+      "reference_flux": {
+        "escaped_input_ratio": 0.5637209622245826,
+        "absorbed_input_ratio": 0.4362790377754174,
+        "balance_relative_error": 0.0
+      },
+      "variants": [
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.16553464489604294,
+          "center_J": 0.06314370982402503,
+          "rms_reference_error": 0.6877751564989317,
+          "escaped_input_ratio": 0.2409451972390684,
+          "absorbed_input_ratio": 0.13242771591683433,
+          "balance_relative_error": -0.6266270868440973
+        },
+        {
+          "damping": 0.5,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.19151403258546446,
+          "center_J": 0.0811314451982085,
+          "rms_reference_error": 0.6413820311239293,
+          "escaped_input_ratio": 0.26792465594117604,
+          "absorbed_input_ratio": 0.15321122606837154,
+          "balance_relative_error": -0.5788641179904525
+        },
+        {
+          "damping": 1,
+          "indirect_shadow_strength": 1,
+          "extra_orders": 3,
+          "mean_J": 0.33102327397210646,
+          "center_J": 0.18748081171525427,
+          "rms_reference_error": 0.3956389986933885,
+          "escaped_input_ratio": 0.4053482974994651,
+          "absorbed_input_ratio": 0.2648186191776851,
+          "balance_relative_error": -0.3298330833228498
+        },
+        {
+          "damping": 0.35,
+          "indirect_shadow_strength": 0.5,
+          "extra_orders": 3,
+          "mean_J": 0.7701473462019668,
+          "center_J": 0.7413989526661973,
+          "rms_reference_error": 0.42187543039937325,
+          "escaped_input_ratio": 0.7191586811909789,
+          "absorbed_input_ratio": 0.6161178769615733,
+          "balance_relative_error": 0.3352765581525521
+        }
+      ]
+    }
+  ]
+}

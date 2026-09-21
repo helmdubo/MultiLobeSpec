@@ -1,0 +1,233 @@
+// FogMS A1: plugin-owned directional self-shadowing. No engine source is changed.
+#ifndef FOGMS_COMMON_USH
+#define FOGMS_COMMON_USH
+#ifndef FOGMS_PRODUCER
+#include "/Engine/Private/FogMS_Config.ush"
+#endif
+
+#if FOGMS_ENABLED
+
+// Reserve values 101..104: the stock r.GeneralPurposeTweak default is 1.
+uint FogMS_DebugMode()
+{
+#if FOGMS_DEBUG_VIEWS
+	uint Mode = (uint)max(View.GeneralPurposeTweak + 0.5f, 0.0f);
+	return (Mode >= 101 && Mode <= 104) ? Mode : 0;
+#else
+	return 0;
+#endif
+}
+
+#if FOGMS_BOX_MODE
+#if FOGMS_BOX_DATA_ROWS != 24
+#error FogMS light fields require the matching twenty-four-row Box runtime and overlay.
+#endif
+#if !UE_BINDLESS_ENABLED || !PLATFORM_SUPPORTS_BINDLESS
+#error Live FogMS Box requires the D3D12 SM6 BindlessAll shader configuration.
+#endif
+float4 FogMS_BoxRow(uint Row)
+{
+#if FOGMS_PRODUCER
+	return BoxRows[Row];
+#else
+	Texture2D<float4> Data = GetSRVFromHeap(Texture2D<float4>, FOGMS_BOX_DATA_SRV);
+	return Data.Load(int3(Row, 0, 0));
+#endif
+}
+#endif
+
+float FogMS_BoxWeight(float3 TranslatedPosition)
+{
+#if FOGMS_BOX_MODE
+	float4 CenterHigh = FogMS_BoxRow(0);
+	if (CenterHigh.w < 0.5f) return 0.0f;
+	float4 CenterLow = FogMS_BoxRow(1);
+	float3 Center = DFAddDemote(MakeDFVector3(CenterHigh.xyz, CenterLow.xyz), PrimaryView.PreViewTranslation);
+	float3 Offset = TranslatedPosition - Center;
+	float4 AxisX = FogMS_BoxRow(2), AxisY = FogMS_BoxRow(3), AxisZ = FogMS_BoxRow(4);
+	float3 Distance = float3(AxisX.w, AxisY.w, AxisZ.w) - abs(float3(dot(Offset, AxisX.xyz), dot(Offset, AxisY.xyz), dot(Offset, AxisZ.xyz)));
+	float Inside = min(Distance.x, min(Distance.y, Distance.z));
+	if (Inside <= 0.0f) return 0.0f;
+	return CenterLow.w > 0.0f ? smoothstep(0.0f, CenterLow.w, Inside) : 1.0f;
+#else
+	return 1.0f;
+#endif
+}
+
+#ifdef LightScatteringCS
+
+bool FogMS_BoxHistoryChanged()
+{
+#if FOGMS_BOX_MODE
+	return FogMS_BoxRow(5).x > 0.5f;
+#else
+	return false;
+#endif
+}
+
+// One runtime mode, never additive switches for octave and future spatial solvers.
+#define FOGMS_MS_OFF 0
+#define FOGMS_MS_OCTAVES 1
+#define FOGMS_MS_SPATIAL 2
+struct FogMS_ScatteringSettings
+{
+	uint Mode;
+	uint ExtraOctaves;
+	float3 Factors; // contribution, occlusion, retained directional phase
+};
+
+FogMS_ScatteringSettings FogMS_GetScatteringSettings()
+{
+	FogMS_ScatteringSettings Settings = (FogMS_ScatteringSettings)0;
+#if FOGMS_BOX_MODE
+	float4 Control = FogMS_BoxRow(5);
+	Settings.Mode = (uint)Control.y;
+	Settings.ExtraOctaves = min((uint)Control.z, 2u);
+	Settings.Factors = saturate(FogMS_BoxRow(6).xyz);
+#endif
+	return Settings;
+}
+
+// Artist approximation in the directional source term, not a transport solver.
+// Receives the native fog phase, so its direction convention remains unchanged.
+// sigma_s is applied exactly once later by native LightScatteringCS.
+float FogMS_OctavePhase(float Tau, float NativePhase, FogMS_ScatteringSettings Settings)
+{
+	const float Iso = 0.07957747154594767f; // 1 / (4*pi)
+	float A = Settings.Factors.x;
+	float B = Settings.Factors.y;
+	float C = Settings.Factors.z;
+	float Extra = A * exp(-Tau * B) * lerp(Iso, NativePhase, C);
+	BRANCH
+	if (Settings.ExtraOctaves > 1u)
+	{
+		// Cloud raymarch recurrence: weights a,a^3; extinction b,b^3; phase c,c^2.
+		Extra += (A * A * A) * exp(-Tau * (B * B * B)) * lerp(Iso, NativePhase, C * C);
+	}
+	return Extra;
+}
+
+// Reusable density source. A future pass must provide its own bound resource.
+#ifndef FOGMS_SAMPLE_EXTINCTION
+#define FOGMS_SAMPLE_EXTINCTION(UVW) Texture3DSampleLevel(VBufferA, View.SharedBilinearClampedSampler, UVW, 0).a
+#endif
+
+float FogMS_LayerDensity(float Density, float Falloff, float Height, float WorldZ)
+{
+	if (Density <= 0.0f) return 0.0f;
+	// Log-space evaluation avoids 0 * infinity on long, downward rays.
+	return exp2(clamp(log2(Density) - Falloff * (WorldZ - Height), -126.0f, 100.0f));
+}
+
+float FogMS_LayerIntegral(float Density, float Falloff, float Height, float WorldZ, float LightZ, float Distance)
+{
+	if (Density <= 0.0f || Distance <= 0.0f) return 0.0f;
+	const float A = 0.6931471805599453f * Falloff * LightZ * Distance;
+	if (abs(A) < 0.001f)
+	{
+		// Symmetric series, including the horizontal/zero-falloff limit.
+		float MidDensity = FogMS_LayerDensity(Density, Falloff, Height, WorldZ + 0.5f * LightZ * Distance);
+		return min(MidDensity * Distance * (1.0f + A * A / 24.0f), 1.0e30f);
+	}
+	// Evaluate at the denser endpoint; the exponential below is always <= 1.
+	float DenseZ = A > 0.0f ? WorldZ : WorldZ + LightZ * Distance;
+	float Dense = FogMS_LayerDensity(Density, Falloff, Height, DenseZ);
+	return min(Dense * ((1.0f - exp(-abs(A))) / abs(A)) * Distance, 1.0e30f);
+}
+
+float FogMS_HeightOpticalDepth(float3 WorldPosition, float3 LightDirection, float Distance)
+{
+	float First = FogMS_LayerIntegral(FogStruct.ExponentialFogParameters3.x,
+		FogStruct.ExponentialFogParameters.y, FogStruct.ExponentialFogParameters3.y,
+		WorldPosition.z, LightDirection.z, Distance);
+	float Second = FogMS_LayerIntegral(FogStruct.ExponentialFogParameters2.z,
+		FogStruct.ExponentialFogParameters2.y, FogStruct.ExponentialFogParameters2.w,
+		WorldPosition.z, LightDirection.z, Distance);
+	// Exactly MaterialSetupCS: no PROJECT_EXPFOG_MATCHES_VFOG branch for extinction.
+	return min((First + Second) * (0.5f * FOGMS_GLOBAL_EXTINCTION_SCALE), 1.0e30f);
+}
+
+float3 FogMS_ViewUVW(float3 TranslatedPosition)
+{
+	float4 ViewPosition = mul(float4(TranslatedPosition, 1.0f), PrimaryView.TranslatedWorldToCameraView);
+	float4 Clip = mul(ViewPosition, PrimaryView.ViewToClipNoAA);
+	return float3(Clip.xy / max(Clip.w, 1.0e-8f) * float2(0.5f, -0.5f) + 0.5f,
+		ComputeZSliceFromDepth(max(ViewPosition.z, ComputeDepthFromZSlice(0.0f))) / VolumetricFog.ViewGridSize.z);
+}
+
+void FogMS_ClipExit(float InsideDistance, float Slope, inout float ExitDistance)
+{
+	if (InsideDistance < -0.001f) ExitDistance = 0.0f;
+	else if (Slope < -1.0e-8f) ExitDistance = min(ExitDistance, max(InsideDistance, 0.0f) / -Slope);
+}
+
+float FogMS_GridExit(float3 TranslatedPosition, float3 LightDirection, float Limit)
+{
+	// Convex frustum: six linear half-spaces. No clamped-UVW boundary test.
+	float4 VP = mul(float4(TranslatedPosition, 1.0f), PrimaryView.TranslatedWorldToCameraView);
+	float4 VD = mul(float4(LightDirection, 0.0f), PrimaryView.TranslatedWorldToCameraView);
+	float4 P = mul(VP, PrimaryView.ViewToClipNoAA);
+	float4 D = mul(VD, PrimaryView.ViewToClipNoAA);
+	float Exit = Limit;
+	FogMS_ClipExit(P.w + P.x, D.w + D.x, Exit);
+	FogMS_ClipExit(P.w - P.x, D.w - D.x, Exit);
+	FogMS_ClipExit(P.w + P.y, D.w + D.y, Exit);
+	FogMS_ClipExit(P.w - P.y, D.w - D.y, Exit);
+	FogMS_ClipExit(VP.z - ComputeDepthFromZSlice(0.0f), VD.z, Exit);
+	FogMS_ClipExit(ComputeDepthFromZSlice(VolumetricFog.ViewGridSize.z) - VP.z, -VD.z, Exit);
+	return clamp(Exit, 0.0f, Limit);
+}
+
+// x = tau_in, y = tau_out, z = tau_ref, w = effective tau (all dimensionless).
+float4 FogMS_Evaluate(float3 TranslatedPosition, float3 LightDirection, float FrameJitter)
+{
+	LightDirection = normalize(LightDirection);
+	float3 WorldPosition = TranslatedPosition - DFHackToFloat(PrimaryView.PreViewTranslation);
+	float MarchLimit = FOGMS_SMARCH_CM > 0.0f ? FOGMS_SMARCH_CM : ComputeDepthFromZSlice(VolumetricFog.ViewGridSize.z);
+	float Exit = FogMS_GridExit(TranslatedPosition, LightDirection, min(MarchLimit, FOGMS_SMAX_CM));
+	float TauIn = 0.0f;
+	float Previous = 0.0f;
+	// Fixed endpoints cover the entire segment; only the interior edges jitter.
+	LOOP
+	for (uint Step = 0; Step < FOGMS_STEPS; ++Step)
+	{
+		float Edge = Step + 1 == FOGMS_STEPS ? 1.0f : (Step + 1.0f + saturate(FrameJitter) - 0.5f) / FOGMS_STEPS;
+		float Next = Exit * Edge * Edge;
+		float3 SamplePosition = TranslatedPosition + LightDirection * (0.5f * (Previous + Next));
+		float3 ViewUVW = FogMS_ViewUVW(SamplePosition);
+		// Coordinates refer to the written view-grid; resource padding is never sampled.
+		float3 Texel = clamp(ViewUVW * VolumetricFog.ViewGridSize, 0.5f, VolumetricFog.ViewGridSize - 0.5f);
+		float3 ResourceUVW = Texel / VolumetricFog.ResourceGridSize;
+		if (Next > Previous)
+		{
+			TauIn += max(FOGMS_SAMPLE_EXTINCTION(ResourceUVW), 0.0f) * (Next - Previous);
+		}
+		Previous = Next;
+	}
+	float TauOut = FogMS_HeightOpticalDepth(WorldPosition + LightDirection * Exit, LightDirection, max(FOGMS_SMAX_CM - Exit, 0.0f));
+	float TauRef = FogMS_HeightOpticalDepth(WorldPosition, LightDirection, FOGMS_SMAX_CM);
+	float Tau = TauIn + TauOut;
+#if FOGMS_EXCLUDE_GLOBAL_LAYER
+	Tau = max(Tau - TauRef, 0.0f);
+#endif
+	return float4(TauIn, TauOut, TauRef, Tau);
+}
+
+#endif // LightScatteringCS
+
+#ifdef FinalIntegrationCS
+float3 FogMS_DisplayDiagnostic(float3 Raw, uint Mode)
+{
+	if (Mode == 101 || Mode == 104) return saturate(Raw.x * 10000.0f).xxx; // sigma_t [1/cm]; white = 1e-4
+	if (Raw.y > 1.5f) return float3(1, 0, 1); // No supported directional branch.
+	if (Mode == 102) return saturate(Raw.y).xxx;
+	if (Raw.z > 2.5f) return float3(1, 0.5f, 0); // Authored Box: homogeneous seam reference unavailable.
+	if (Raw.z > 1.5f) return float3(0, 0, 1); // Outside Box; positive sentinel survives MakePositiveFinite.
+	float Error = max(Raw.z, 0.0f);
+	// Relative seam error: green <=5%, red >5%; intensity carries magnitude.
+	return Error <= 0.05f ? float3(0, saturate(Error / 0.05f), 0) : float3(1, 0, 0);
+}
+#endif
+
+#endif // FOGMS_ENABLED
+#endif // FOGMS_COMMON_USH

@@ -1,0 +1,334 @@
+// FogMS A1c/A1d: shared authored density for incoming rays and directional light.
+#ifndef FOGMS_INDIRECT_USH
+#define FOGMS_INDIRECT_USH
+#if FOGMS_PRODUCER
+#include "/Plugin/FogMS/Private/FogMS_Common.ush"
+#else
+#include "/Engine/Private/FogMS_Common.ush"
+#endif
+
+#if FOGMS_ENABLED && FOGMS_BOX_MODE
+
+struct FogMS_IndirectData
+{
+	float3 Center;
+	float3 AxisX;
+	float3 AxisY;
+	float3 AxisZ;
+	float3 Extent;
+	float3 UVSign;
+	float3 TileScale;
+	float Threshold;
+	float Softness;
+	float DensityFeather;
+	float DensityPerCm;
+	float DetailStrength;
+	float DetailScale;
+	float DetailSecondOctave;
+	float3 WorldFrequencies;
+	float3 WorldPhase0;
+	float3 WorldPhase1;
+	float3 WorldPhase2;
+	bool WorldAligned;
+	float Strength;
+	uint Steps;
+	uint AtlasSRV;
+	uint Channel;
+	uint3 Size;
+	bool Valid;
+};
+
+FogMS_IndirectData FogMS_GetIndirectData(bool RequireStrength)
+{
+	FogMS_IndirectData Data = (FogMS_IndirectData)0;
+	float4 Control = FogMS_BoxRow(7);
+	// Off/zero strength needs only the control row and never reads the density atlas.
+	if (Control.w <= 0.0f || (RequireStrength && Control.x <= 0.0f)) return Data;
+	float4 CenterHigh = FogMS_BoxRow(0);
+	if (CenterHigh.w < 0.5f) return Data;
+	float4 CenterLow = FogMS_BoxRow(1);
+	float4 AxisX = FogMS_BoxRow(2), AxisY = FogMS_BoxRow(3), AxisZ = FogMS_BoxRow(4);
+	float4 TileThreshold = FogMS_BoxRow(8);
+	float4 Shape = FogMS_BoxRow(9);
+	float4 TextureInfo = FogMS_BoxRow(10);
+	float4 DetailInfo = FogMS_BoxRow(11);
+	float3 Size = float3(TextureInfo.zw, DetailInfo.x);
+	// Runtime validates the full payload; these bounds also prevent invalid texture loads.
+	if (!all(isfinite(Control)) || !all(isfinite(DetailInfo)) || !all(isfinite(Size)) || any(Size < 1.0f)
+		|| any(Size > 16384.0f) || Size.y * Size.z > 16384.0f
+		|| TextureInfo.y < 0.0f || TextureInfo.y > 3.0f
+		|| any(float3(AxisX.w, AxisY.w, AxisZ.w) <= 0.0f)) return Data;
+	Data.Center = DFAddDemote(MakeDFVector3(CenterHigh.xyz, CenterLow.xyz), PrimaryView.PreViewTranslation);
+	Data.AxisX = AxisX.xyz;
+	Data.AxisY = AxisY.xyz;
+	Data.AxisZ = AxisZ.xyz;
+	Data.Extent = float3(AxisX.w, AxisY.w, AxisZ.w);
+	Data.UVSign = float3(Shape.zw, TextureInfo.x);
+	Data.TileScale = TileThreshold.xyz;
+	Data.Threshold = TileThreshold.w;
+	Data.Softness = Shape.x;
+	Data.DensityFeather = min(max(Shape.y, 0.0f), min3(Data.Extent.x, Data.Extent.y, Data.Extent.z));
+	Data.DensityPerCm = Control.w;
+	Data.DetailStrength = saturate(DetailInfo.y);
+	Data.DetailScale = clamp(DetailInfo.z, 0.1f, 32.0f);
+	Data.DetailSecondOctave = saturate(DetailInfo.w);
+	float4 WorldMapping = FogMS_BoxRow(12);
+	Data.WorldAligned = WorldMapping.w > 0.5f;
+	Data.WorldFrequencies = WorldMapping.xyz;
+	Data.WorldPhase0 = FogMS_BoxRow(13).xyz;
+	Data.WorldPhase1 = FogMS_BoxRow(14).xyz;
+	Data.WorldPhase2 = FogMS_BoxRow(15).xyz;
+	if (Data.WorldAligned && (!all(isfinite(WorldMapping)) || any(Data.WorldFrequencies <= 0.0f)
+		|| !all(isfinite(Data.WorldPhase0)) || !all(isfinite(Data.WorldPhase1)) || !all(isfinite(Data.WorldPhase2)))) return Data;
+	Data.Strength = saturate(Control.x);
+	Data.Steps = (uint)clamp(Control.y, 1.0f, 64.0f);
+	Data.AtlasSRV = (uint)Control.z;
+	Data.Channel = (uint)TextureInfo.y;
+	Data.Size = (uint3)Size;
+	Data.Valid = true;
+	return Data;
+}
+
+float3 FogMS_IndirectLocalPosition(float3 TranslatedPosition, FogMS_IndirectData Data)
+{
+	float3 Offset = TranslatedPosition - Data.Center;
+	return float3(dot(Offset, Data.AxisX), dot(Offset, Data.AxisY), dot(Offset, Data.AxisZ));
+}
+
+float FogMS_IndirectSampleNoise(float3 UVW, FogMS_IndirectData Data)
+{
+	// Reproduce mip-0 Texture3D wrap filtering, including both sides of every seam.
+	float3 TexelPosition = frac(UVW) * float3(Data.Size) - 0.5f;
+	int3 Base = (int3)floor(TexelPosition);
+	float3 Alpha = frac(TexelPosition);
+	uint3 P0 = (uint3)(Base + int3(Data.Size)) % Data.Size;
+	uint3 P1 = (P0 + 1u) % Data.Size;
+	Texture2D<float4> Atlas = GetSRVFromHeap(Texture2D<float4>, Data.AtlasSRV);
+	// B8G8R8A8_UNORM SRVs expose logical RGBA; do not swizzle the BGRA source bytes.
+	float C000 = Atlas.Load(int3(P0.x, P0.y + P0.z * Data.Size.y, 0))[Data.Channel];
+	float C100 = Atlas.Load(int3(P1.x, P0.y + P0.z * Data.Size.y, 0))[Data.Channel];
+	float C010 = Atlas.Load(int3(P0.x, P1.y + P0.z * Data.Size.y, 0))[Data.Channel];
+	float C110 = Atlas.Load(int3(P1.x, P1.y + P0.z * Data.Size.y, 0))[Data.Channel];
+	float C001 = Atlas.Load(int3(P0.x, P0.y + P1.z * Data.Size.y, 0))[Data.Channel];
+	float C101 = Atlas.Load(int3(P1.x, P0.y + P1.z * Data.Size.y, 0))[Data.Channel];
+	float C011 = Atlas.Load(int3(P0.x, P1.y + P1.z * Data.Size.y, 0))[Data.Channel];
+	float C111 = Atlas.Load(int3(P1.x, P1.y + P1.z * Data.Size.y, 0))[Data.Channel];
+	return lerp(lerp(lerp(C000, C100, Alpha.x), lerp(C010, C110, Alpha.x), Alpha.y),
+		lerp(lerp(C001, C101, Alpha.x), lerp(C011, C111, Alpha.x), Alpha.y), Alpha.z);
+}
+
+float FogMS_IndirectLocalDensity(float3 LocalPosition, FogMS_IndirectData Data)
+{
+	float3 Edge = Data.Extent - abs(LocalPosition);
+	float Inside = min3(Edge.x, Edge.y, Edge.z);
+	if (Inside < 0.0f) return 0.0f;
+	float3 UVW = (LocalPosition / Data.Extent * Data.UVSign * 0.5f + 0.5f) * Data.TileScale;
+	// Center-relative world offset stays precise. Each frequency has its own
+	// CPU-reduced phase; a non-integer detail scale never re-phases when Box moves.
+	float3 WorldOffset = Data.AxisX * LocalPosition.x + Data.AxisY * LocalPosition.y + Data.AxisZ * LocalPosition.z;
+	if (Data.WorldAligned) UVW = WorldOffset * Data.WorldFrequencies.x + Data.WorldPhase0;
+	float Noise = FogMS_IndirectSampleNoise(UVW, Data);
+	BRANCH
+	if (Data.DetailStrength > 0.0f)
+	{
+		float3 UV0 = Data.WorldAligned ? WorldOffset * Data.WorldFrequencies.y + Data.WorldPhase1 : UVW * Data.DetailScale;
+		float3 UV1 = Data.WorldAligned ? WorldOffset * Data.WorldFrequencies.z + Data.WorldPhase2 : UVW * Data.DetailScale * 2.0f;
+		float Detail0 = FogMS_IndirectSampleNoise(UV0 + float3(0.173f, 0.379f, 0.613f), Data);
+		float Detail1 = FogMS_IndirectSampleNoise(UV1 + float3(0.731f, 0.217f, 0.419f), Data);
+		float Weight = 0.5f * Data.DetailSecondOctave;
+		Noise += Data.DetailStrength * ((2.0f * Detail0 - 1.0f) + Weight * (2.0f * Detail1 - 1.0f)) / (1.0f + Weight);
+	}
+	float Mask = Data.Softness > 0.0f
+		? smoothstep(Data.Threshold - 0.5f * Data.Softness, Data.Threshold + 0.5f * Data.Softness, Noise)
+		: step(Data.Threshold, Noise);
+	float Fade = Data.DensityFeather > 0.0f ? smoothstep(0.0f, Data.DensityFeather, Inside) : 1.0f;
+	return Data.DensityPerCm * Mask * Fade;
+}
+
+float FogMS_AuthoredDensity(float3 TranslatedPosition)
+{
+	FogMS_IndirectData Data = FogMS_GetIndirectData(false);
+	BRANCH
+	if (!Data.Valid) return 0.0f;
+	return FogMS_IndirectLocalDensity(FogMS_IndirectLocalPosition(TranslatedPosition, Data), Data);
+}
+
+float FogMS_AuthoredOpticalDepth(float3 TranslatedOrigin, float3 RayDirection, float HitDistance, uint Steps, FogMS_IndirectData Data)
+{
+	if (!Data.Valid || !isfinite(HitDistance) || HitDistance <= 0.0f) return 0.0f;
+	float3 Origin = FogMS_IndirectLocalPosition(TranslatedOrigin, Data);
+	float3 Direction = float3(dot(RayDirection, Data.AxisX), dot(RayDirection, Data.AxisY), dot(RayDirection, Data.AxisZ));
+	float Entry = 0.0f;
+	float Exit = HitDistance;
+	// Intersect the finite incoming segment with the OBB; parallel rays avoid division by zero.
+	UNROLL
+	for (uint Axis = 0u; Axis < 3u; ++Axis)
+	{
+		if (Direction[Axis] == 0.0f)
+		{
+			if (abs(Origin[Axis]) > Data.Extent[Axis]) return 0.0f;
+		}
+		else
+		{
+			float A = (-Data.Extent[Axis] - Origin[Axis]) / Direction[Axis];
+			float B = ( Data.Extent[Axis] - Origin[Axis]) / Direction[Axis];
+			Entry = max(Entry, min(A, B));
+			Exit = min(Exit, max(A, B));
+		}
+	}
+	if (Exit <= Entry) return 0.0f;
+	Steps = clamp(Steps, 1u, 64u);
+	float StepLength = (Exit - Entry) / float(Steps);
+	float Tau = 0.0f;
+	LOOP
+	for (uint Step = 0u; Step < Steps; ++Step)
+	{
+		float Distance = Entry + (float(Step) + 0.5f) * StepLength;
+		Tau += FogMS_IndirectLocalDensity(Origin + Direction * Distance, Data) * StepLength;
+	}
+	return Tau;
+}
+
+float FogMS_IndirectTransmittance(float3 TranslatedOrigin, float3 RayDirection, float HitDistance, FogMS_IndirectData Data)
+{
+	return exp(-min(FogMS_AuthoredOpticalDepth(TranslatedOrigin, RayDirection, HitDistance, Data.Steps, Data), 80.0f));
+}
+
+// Resident 2D atlas, Y slices stacked along Z. The explicit interpolation never
+// blends across adjacent slice borders (unlike a plain bilinear atlas lookup).
+float4 FogMS_FieldSample(uint Descriptor, float3 Cell, uint3 Size)
+{
+	Texture2D<float4> Field = GetSRVFromHeap(Texture2D<float4>, Descriptor);
+	Cell = clamp(Cell, 0.0f, float3(Size) - 1.0f);
+	uint3 A = uint3(floor(Cell));
+	uint3 B = min(A + 1u, Size - 1u);
+	float3 F = frac(Cell);
+	float4 Z0 = lerp(lerp(Field.Load(int3(A.x, A.y + A.z * Size.y, 0)), Field.Load(int3(B.x, A.y + A.z * Size.y, 0)), F.x),
+		lerp(Field.Load(int3(A.x, B.y + A.z * Size.y, 0)), Field.Load(int3(B.x, B.y + A.z * Size.y, 0)), F.x), F.y);
+	float4 Z1 = lerp(lerp(Field.Load(int3(A.x, A.y + B.z * Size.y, 0)), Field.Load(int3(B.x, A.y + B.z * Size.y, 0)), F.x),
+		lerp(Field.Load(int3(A.x, B.y + B.z * Size.y, 0)), Field.Load(int3(B.x, B.y + B.z * Size.y, 0)), F.x), F.y);
+	return lerp(Z0, Z1, F.z);
+}
+
+float FogMS_CachedSunTransmittance(float3 RelativePosition)
+{
+	float4 X = FogMS_BoxRow(17), Y = FogMS_BoxRow(18), Z = FogMS_BoxRow(19);
+	float4 Info = FogMS_BoxRow(20);
+	float3 UVW = float3(dot(RelativePosition, X.xyz) / X.w,
+		dot(RelativePosition, Y.xyz) / Y.w, -dot(RelativePosition, Z.xyz) / Z.w) * 0.5f + 0.5f;
+	if (any(UVW.xy < 0.0f) || any(UVW.xy > 1.0f) || UVW.z < 0.0f) return 1.0f;
+	uint XY = (uint)Info.y, Intervals = (uint)Info.z;
+	float3 Cell = float3(UVW.xy * float(XY) - 0.5f, saturate(UVW.z) * float(Intervals));
+	return saturate(FogMS_FieldSample((uint)Info.x, Cell, uint3(XY, XY, Intervals + 1u)).x);
+}
+
+float3 FogMS_SpatialIncident(float3 TranslatedPosition)
+{
+	float4 Info = FogMS_BoxRow(22);
+	float Strength = FogMS_BoxRow(21).x;
+	float Mode = FogMS_BoxRow(5).y;
+	if ((Mode != 2.0f && Mode != 3.0f) || Info.z < 0.5f || Strength <= 0.0f) return 0.0f;
+	float Weight = FogMS_BoxWeight(TranslatedPosition);
+	if (Weight <= 0.0f) return 0.0f;
+	float3 Center = DFAddDemote(MakeDFVector3(FogMS_BoxRow(0).xyz, FogMS_BoxRow(1).xyz), PrimaryView.PreViewTranslation);
+	float3 P = TranslatedPosition - Center;
+	float4 X = FogMS_BoxRow(2), Y = FogMS_BoxRow(3), Z = FogMS_BoxRow(4);
+	float3 UVW = float3(dot(P, X.xyz) / X.w, dot(P, Y.xyz) / Y.w, dot(P, Z.xyz) / Z.w) * 0.5f + 0.5f;
+	uint N = (uint)Info.y;
+	float3 J = max(FogMS_FieldSample((uint)Info.x, UVW * float(N) - 0.5f, uint3(N, N, N)).rgb, 0.0f);
+	// World mode already damps each scattering order once in the producer.
+	return all(isfinite(J)) ? J * ((Mode == 3.0f ? 1.0f : Strength) * Weight) : 0.0f;
+}
+
+float3 FogMS_WorldIndirect(float3 TranslatedPosition, float3 NativeIndirect)
+{
+	float4 Info = FogMS_BoxRow(22);
+	if (FogMS_BoxRow(5).y != 3.0f || Info.z < 0.5f || Info.w != 3.0f) return NativeIndirect;
+	float Weight = FogMS_BoxWeight(TranslatedPosition);
+	if (Weight <= 0.0f) return NativeIndirect;
+	float3 Center = DFAddDemote(MakeDFVector3(FogMS_BoxRow(0).xyz, FogMS_BoxRow(1).xyz), PrimaryView.PreViewTranslation);
+	float3 P = TranslatedPosition - Center;
+	float4 X = FogMS_BoxRow(2), Y = FogMS_BoxRow(3), Z = FogMS_BoxRow(4);
+	float3 UVW = float3(dot(P, X.xyz) / X.w, dot(P, Y.xyz) / Y.w, dot(P, Z.xyz) / Z.w) * 0.5f + 0.5f;
+	uint N = (uint)Info.y;
+	// Upper half has its own clamp before the atlas offset; never interpolate
+	// primary indirect with the last multiple-scattering slice at the boundary.
+	float3 Cell = clamp(UVW * float(N) - 0.5f, 0.0f, float(N - 1u));
+	Cell.z += float(N);
+	float3 J = max(FogMS_FieldSample((uint)Info.x, Cell, uint3(N, N, 2u*N)).rgb, 0.0f);
+	return all(isfinite(J)) ? lerp(NativeIndirect, J, Weight) : NativeIndirect;
+}
+
+// A1e opaque deferred directional lighting. This is medium visibility only:
+// the native RT/VSM geometry shadow and light-function terms remain downstream.
+float FogMS_SurfaceSunTransmittance(float3 TranslatedPosition, float3 DirectionToLight)
+{
+	BRANCH
+	if (FogMS_BoxRow(13).w < 0.5f || FogMS_BoxRow(14).w <= 0.0f) return 1.0f;
+	FogMS_IndirectData Data = FogMS_GetIndirectData(false);
+	BRANCH
+	if (!Data.Valid) return 1.0f;
+	float4 Cache = FogMS_BoxRow(20);
+	if (FogMS_BoxRow(16).x > 0.5f && Cache.w > 0.5f
+		&& dot(normalize(DirectionToLight), FogMS_BoxRow(19).xyz) > 0.99999f)
+		return lerp(1.0f, FogMS_CachedSunTransmittance(TranslatedPosition - Data.Center), saturate(FogMS_BoxRow(14).w));
+	uint Steps = (uint)clamp(FogMS_BoxRow(15).w, 1.0f, 64.0f);
+	// The receiver may be outside the Box. Clip the entire receiver-to-sun ray,
+	// never multiply by BoxWeight(receiver). Height fog is not a surface caster.
+	float RayLimit = length(Data.Center - TranslatedPosition) + 2.0f * length(Data.Extent);
+	float Tau = FogMS_AuthoredOpticalDepth(TranslatedPosition, normalize(DirectionToLight), RayLimit, Steps, Data);
+	return lerp(1.0f, exp(-min(Tau, 80.0f)), saturate(FogMS_BoxRow(14).w));
+}
+
+#endif // FOGMS_ENABLED && FOGMS_BOX_MODE
+
+#if FOGMS_ENABLED && defined(LightScatteringCS)
+float4 FogMS_EvaluateDirectional(float3 TranslatedPosition, float3 LightDirection, float FrameJitter)
+{
+#if FOGMS_BOX_MODE
+	BRANCH
+	if (FogMS_BoxRow(6).w > 0.5f)
+	{
+		FogMS_IndirectData Data = FogMS_GetIndirectData(false);
+		BRANCH
+		if (Data.Valid)
+		{
+			LightDirection = normalize(LightDirection);
+			// A1d integrates the authored Box even outside the view grid. Its material
+			// is already present in VBufferA: do not integrate VBufferA a second time.
+			// Other local media are not represented by this opt-in path.
+			float TauBox;
+			float4 SunCache = FogMS_BoxRow(20);
+			BRANCH
+			if (FogMS_BoxRow(16).x > 0.5f && FogMS_BoxRow(16).z > 0.5f && SunCache.w > 0.5f
+				&& FOGMS_SMAX_CM >= 2.0f * length(Data.Extent)
+				&& dot(LightDirection, FogMS_BoxRow(19).xyz) > 0.99999f)
+			{
+				// Filter visibility, not optical depth. This deliberately softens real narrow
+				// shafts too; it is an artistic footprint, not a new multiple-scattering term.
+				// The receiver is inside the Box, so the diagonal bound covers its entire ray.
+				// The effective Tau also keeps the existing octave approximation finite.
+				float T = FogMS_CachedSunTransmittance(TranslatedPosition - Data.Center);
+				TauBox = -log(max(T, exp(-80.0f)));
+			}
+			else
+			{
+				// Retain exact authored marching for other suns, short rays and unavailable caches.
+				TauBox = FogMS_AuthoredOpticalDepth(TranslatedPosition, LightDirection, FOGMS_SMAX_CM, FOGMS_STEPS, Data);
+			}
+			float3 WorldPosition = TranslatedPosition - DFHackToFloat(PrimaryView.PreViewTranslation);
+			float TauHeight = FogMS_HeightOpticalDepth(WorldPosition, LightDirection, FOGMS_SMAX_CM);
+			float Tau = TauBox + TauHeight;
+#if FOGMS_EXCLUDE_GLOBAL_LAYER
+			Tau = TauBox;
+#endif
+			// The diagnostic consumer marks debug 3 unavailable (orange) here.
+			// Use debug 2/4 for transmittance/authored density.
+			return float4(TauBox, TauHeight, TauHeight, Tau);
+		}
+	}
+#endif
+	return FogMS_Evaluate(TranslatedPosition, LightDirection, FrameJitter);
+}
+#endif
+#endif // FOGMS_INDIRECT_USH

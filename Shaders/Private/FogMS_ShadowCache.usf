@@ -1,0 +1,65 @@
+// Plugin-owned light-space transmittance. Z stores boundaries, starting on the sunward face.
+#include "/Engine/Private/Common.ush"
+
+float4 BoxRows[24];
+#include "/Plugin/FogMS/Private/FogMS_Indirect.ush"
+
+float4 LightAxisX;
+float4 LightAxisY;
+float4 LightAxisZ;
+int3 GridSize;
+RWTexture2D<float> OutShadow;
+
+[numthreads(8, 8, 1)]
+void ShadowPrefixCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	uint2 XY = DispatchThreadId.xy;
+	if (any(XY >= uint2(GridSize.xy))) return;
+	FogMS_IndirectData Data = FogMS_GetIndirectData(false);
+	float2 PositionXY = ((float2(XY) + 0.5f) / float2(GridSize.xy) * 2.0f - 1.0f)
+		* float2(LightAxisX.w, LightAxisY.w);
+	float3 OffsetXY = LightAxisX.xyz * PositionXY.x + LightAxisY.xyz * PositionXY.y;
+	float StepLength = 2.0f * LightAxisZ.w / float(GridSize.z);
+	float Tau = 0.0f;
+	OutShadow[XY] = 1.0f;
+	LOOP
+	for (uint Slice = 0; Slice < uint(GridSize.z); ++Slice)
+	{
+		if (Data.Valid)
+		{
+			float3 Offset = OffsetXY + LightAxisZ.xyz * (LightAxisZ.w - (float(Slice) + 0.5f) * StepLength);
+			float3 LocalPosition = float3(dot(Offset, Data.AxisX), dot(Offset, Data.AxisY), dot(Offset, Data.AxisZ));
+			Tau += FogMS_IndirectLocalDensity(LocalPosition, Data) * StepLength;
+		}
+		OutShadow[uint2(XY.x, XY.y + (Slice + 1u) * uint(GridSize.y))] = exp(-min(Tau, 80.0f));
+	}
+}
+
+Texture2D<float> FilterInput;
+int2 FilterAxis;
+float FilterSigmaTexels;
+int FilterRadius;
+
+[numthreads(8, 8, 1)]
+void ShadowFilterCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (any(DispatchThreadId.xy >= uint2(GridSize.xy)) || DispatchThreadId.z > uint(GridSize.z)) return;
+	int2 XY = int2(DispatchThreadId.xy);
+	uint SliceOffset = DispatchThreadId.z * uint(GridSize.y);
+	float Weighted = 0.0f;
+	float WeightSum = 0.0f;
+	LOOP
+	for (int Tap = -FilterRadius; Tap <= FilterRadius; ++Tap)
+	{
+		float NormalizedDistance = float(Tap) / max(FilterSigmaTexels, 1.0e-6f);
+		float Weight = exp(-0.5f * NormalizedDistance * NormalizedDistance);
+		int2 SampleXY = XY + FilterAxis * Tap;
+		// The space outside the padded volume is empty. Never filter across atlas Z slices.
+		float Transmittance = 1.0f;
+		if (all(SampleXY >= 0) && all(SampleXY < GridSize.xy))
+			Transmittance = FilterInput.Load(int3(SampleXY.x, SampleXY.y + int(SliceOffset), 0));
+		Weighted += Weight * Transmittance;
+		WeightSum += Weight;
+	}
+	OutShadow[uint2(XY.x, uint(XY.y) + SliceOffset)] = saturate(Weighted / max(WeightSum, 1.0e-8f));
+}

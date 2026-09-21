@@ -1,0 +1,363 @@
+{
+  "scope": "validated plugin implementation/assets before git publication; LF-normalized hash accounts for Git Windows newline conversion",
+  "files": [
+    {
+      "path": "MultiLobeSpec.uplugin",
+      "bytes": 932,
+      "sha256": "b2e1c958b5daf9197ecd37c5e26e7ebb5a1ff2f2467d219e46d522f8ada9f1c8",
+      "sha256_lf_normalized": "58c968b94b595566f956006d5bc32ea3da46075f50d6ef9f65fc1762498c1196"
+    },
+    {
+      "path": "Source/FogMSRender/FogMSRender.Build.cs",
+      "bytes": 845,
+      "sha256": "475e3bdaf6e871d0051a47026f9e396e768df88ae83b1caf1e3ec960d5a9dcbf",
+      "sha256_lf_normalized": "475e3bdaf6e871d0051a47026f9e396e768df88ae83b1caf1e3ec960d5a9dcbf"
+    },
+    {
+      "path": "Source/FogMSRender/Private/FogMS_LumenSource.cpp",
+      "bytes": 8602,
+      "sha256": "89bd60643242c5915aad0e1ab9d9d02b9bc83bcf0170086a3c8b94aca115b91c",
+      "sha256_lf_normalized": "89bd60643242c5915aad0e1ab9d9d02b9bc83bcf0170086a3c8b94aca115b91c"
+    },
+    {
+      "path": "Source/FogMSRender/Private/FogMS_LumenSource.h",
+      "bytes": 2863,
+      "sha256": "782f9636ec9199447bc32ccd3fdb3d81bf89a8e8436a5116b20914c74798df2e",
+      "sha256_lf_normalized": "782f9636ec9199447bc32ccd3fdb3d81bf89a8e8436a5116b20914c74798df2e"
+    },
+    {
+      "path": "Source/FogMSRender/Private/FogMS_RHICompatibility.cpp",
+      "bytes": 4524,
+      "sha256": "8e5bf6e6099ecdf813ecdbb5a14a82dfdbca0035bcb9c986177d3dbe0d32b7b8",
+      "sha256_lf_normalized": "8e5bf6e6099ecdf813ecdbb5a14a82dfdbca0035bcb9c986177d3dbe0d32b7b8"
+    },
+    {
+      "path": "Source/FogMSRender/Private/FogMS_RHICompatibility.h",
+      "bytes": 475,
+      "sha256": "d1964f148dc799206c4118b9beb3d922827e82deb7f2be7f581f0626780f65a6",
+      "sha256_lf_normalized": "d1964f148dc799206c4118b9beb3d922827e82deb7f2be7f581f0626780f65a6"
+    },
+    {
+      "path": "Source/FogMSRender/Private/FogMS_Spatial.cpp",
+      "bytes": 25521,
+      "sha256": "62891111f7531e892cbefc61efe62aaab07db8a6fca9346bdcd1eaaee3f080e8",
+      "sha256_lf_normalized": "62891111f7531e892cbefc61efe62aaab07db8a6fca9346bdcd1eaaee3f080e8"
+    },
+    {
+      "path": "Source/FogMSRender/Private/FogMS_WorldLighting.cpp",
+      "bytes": 20212,
+      "sha256": "558a8d79071683847529e6a81af3fef070bc89a3740d0237aa2d67d308c9e2d5",
+      "sha256_lf_normalized": "558a8d79071683847529e6a81af3fef070bc89a3740d0237aa2d67d308c9e2d5"
+    },
+    {
+      "path": "Source/FogMSRender/Private/FogMS_WorldSources.cpp",
+      "bytes": 10607,
+      "sha256": "ea5a8e907f91cfa9a843e758412b6800b27f5e355b9f1f68bb1fbf0afef75733",
+      "sha256_lf_normalized": "ea5a8e907f91cfa9a843e758412b6800b27f5e355b9f1f68bb1fbf0afef75733"
+    },
+    {
+      "path": "Source/FogMSRender/Private/FogMS_WorldSources.h",
+      "bytes": 2199,
+      "sha256": "76bf226f8666f3ca038858a72f7f62f48239dbbfaf6721ac4112a6368dbb06fd",
+      "sha256_lf_normalized": "76bf226f8666f3ca038858a72f7f62f48239dbbfaf6721ac4112a6368dbb06fd"
+    },
+    {
+      "path": "Source/FogMSRender/Private/FogMSRender.cpp",
+      "bytes": 15923,
+      "sha256": "98925401b65ef1151bb8063bc6418060d0920bcc6a49a3596c6aae992984ac77",
+      "sha256_lf_normalized": "98925401b65ef1151bb8063bc6418060d0920bcc6a49a3596c6aae992984ac77"
+    },
+    {
+      "path": "Source/FogMSRender/Public/FogMS_ShadowCache.h",
+      "bytes": 2359,
+      "sha256": "d819d4a0510afdda5ce51271e6f52e89dc8ad91842a66c374e77fe6c78efc908",
+      "sha256_lf_normalized": "d819d4a0510afdda5ce51271e6f52e89dc8ad91842a66c374e77fe6c78efc908"
+    },
+    {
+      "path": "Source/FogMSRender/Public/FogMS_Spatial.h",
+      "bytes": 2565,
+      "sha256": "ba60cb3e5c0927828bdfd840ae2642382a678b194f980be38b16a1238e3d24f4",
+      "sha256_lf_normalized": "ba60cb3e5c0927828bdfd840ae2642382a678b194f980be38b16a1238e3d24f4"
+    },
+    {
+      "path": "Source/FogMSRender/Public/FogMS_WorldLighting.h",
+      "bytes": 1202,
+      "sha256": "65912eb15f342ced85fd9cb1dc8a24c4877d0ee5620c00289cb7d1236c3d2389",
+      "sha256_lf_normalized": "65912eb15f342ced85fd9cb1dc8a24c4877d0ee5620c00289cb7d1236c3d2389"
+    },
+    {
+      "path": "Source/MultiLobeSpec/MultiLobeSpec.Build.cs",
+      "bytes": 857,
+      "sha256": "5422e4105000fc54460c936972d1f360559962c80288fcabd55e9896855b94dd",
+      "sha256_lf_normalized": "f9990e6ecf2331ea31e95feccff2111c93e4f0b993f840da6dc84a59b358bdbb"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/FogMS_BoxRuntime.cpp",
+      "bytes": 42888,
+      "sha256": "eed47162299a9dbe9c8a2f0cedbfd8d09509f7845e228c71d74b215c9da09754",
+      "sha256_lf_normalized": "eed47162299a9dbe9c8a2f0cedbfd8d09509f7845e228c71d74b215c9da09754"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/FogMS_BoxRuntime.h",
+      "bytes": 380,
+      "sha256": "ae0c6963f9b18a0e310b9dca77f89ab2a8dc1fc90383a30d04cdeef5616ad7d4",
+      "sha256_lf_normalized": "ae0c6963f9b18a0e310b9dca77f89ab2a8dc1fc90383a30d04cdeef5616ad7d4"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/FogMS_BoxVolume.cpp",
+      "bytes": 15901,
+      "sha256": "38ac5d2a536ed12877ec27d0eedae32a3fc10c950a805f6112ba9020d71217c6",
+      "sha256_lf_normalized": "bf5b0501baa41ba7e4ccf277e6ff66ccdb8dcb71a8aa4a9ab152038470be845b"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/FogMS_BoxVolume.h",
+      "bytes": 17953,
+      "sha256": "e4e709e1ee3ec6536315361e5bc89c4fe8c2c233d9a080d0171aef2bdaad16d5",
+      "sha256_lf_normalized": "1e601a06104cf96bf56c185dbca83b9951351d855c173e4c86ac43952b4b20d6"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/FogMS_DensityAtlas.cpp",
+      "bytes": 11871,
+      "sha256": "f2686d6de7b1c9491d29988912f7294840ac570afa8d5e5e7eca1d8b074ae74e",
+      "sha256_lf_normalized": "f2686d6de7b1c9491d29988912f7294840ac570afa8d5e5e7eca1d8b074ae74e"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/FogMS_DensityAtlas.h",
+      "bytes": 1636,
+      "sha256": "03107b1138e766469d0601aedb7e084506380b08b5eb430fcd5fee16afb1e683",
+      "sha256_lf_normalized": "03107b1138e766469d0601aedb7e084506380b08b5eb430fcd5fee16afb1e683"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/FogMS_ShaderPatcher.h",
+      "bytes": 960,
+      "sha256": "45b67a5291222abd95ca87c0016b9bcd70eae3e0f86d25941d50e8f183ba053f",
+      "sha256_lf_normalized": "45b67a5291222abd95ca87c0016b9bcd70eae3e0f86d25941d50e8f183ba053f"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/MLSRawMaterialVisibilityOverlay.cpp",
+      "bytes": 6468,
+      "sha256": "4300872df6b1fd311519cbdac8b19ad9ac1cc9ef217300f77c590e94672b9833",
+      "sha256_lf_normalized": "f30c1502616ac9b28f452fa34ee768f3ae1e389724a0119e92c82da5f6866f9a"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/MLSRawMaterialVisibilityOverlay.h",
+      "bytes": 1201,
+      "sha256": "3994c0c8d9571c92990d69a1272bc14a33e5ea997c969b434e4c9959a3ec10d7",
+      "sha256_lf_normalized": "0de7eb44b847262ee6d65fc15bbb4d2edebbb77b0b8d6f75c66f26a8c3c68f47"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/MLSShaderConfigValidation.cpp",
+      "bytes": 5369,
+      "sha256": "c359c62e7983df29d4722bd8f537663d061029f8f33152eec654afa083e01fd4",
+      "sha256_lf_normalized": "a55e706155a25ef8e92f3f8b47a6a8a82edc97279ddfd43714231e2bf4c0b851"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/MultiLobeShaderPatcher.cpp",
+      "bytes": 148825,
+      "sha256": "22286b57776aa16e4b456f9a7bbf2ca43d4c56635fc27d134400403711d380bf",
+      "sha256_lf_normalized": "8c1a84750d5d3aeec325e43b37c2e5334568e0c0097a5e77e70a7e7ca67c3747"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/MultiLobeShaderPatcher.h",
+      "bytes": 8598,
+      "sha256": "0f304fb34036d3bd301cbd0f427f3749b5878136ffb7a7896f8aa11671b0e333",
+      "sha256_lf_normalized": "8d2d97de7627522c958966b431308d7c5e33bf78e4a592b2fecdbe97e393423e"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/MultiLobeSpec.cpp",
+      "bytes": 21588,
+      "sha256": "717e3fbb40db11891c7862facef8322253a3d17b349c218ef46e46961b018347",
+      "sha256_lf_normalized": "8ab73314ab7daceb65cb28e4f60af48be1614cfc53df209c3644207d55017bac"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/MultiLobeSpecSettings.cpp",
+      "bytes": 3383,
+      "sha256": "4c9159e79bfbaff097ba3d00472c6316e39e91acad02eb9ca9d93b235e66f7d3",
+      "sha256_lf_normalized": "8254cc6df7a29a81da7013b9e55f999307b81f9085b3a7b325e03b069295d24e"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/MultiLobeSpecSettings.h",
+      "bytes": 6508,
+      "sha256": "bb4a8becd96b2108b7079d38f1d270e1c1a65060be6e9d88c4e08b76f623aa57",
+      "sha256_lf_normalized": "078691004fbd60bc86f4f5382404d0093783d71d124d834952ccf1a87815f6ae"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/MultiLobeSpecViewExtension.cpp",
+      "bytes": 1354,
+      "sha256": "cc9b1b3585ec624653fb9ff04cbcb599d09c0eae84c44268ecb979abe7f722b6",
+      "sha256_lf_normalized": "cc9b1b3585ec624653fb9ff04cbcb599d09c0eae84c44268ecb979abe7f722b6"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Private/MultiLobeSpecViewExtension.h",
+      "bytes": 849,
+      "sha256": "61c75a0faa4739272cdeb54dd6d161e0d26d2183f6eb73bf3ee0918d3b7cd7de",
+      "sha256_lf_normalized": "61c75a0faa4739272cdeb54dd6d161e0d26d2183f6eb73bf3ee0918d3b7cd7de"
+    },
+    {
+      "path": "Source/MultiLobeSpec/Public/MultiLobeSpec.h",
+      "bytes": 2921,
+      "sha256": "dc8466962f2e33c30a760c1d2f27373c08fd0387e04284386d4bb93f065a91f7",
+      "sha256_lf_normalized": "dadfec588f6fad6bf0eeb3e98ac0b80d4c7862349b32155b350934a0f3db6683"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/MultiLobeSpecEditor.Build.cs",
+      "bytes": 746,
+      "sha256": "c3e1dbbb76bcb47b208ce04d680004ebbd8ff2f550118ff2c3b8a237b8c87096",
+      "sha256_lf_normalized": "c3e1dbbb76bcb47b208ce04d680004ebbd8ff2f550118ff2c3b8a237b8c87096"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerCore.cpp",
+      "bytes": 41782,
+      "sha256": "420f75acbe99f74689771fe134c7ce8791b820b8fe19174001acf14255f012b8",
+      "sha256_lf_normalized": "17cfb9728aadb22eca0649160c8ee4e26861ef14b3a80c0e4eb31d1a4ed1e19d"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerCore.h",
+      "bytes": 4793,
+      "sha256": "6d5bb246034589307a14fbe761e642f7f85bb781dfbaa3af4fa0b2d411db9f0c",
+      "sha256_lf_normalized": "650c080b2079f1b87a693d2ccdb1eb210a981e26b67d18b8a51d57a04b396844"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerSelectionValidation.cpp",
+      "bytes": 10783,
+      "sha256": "47a1050079292b676ad7491ab85ae3818ce852f5c63eeec45dc3f1b725cb8e38",
+      "sha256_lf_normalized": "5fa0f2f1a9ef8085a2496f315582e2f6546ed408aacf31c4482d9cad3aa46525"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerTab.cpp",
+      "bytes": 6800,
+      "sha256": "c4772492c915e4cb0450bac658d785801d339c0d6896884b890094ad92fefed4",
+      "sha256_lf_normalized": "db9a1e0721178c02d439a910036ba8209730817824f8da1d9a77a19c2274055b"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerTab.h",
+      "bytes": 1715,
+      "sha256": "c1c4e4e03281aa66beae901625e0d4fa4932684b047aa3f364bb464f9dfc8928",
+      "sha256_lf_normalized": "c453e803100eff18adb8a41534df8db1eae713908ba00976c279a225e1fd242a"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerTabConstruct.inl",
+      "bytes": 4925,
+      "sha256": "4956224906de75075d76e2ee6667481d44df354bed8fa2ea249beb90fdc0f402",
+      "sha256_lf_normalized": "1eec301518dd4f935842b5cd43e86bbd9e51e666936578ca11b49b5673a2180e"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerTabExecute.inl",
+      "bytes": 1736,
+      "sha256": "69abefd650679365aabb707b5d17509ea111060bb7c14043795b3521e0d09562",
+      "sha256_lf_normalized": "e243eadc3c6f0aa147aca9ee8bae6d7cc76a146f9596de39a732109e43b4c016"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerTabGather.inl",
+      "bytes": 72,
+      "sha256": "681d4e367b9327762690876e64f47b750df6640b4b058ee836978529e933af4a",
+      "sha256_lf_normalized": "48074d5351dab7f86a77026e6dd505475801b2c49f8e5d91d9e7e3c3ea9298b9"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerTabPreset.inl",
+      "bytes": 2046,
+      "sha256": "ce967b0e2d01807478374be480bc18d8ecb86dd867eb35a8b46bb19364680d59",
+      "sha256_lf_normalized": "d8feff10c664874b176f3da0f90ff6b2dccab3d0f3f5d4d77eff9f2778d1a4db"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerTabSelection.inl",
+      "bytes": 6525,
+      "sha256": "3a210268d5874805637d00de5a9f9d23a1a92fc73f48964c4289f4272590a804",
+      "sha256_lf_normalized": "a97593718a13e75560f96d98f80bfb16a5128519a8f27fc7add9968d7a7ffb31"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSBakerTabUI.inl",
+      "bytes": 71,
+      "sha256": "7461826fbb6f1b21495ba877d12444a091dd924bc8c7273a363e77ea2c93cff6",
+      "sha256_lf_normalized": "e481cedd8d81266863a4ec82daab9b7a953052613f1836e10340748d473468bb"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSConeEnvBRDFGenerator.cpp",
+      "bytes": 13794,
+      "sha256": "3f92d65e26f36f91f71d8a010c1905fc6902baf74fc1e89e1056b642ca342411",
+      "sha256_lf_normalized": "3f92d65e26f36f91f71d8a010c1905fc6902baf74fc1e89e1056b642ca342411"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSConeEnvBRDFGenerator.h",
+      "bytes": 1290,
+      "sha256": "1fb7fb8b692893b8b2aea2149ce6607e4f03d9dd689bf395ad5b1c135cb7f27a",
+      "sha256_lf_normalized": "1fb7fb8b692893b8b2aea2149ce6607e4f03d9dd689bf395ad5b1c135cb7f27a"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSMicroShadowLUTGenerator.cpp",
+      "bytes": 37859,
+      "sha256": "80aef83f8ab54ca30095245fc406dbef795e263ef19e7a437ed9894faa688ed8",
+      "sha256_lf_normalized": "80aef83f8ab54ca30095245fc406dbef795e263ef19e7a437ed9894faa688ed8"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSMicroShadowLUTGenerator.h",
+      "bytes": 6244,
+      "sha256": "5259a2e02b1b7058f19cd234678cf784c32ec60232827e28c819b5667b0dd56e",
+      "sha256_lf_normalized": "5259a2e02b1b7058f19cd234678cf784c32ec60232827e28c819b5667b0dd56e"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MLSMicroShadowLUTValidation.cpp",
+      "bytes": 20731,
+      "sha256": "4d7a732b9965a361e1e487d0587c8d8544c896a788ff7f43f045d1a5f2225fe3",
+      "sha256_lf_normalized": "4d7a732b9965a361e1e487d0587c8d8544c896a788ff7f43f045d1a5f2225fe3"
+    },
+    {
+      "path": "Source/MultiLobeSpecEditor/Private/MultiLobeSpecEditorModule.cpp",
+      "bytes": 12907,
+      "sha256": "4a9e134c5fb321e15eb98bd28edbfc23e649622bd7eb0fab04643795db142959",
+      "sha256_lf_normalized": "4a9e134c5fb321e15eb98bd28edbfc23e649622bd7eb0fab04643795db142959"
+    },
+    {
+      "path": "Shaders/Private/FogMS_Common.ush",
+      "bytes": 9271,
+      "sha256": "68c1432ed26ea7c5ff66a1ec005bdf77498437d522380c4c406b222566d256a8",
+      "sha256_lf_normalized": "68c1432ed26ea7c5ff66a1ec005bdf77498437d522380c4c406b222566d256a8"
+    },
+    {
+      "path": "Shaders/Private/FogMS_Indirect.ush",
+      "bytes": 15143,
+      "sha256": "f7d24225729ffcdce30530d2f0e9904c50333db8f223061b983e775d56e3596b",
+      "sha256_lf_normalized": "f7d24225729ffcdce30530d2f0e9904c50333db8f223061b983e775d56e3596b"
+    },
+    {
+      "path": "Shaders/Private/FogMS_LumenSource.ush",
+      "bytes": 3423,
+      "sha256": "d12223f2b954c7bef543f837039271653d094972903d6edd5805e4ae8028c2e8",
+      "sha256_lf_normalized": "d12223f2b954c7bef543f837039271653d094972903d6edd5805e4ae8028c2e8"
+    },
+    {
+      "path": "Shaders/Private/FogMS_ShadowCache.usf",
+      "bytes": 2417,
+      "sha256": "9283d0443ea5db26e97e30fb2471dd307ce88bbdf04aee348572eed40042bece",
+      "sha256_lf_normalized": "9283d0443ea5db26e97e30fb2471dd307ce88bbdf04aee348572eed40042bece"
+    },
+    {
+      "path": "Shaders/Private/FogMS_Spatial.usf",
+      "bytes": 10152,
+      "sha256": "ac8629eaa36e2946707c0b3f5e345ae065bd228448a1ab83efc9f1a47300471c",
+      "sha256_lf_normalized": "ac8629eaa36e2946707c0b3f5e345ae065bd228448a1ab83efc9f1a47300471c"
+    },
+    {
+      "path": "Shaders/Private/FogMS_WorldLighting.usf",
+      "bytes": 7112,
+      "sha256": "b9af52e27df89cbbfe75d2378020a97d743c6e78c8305b3df8b5e3eab2cff6e5",
+      "sha256_lf_normalized": "b9af52e27df89cbbfe75d2378020a97d743c6e78c8305b3df8b5e3eab2cff6e5"
+    },
+    {
+      "path": "Shaders/Private/FogMS_WorldSources.ush",
+      "bytes": 3956,
+      "sha256": "29c903040045772275425500e0f9a3420408159f9a3cce5bec46925473692bdd",
+      "sha256_lf_normalized": "29c903040045772275425500e0f9a3420408159f9a3cce5bec46925473692bdd"
+    },
+    {
+      "path": "Content/FogMS/M_FogMS_Density.uasset",
+      "bytes": 25839,
+      "sha256": "f79dae26902be3861a1c2f69410b7c75a2698d023ed4d2c9a24ac588114610a9"
+    },
+    {
+      "path": "Content/FogMS/T_FogMS_DefaultVolume.uasset",
+      "bytes": 8666,
+      "sha256": "4ea3095420368351c0efeea7383507deb7ccb9f325cd4000b28a06202941fc39"
+    }
+  ]
+}
