@@ -97,4 +97,4 @@ if __name__ == "__main__":
         r = call("execute_python", {"code": open(sys.argv[2], encoding="utf-8").read()})
     else:
         r = call(m, json.loads(sys.argv[2]) if len(sys.argv) > 2 else {})
-    print(json.dumps(r, ensure_ascii=False, indent=1)[:6000])
+    print(json.dumps(r, ensure_ascii=False, indent=1))
