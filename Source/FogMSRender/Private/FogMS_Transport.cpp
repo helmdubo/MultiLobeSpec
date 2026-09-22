@@ -240,7 +240,7 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
             if (!SunLocal.IsZero() && !ReferenceDir.IsZero() && (ReferenceDir | SunLocal) > -1.0 + 1.0e-6)
             {
                 const FQuat Rotation = FQuat::FindBetweenNormals(ReferenceDir, SunLocal);
-                FVector4f Rotated[UE_ARRAY_COUNT(Common.Ordinates)];
+                FVector4f Rotated[96];
                 bool bFinite = true;
                 for (int32 I = 0; I < Common.AngularCount && bFinite; ++I)
                 {
