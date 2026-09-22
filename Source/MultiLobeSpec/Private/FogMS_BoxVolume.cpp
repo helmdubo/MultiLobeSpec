@@ -2,7 +2,10 @@
 #include "FogMS_BoxRuntime.h"
 
 #include "Components/BoxComponent.h"
+#include "Components/ArrowComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "CoreGlobals.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/VolumeTexture.h"
 #include "Engine/World.h"
@@ -12,11 +15,17 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "MultiLobeSpec.h"
+#include "Serialization/CustomVersion.h"
+#include "Serialization/Archive.h"
 #include "Templates/UnrealTemplate.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace
 {
+	const FGuid FogMS_MotionVersionGuid(0xD9F49C37, 0xBE184764, 0xA270B431, 0x3E0D958A);
+	constexpr int32 FogMS_DirectionalMotionVersion = 1;
+	FCustomVersionRegistration FogMS_MotionVersion(FogMS_MotionVersionGuid, FogMS_DirectionalMotionVersion, TEXT("FogMSDirectionalMotion"));
+
 	bool FogMS_IsFinitePositiveVector(const FVector& Value)
 	{
 		return !Value.ContainsNaN() && Value.GetMin() > 0.0;
@@ -43,7 +52,28 @@ namespace
 		return FogMS_IsFiniteColor(OutPhase);
 	}
 
-	bool FogMS_MakeWorldMapping(const FVector& Center, float WorldTextureSize, float DetailScale,
+	bool FogMS_DisplacedWorldPhase(const FVector& Center, const FVector& Displacement, const FVector& Offset,
+		float Frequency, FLinearColor& OutPhase)
+	{
+		for (int32 Axis = 0; Axis < 3; ++Axis)
+		{
+			// Reduce independently before subtracting: world position, user offset and
+			// travelled distance remain doubles until the bounded final phase is stored.
+			const double CenterCycles = Center[Axis] * static_cast<double>(Frequency);
+			const double TravelCycles = Displacement[Axis] * static_cast<double>(Frequency);
+			const double OffsetCycles = Offset[Axis] * static_cast<double>(Frequency);
+			if (!FMath::IsFinite(CenterCycles) || !FMath::IsFinite(TravelCycles) || !FMath::IsFinite(OffsetCycles)) return false;
+			const double Cycles = (CenterCycles - FMath::FloorToDouble(CenterCycles))
+				- (TravelCycles - FMath::FloorToDouble(TravelCycles))
+				- (OffsetCycles - FMath::FloorToDouble(OffsetCycles));
+			const float Phase = static_cast<float>(Cycles - FMath::FloorToDouble(Cycles));
+			OutPhase.Component(Axis) = Phase == 1.0f ? 0.0f : Phase;
+		}
+		OutPhase.A = 0.0f;
+		return FogMS_IsFiniteColor(OutPhase);
+	}
+
+	bool FogMS_MakeWorldMapping(const FVector& Center, const FVector& Offset, float WorldTextureSize, float DetailScale,
 		FLinearColor& OutFrequencies, FLinearColor& OutPhase0, FLinearColor& OutPhase1, FLinearColor& OutPhase2)
 	{
 		if (!FMath::IsFinite(WorldTextureSize) || WorldTextureSize < 1.0f || WorldTextureSize > 1.0e8f) return false;
@@ -51,10 +81,35 @@ namespace
 		const float F1 = F0 * DetailScale;
 		const float F2 = F1 * 2.0f;
 		OutFrequencies = FLinearColor(F0, F1, F2, 0.0f);
-		return FogMS_IsFiniteColor(OutFrequencies) && FMath::Min3(F0, F1, F2) > 0.0f
-			&& FogMS_MakeWorldPhase(Center, F0, OutPhase0)
-			&& FogMS_MakeWorldPhase(Center, F1, OutPhase1)
-			&& FogMS_MakeWorldPhase(Center, F2, OutPhase2);
+		if (!FogMS_IsFiniteColor(OutFrequencies) || FMath::Min3(F0, F1, F2) <= 0.0f || Offset.ContainsNaN()) return false;
+		// Preserve the existing zero-offset static path exactly.
+		if (Offset == FVector::ZeroVector)
+			return FogMS_MakeWorldPhase(Center, F0, OutPhase0)
+				&& FogMS_MakeWorldPhase(Center, F1, OutPhase1)
+				&& FogMS_MakeWorldPhase(Center, F2, OutPhase2);
+		return FogMS_DisplacedWorldPhase(Center, FVector::ZeroVector, Offset, F0, OutPhase0)
+			&& FogMS_DisplacedWorldPhase(Center, FVector::ZeroVector, Offset, F1, OutPhase1)
+			&& FogMS_DisplacedWorldPhase(Center, FVector::ZeroVector, Offset, F2, OutPhase2);
+	}
+
+	double FogMS_GetDensityFrameTime(const UWorld* World)
+	{
+		// Tick, editor property changes and multiple view families may all call UpdateDensity.
+		// Snapshot on the game thread once per world/frame so every consumer sees one clock.
+		struct FFrameTime { uint64 Frame = MAX_uint64; double Seconds = 0.0; };
+		static TMap<TWeakObjectPtr<const UWorld>, FFrameTime> FrameTimes;
+		for (auto It = FrameTimes.CreateIterator(); It; ++It)
+		{
+			if (!It.Key().IsValid()) It.RemoveCurrent();
+		}
+		if (!World) return 0.0;
+		FFrameTime& Time = FrameTimes.FindOrAdd(World);
+		if (Time.Frame != GFrameCounter)
+		{
+			Time.Frame = GFrameCounter;
+			Time.Seconds = World->GetTimeSeconds();
+		}
+		return Time.Seconds;
 	}
 
 	bool FogMS_IsDensityActorVisible(const AActor& Actor, const UWorld* World)
@@ -98,6 +153,20 @@ AFogMSBoxVolume::AFogMSBoxVolume()
 	BoxComponent->SetVisibility(true);
 	BoxComponent->SetHiddenInGame(true);
 
+	// The visible arrow is the runtime source itself: rotating it cannot rotate a
+	// detached visualization while leaving the sampled wind direction unchanged.
+	WindDirectionComponent = CreateDefaultSubobject<UArrowComponent>(TEXT("WindDirectionComponent"));
+	WindDirectionComponent->SetupAttachment(BoxComponent);
+	WindDirectionComponent->SetMobility(EComponentMobility::Movable);
+	WindDirectionComponent->SetAbsolute(false, true, true);
+	WindDirectionComponent->SetArrowColor(FLinearColor(0.2f, 0.8f, 1.0f));
+	WindDirectionComponent->SetArrowLength(180.0f);
+	WindDirectionComponent->SetHiddenInGame(true);
+	WindDirectionComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WindDirectionComponent->SetCanEverAffectNavigation(false);
+	WindDirectionComponent->SetVisibleInRayTracing(false);
+	WindDirectionComponent->SetCastShadow(false);
+
 	DensityComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DensityComponent"));
 	DensityComponent->SetupAttachment(BoxComponent);
 	DensityComponent->SetMobility(EComponentMobility::Movable);
@@ -127,6 +196,20 @@ void AFogMSBoxVolume::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 	UpdateDensity();
+}
+
+void AFogMSBoxVolume::Serialize(FArchive& Ar)
+{
+	Ar.UsingCustomVersion(FogMS_MotionVersionGuid);
+	Super::Serialize(Ar);
+	// Missing version means an actor authored before Directional Wind existed.
+	// Transactions and duplication must preserve their already chosen mode/state.
+	if (Ar.IsLoading() && Ar.IsPersistent() && !Ar.IsTransacting()
+		&& Ar.CustomVer(FogMS_MotionVersionGuid) < FogMS_DirectionalMotionVersion)
+	{
+		DensityMotionMode = EFogMSDensityMotionMode::LegacyVectors;
+		DensityMotionReference = FFogMSDensityMotionReference{};
+	}
 }
 
 void AFogMSBoxVolume::PostLoad()
@@ -160,23 +243,110 @@ void AFogMSBoxVolume::PostEditMove(bool bFinished)
 }
 #endif
 
-bool AFogMSBoxVolume::FDensityState::HasSameMaterialParameters(const FDensityState& Other) const
+bool FFogMSDensityMotionReference::IsFinite() const
 {
-	return Texture == Other.Texture && TextureResource == Other.TextureResource
+	return FMath::IsFinite(Time) && !Displacement0.ContainsNaN() && !Displacement1.ContainsNaN()
+		&& !Displacement2.ContainsNaN() && !Velocity0.ContainsNaN() && !Velocity1.ContainsNaN() && !Velocity2.ContainsNaN();
+}
+
+bool FFogMSDensityMotionReference::Equals(const FFogMSDensityMotionReference& Other) const
+{
+	return bInitialized == Other.bInitialized && Time == Other.Time
+		&& Displacement0 == Other.Displacement0 && Displacement1 == Other.Displacement1 && Displacement2 == Other.Displacement2
+		&& Velocity0 == Other.Velocity0 && Velocity1 == Other.Velocity1 && Velocity2 == Other.Velocity2;
+}
+
+bool AFogMSBoxVolume::GetDensityMotionVelocities(FVector& Out0, FVector& Out1, FVector& Out2) const
+{
+	if (DensityMotionMode == EFogMSDensityMotionMode::LegacyVectors)
+		Out0 = DensityWindVelocity;
+	else if (DensityMotionMode == EFogMSDensityMotionMode::Directional)
+	{
+		if (!WindDirectionComponent || !WindDirectionComponent->GetComponentTransform().IsValid()
+			|| !FMath::IsFinite(WindSpeed) || WindSpeed < 0.0
+			|| !FMath::IsFinite(EdgeFlowSpeed) || EdgeFlowSpeed < 0.0) return false;
+		Out0 = WindDirectionComponent->GetForwardVector() * WindSpeed;
+	}
+	else return false;
+	Out1 = Out0 + DensityDetailVelocity;
+	Out2 = Out1 + DensityEvolutionVelocity;
+	// Preserve the original operations exactly for zero flow and Legacy mode.
+	// The automatic offsets are relative to the common wind, not cumulative:
+	// octave two uses half the world speed at twice the frequency.
+	if (DensityMotionMode == EFogMSDensityMotionMode::Directional && EdgeFlowSpeed > 0.0)
+	{
+		Out1 += WindDirectionComponent->GetRightVector() * EdgeFlowSpeed;
+		Out2 -= WindDirectionComponent->GetUpVector() * (0.5 * EdgeFlowSpeed);
+	}
+	return !Out0.ContainsNaN() && !Out1.ContainsNaN() && !Out2.ContainsNaN();
+}
+
+bool AFogMSBoxVolume::EvaluateDirectionalMotion(double Time, const FVector& Velocity0, const FVector& Velocity1,
+	const FVector& Velocity2, FVector& Out0, FVector& Out1, FVector& Out2)
+{
+	if (!FMath::IsFinite(Time)) return false;
+	FFogMSDensityMotionReference Reference = DensityMotionReference;
+	if (!Reference.bInitialized)
+	{
+		Reference = FFogMSDensityMotionReference{};
+		Reference.bInitialized = true;
+		// New live motion begins here; manual-first motion has a reproducible t=0 origin.
+		Reference.Time = bUseManualAnimationTime ? 0.0 : Time;
+		Reference.Velocity0 = Velocity0; Reference.Velocity1 = Velocity1; Reference.Velocity2 = Velocity2;
+	}
+	if (!Reference.IsFinite()) return false;
+	const double Delta = Time - Reference.Time;
+	Out0 = Reference.Displacement0 + Reference.Velocity0 * Delta;
+	Out1 = Reference.Displacement1 + Reference.Velocity1 * Delta;
+	Out2 = Reference.Displacement2 + Reference.Velocity2 * Delta;
+	if (Out0.ContainsNaN() || Out1.ContainsNaN() || Out2.ContainsNaN()) return false;
+	if (Reference.Velocity0 != Velocity0 || Reference.Velocity1 != Velocity1 || Reference.Velocity2 != Velocity2)
+	{
+		// Resolve the old segment at this exact CPU snapshot before changing slope.
+		// Repeated edits within one frame/frozen time therefore cannot move the phase.
+		Reference.Time = Time;
+		Reference.Displacement0 = Out0; Reference.Displacement1 = Out1; Reference.Displacement2 = Out2;
+		Reference.Velocity0 = Velocity0; Reference.Velocity1 = Velocity1; Reference.Velocity2 = Velocity2;
+	}
+	DensityMotionReference = Reference;
+	return true;
+}
+
+bool AFogMSBoxVolume::FDensityState::HasSameDensityParameters(const FDensityState& Other) const
+{
+	return bUseNativeDensity == Other.bUseNativeDensity
+		&& Texture == Other.Texture && TextureResource == Other.TextureResource
 		&& ChannelMask == Other.ChannelMask && TileScaleValue == Other.TileScaleValue
 		&& bWorldAligned == Other.bWorldAligned && WorldFrequencies == Other.WorldFrequencies
-		&& WorldPhase0 == Other.WorldPhase0 && WorldPhase1 == Other.WorldPhase1 && WorldPhase2 == Other.WorldPhase2
 		&& ThresholdValue == Other.ThresholdValue && SoftnessValue == Other.SoftnessValue
 		&& DetailStrengthValue == Other.DetailStrengthValue && DetailScaleValue == Other.DetailScaleValue
 		&& DetailSecondOctaveValue == Other.DetailSecondOctaveValue
 		&& DensityValue == Other.DensityValue && Albedo == Other.Albedo
-		&& WorldExtent == Other.WorldExtent && Feather == Other.Feather;
+		&& WorldExtent == Other.WorldExtent && Feather == Other.Feather && TextureOffset == Other.TextureOffset;
+}
+
+bool AFogMSBoxVolume::FDensityState::HasSameMaterialParameters(const FDensityState& Other) const
+{
+	return HasSameDensityParameters(Other)
+		&& WorldPhase0 == Other.WorldPhase0 && WorldPhase1 == Other.WorldPhase1 && WorldPhase2 == Other.WorldPhase2;
 }
 
 bool AFogMSBoxVolume::FDensityState::HasSameEffect(const FDensityState& Other) const
 {
-	return bActive == Other.bActive && (!bActive
-		|| (HasSameMaterialParameters(Other) && WorldTransform.Equals(Other.WorldTransform, 0.0)));
+	if (bActive != Other.bActive) return false;
+	if (!bActive) return true;
+	if (!HasSameDensityParameters(Other) || !WorldTransform.Equals(Other.WorldTransform, 0.0)
+		|| bAnimationActive != Other.bAnimationActive) return false;
+	if (!bAnimationActive) return HasSameMaterialParameters(Other);
+	// Continuous phase progression updates the MID and shadow cache, not the global
+	// fog-history revision. Authored edits, explicit seeks and backwards world time do.
+	return bManualAnimationTime == Other.bManualAnimationTime
+		&& MotionMode == Other.MotionMode
+		&& (MotionMode != EFogMSDensityMotionMode::Directional || MotionReference.Equals(Other.MotionReference))
+		&& WindVelocity == Other.WindVelocity && DetailVelocity == Other.DetailVelocity
+		&& EvolutionVelocity == Other.EvolutionVelocity && TimeOffset == Other.TimeOffset
+		&& (!bManualAnimationTime || ManualTime == Other.ManualTime)
+		&& SampleTime >= Other.SampleTime;
 }
 
 void AFogMSBoxVolume::GetDensityWorldMapping(FVector4f& OutFrequenciesAndMode, FVector3f& OutPhase0, FVector3f& OutPhase1, FVector3f& OutPhase2) const
@@ -192,6 +362,7 @@ void AFogMSBoxVolume::UpdateDensity()
 {
 	if (bUpdatingDensity || HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || IsActorBeingDestroyed()) return;
 	TGuardValue<bool> UpdateGuard(bUpdatingDensity, true);
+	if (WindDirectionComponent) WindDirectionComponent->SetVisibility(DensityMotionMode == EFogMSDensityMotionMode::Directional);
 
 	FDensityState State;
 	FString Problem;
@@ -204,6 +375,10 @@ void AFogMSBoxVolume::UpdateDensity()
 	FLinearColor WorldPhase0(0, 0, 0, 0);
 	FLinearColor WorldPhase1(0, 0, 0, 0);
 	FLinearColor WorldPhase2(0, 0, 0, 0);
+	bool bAnimationActive = false;
+	double AnimationSampleTime = 0.0;
+	FVector MotionVelocity0 = FVector::ZeroVector, MotionVelocity1 = FVector::ZeroVector, MotionVelocity2 = FVector::ZeroVector;
+	FString AnimationStatus = bAnimateDensity ? TEXT("Waiting for a valid density source") : TEXT("Off");
 	const bool bValidBounds = BoxComponent && DensityComponent && BoxComponent->GetComponentTransform().IsValid()
 		&& FogMS_IsFinitePositiveVector(LocalExtent) && FogMS_IsFinitePositiveVector(WorldExtent)
 		&& FogMS_IsFiniteColor(ExtentValue) && FMath::Min3(ExtentValue.R, ExtentValue.G, ExtentValue.B) > 0.0f;
@@ -240,10 +415,10 @@ void AFogMSBoxVolume::UpdateDensity()
 		{
 			Problem = TEXT("Detail Strength and Second Octave must be finite in [0,1], and Detail Scale in [0.1,32].");
 		}
-		else if (bWorldAlignedTexture && !FogMS_MakeWorldMapping(BoxComponent->GetComponentLocation(), WorldTextureSize, DetailScale,
+		else if (bWorldAlignedTexture && !FogMS_MakeWorldMapping(BoxComponent->GetComponentLocation(), TextureOffsetWorld, WorldTextureSize, DetailScale,
 			WorldFrequencies, WorldPhase0, WorldPhase1, WorldPhase2))
 		{
-			Problem = TEXT("World Texture Size must be finite in [1,100000000] cm, with finite positive frequencies and world phases.");
+			Problem = TEXT("World Texture Size must be finite in [1,100000000] cm, with finite Texture Offset, positive frequencies and world phases.");
 		}
 		else if (!FMath::IsFinite(Density) || Density < 0.0f
 			|| !FMath::IsFinite(DensityEdgeFeather) || DensityEdgeFeather < 0.0f)
@@ -295,7 +470,50 @@ void AFogMSBoxVolume::UpdateDensity()
 			}
 			else
 			{
+				if (bAnimateDensity)
+				{
+					if (!bEnabled)
+						AnimationStatus = TEXT("Static: Box Enabled is false");
+					else if (!bWorldAlignedTexture)
+						AnimationStatus = TEXT("Static: animation requires World Aligned Texture");
+					else if (ScatteringMode != EFogMSScatteringMode::WorldSpace && !FogMS_IsTransportMode(ScatteringMode))
+						AnimationStatus = TEXT("Static: animation requires World or Transport scattering; Spatial history is unsupported");
+					else if (!GetDensityMotionVelocities(MotionVelocity0, MotionVelocity1, MotionVelocity2)
+						|| !FMath::IsFinite(AnimationTimeOffset) || (bUseManualAnimationTime && !FMath::IsFinite(ManualAnimationTime)))
+						AnimationStatus = TEXT("Static: wind direction, nonnegative wind/edge-flow speeds, relative velocities and time must be valid");
+					else
+					{
+						AnimationSampleTime = (bUseManualAnimationTime ? ManualAnimationTime : FogMS_GetDensityFrameTime(World)) + AnimationTimeOffset;
+						FLinearColor Phase0, Phase1, Phase2;
+						const FVector Center = BoxComponent->GetComponentLocation();
+						FVector Displacement0, Displacement1, Displacement2;
+						bool bMotionValid = FMath::IsFinite(AnimationSampleTime);
+						if (bMotionValid && DensityMotionMode == EFogMSDensityMotionMode::Directional)
+							bMotionValid = EvaluateDirectionalMotion(AnimationSampleTime, MotionVelocity0, MotionVelocity1, MotionVelocity2,
+								Displacement0, Displacement1, Displacement2);
+						else if (bMotionValid)
+						{
+							// Original absolute-time semantics remain intact until explicit conversion.
+							Displacement0 = MotionVelocity0 * AnimationSampleTime;
+							Displacement1 = MotionVelocity1 * AnimationSampleTime;
+							Displacement2 = MotionVelocity2 * AnimationSampleTime;
+						}
+						bAnimationActive = bMotionValid
+							&& FogMS_DisplacedWorldPhase(Center, Displacement0, TextureOffsetWorld, WorldFrequencies.R, Phase0)
+							&& FogMS_DisplacedWorldPhase(Center, Displacement1, TextureOffsetWorld, WorldFrequencies.G, Phase1)
+							&& FogMS_DisplacedWorldPhase(Center, Displacement2, TextureOffsetWorld, WorldFrequencies.B, Phase2);
+						if (bAnimationActive)
+						{
+							WorldPhase0 = Phase0; WorldPhase1 = Phase1; WorldPhase2 = Phase2;
+							AnimationStatus = bUseManualAnimationTime ? TEXT("Frozen at manual time") : TEXT("Active: shared world-time density phases");
+						}
+						else AnimationStatus = TEXT("Static: animation phase is not finite");
+					}
+				}
 				State.bActive = true;
+				// Keep authored density valid for the B2 atlas while avoiding duplicate
+				// native voxelization. Leaving Transport restores the authored value.
+				State.bUseNativeDensity = !bEnabled || !FogMS_IsTransportMode(ScatteringMode);
 				State.Texture = DensityTexture.Get();
 				State.TextureResource = DensityTexture->GetResource();
 				State.ChannelMask = FLinearColor(0, 0, 0, 0);
@@ -316,6 +534,20 @@ void AFogMSBoxVolume::UpdateDensity()
 				State.WorldExtent = ExtentValue;
 				State.Feather = DensityEdgeFeather;
 				State.WorldTransform = DensityComponent->GetComponentTransform();
+				State.TextureOffset = bWorldAlignedTexture ? TextureOffsetWorld : FVector::ZeroVector;
+				State.bAnimationActive = bAnimationActive;
+				if (bAnimationActive)
+				{
+					State.bManualAnimationTime = bUseManualAnimationTime;
+					State.MotionMode = DensityMotionMode;
+					State.MotionReference = DensityMotionReference;
+					State.WindVelocity = MotionVelocity0;
+					State.DetailVelocity = DensityDetailVelocity;
+					State.EvolutionVelocity = DensityEvolutionVelocity;
+					State.ManualTime = ManualAnimationTime;
+					State.TimeOffset = AnimationTimeOffset;
+					State.SampleTime = AnimationSampleTime;
+				}
 
 				if (!bHasMaterialState || !State.HasSameMaterialParameters(LastMaterialState))
 				{
@@ -332,7 +564,7 @@ void AFogMSBoxVolume::UpdateDensity()
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailStrength"), State.DetailStrengthValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailScale"), State.DetailScaleValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailSecondOctave"), State.DetailSecondOctaveValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_Density"), State.DensityValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_Density"), State.bUseNativeDensity ? State.DensityValue : 0.0f);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_Albedo"), State.Albedo);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldExtent"), State.WorldExtent);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DensityFeather"), State.Feather);
@@ -351,8 +583,11 @@ void AFogMSBoxVolume::UpdateDensity()
 	if (!State.HasSameEffect(LastDensityState))
 	{
 		++DensityRevision;
-		LastDensityState = State;
 	}
+	// Refresh even when only animated phases changed. The packet must match the MID.
+	LastDensityState = State;
+	DensityAnimationTime = State.bAnimationActive ? State.SampleTime : 0.0;
+	DensityAnimationStatus = MoveTemp(AnimationStatus);
 	if (Problem != LastDensityProblem)
 	{
 		if (!Problem.IsEmpty())
@@ -361,6 +596,97 @@ void AFogMSBoxVolume::UpdateDensity()
 		}
 		LastDensityProblem = MoveTemp(Problem);
 	}
+}
+
+bool AFogMSBoxVolume::RestoreDensityMotionReference(const FFogMSDensityMotionReference& Reference)
+{
+	if (!Reference.IsFinite()) return false;
+	Modify();
+	DensityMotionReference = Reference;
+	UpdateDensity();
+	return true;
+}
+
+void AFogMSBoxVolume::UseDirectionalMotion()
+{
+	if (DensityMotionMode == EFogMSDensityMotionMode::Directional) return;
+	UpdateDensity();
+	FVector Velocity0, Velocity1, Velocity2;
+	const double Time = (bUseManualAnimationTime ? ManualAnimationTime : FogMS_GetDensityFrameTime(GetWorld())) + AnimationTimeOffset;
+	if (!WindDirectionComponent || !GetDensityMotionVelocities(Velocity0, Velocity1, Velocity2) || !FMath::IsFinite(Time))
+	{
+		UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS: cannot convert invalid legacy motion on %s."), *GetPathName());
+		return;
+	}
+	FFogMSDensityMotionReference Reference;
+	Reference.bInitialized = true;
+	Reference.Time = Time;
+	// A disabled/unsupported legacy animation currently displays the static mapping.
+	// Its explicit conversion must preserve that phase too, without enabling motion.
+	if (LastDensityState.bAnimationActive)
+	{
+		Reference.Displacement0 = Velocity0 * Time;
+		Reference.Displacement1 = Velocity1 * Time;
+		Reference.Displacement2 = Velocity2 * Time;
+	}
+	Reference.Velocity0 = Velocity0; Reference.Velocity1 = Velocity1; Reference.Velocity2 = Velocity2;
+	const double Speed = Velocity0.Size();
+	if (!Reference.IsFinite() || !FMath::IsFinite(Speed))
+	{
+		UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS: legacy motion conversion overflow on %s."), *GetPathName());
+		return;
+	}
+	Modify();
+	WindDirectionComponent->Modify();
+	if (Speed > 0.0) WindDirectionComponent->SetWorldRotation(Velocity0.Rotation());
+	WindSpeed = Speed;
+	DensityMotionReference = Reference;
+	DensityMotionMode = EFogMSDensityMotionMode::Directional;
+	UpdateDensity();
+}
+
+void AFogMSBoxVolume::UseLegacyMotion()
+{
+	if (DensityMotionMode == EFogMSDensityMotionMode::LegacyVectors) return;
+	Modify();
+	DensityMotionMode = EFogMSDensityMotionMode::LegacyVectors;
+	UpdateDensity();
+}
+
+void AFogMSBoxVolume::ResetMotionOrigin()
+{
+	if (DensityMotionMode != EFogMSDensityMotionMode::Directional) return;
+	FVector Velocity0, Velocity1, Velocity2;
+	const double Time = (bUseManualAnimationTime ? ManualAnimationTime : FogMS_GetDensityFrameTime(GetWorld())) + AnimationTimeOffset;
+	if (!FMath::IsFinite(Time) || !GetDensityMotionVelocities(Velocity0, Velocity1, Velocity2)) return;
+	Modify();
+	DensityMotionReference = FFogMSDensityMotionReference{};
+	DensityMotionReference.bInitialized = true;
+	DensityMotionReference.Time = Time;
+	DensityMotionReference.Velocity0 = Velocity0;
+	DensityMotionReference.Velocity1 = Velocity1;
+	DensityMotionReference.Velocity2 = Velocity2;
+	UpdateDensity();
+}
+
+void AFogMSBoxVolume::FreezeDensityAnimation()
+{
+	UpdateDensity();
+	if (bUseManualAnimationTime) return;
+	Modify();
+	ManualAnimationTime = LastDensityState.bAnimationActive
+		? LastDensityState.SampleTime - AnimationTimeOffset : FogMS_GetDensityFrameTime(GetWorld());
+	bUseManualAnimationTime = true;
+	UpdateDensity();
+}
+
+void AFogMSBoxVolume::ResumeDensityAnimation()
+{
+	if (!bUseManualAnimationTime) return;
+	Modify();
+	AnimationTimeOffset = ManualAnimationTime + AnimationTimeOffset - FogMS_GetDensityFrameTime(GetWorld());
+	bUseManualAnimationTime = false;
+	UpdateDensity();
 }
 
 void AFogMSBoxVolume::EnableLiveBox()

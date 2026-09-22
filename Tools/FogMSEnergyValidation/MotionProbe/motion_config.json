@@ -1,0 +1,31 @@
+{
+  "action": "run",
+  "id": "dolly-ssfs",
+  "evidence_root": "E:/GITHUB/MultiLobeSpec/.codex-build/FogMS_ViewIntegration_20260922",
+  "world": "/Game/FogMS_Test/FogMS_Box.FogMS_Box",
+  "box_label": "FogMS - Live Box",
+  "exposure_label": "FogMS - Fixed Exposure",
+  "cases": [
+    "dolly",
+    "pan"
+  ],
+  "sample_delays": [
+    1,
+    8
+  ],
+  "warm_frames": 64,
+  "motion_frames": 90,
+  "reference_frames": 80,
+  "yaw_degrees": 60,
+  "dolly_cm": 20000,
+  "fov_degrees": 45,
+  "timeout_seconds": 300,
+  "roi": [
+    0.15,
+    0.15,
+    0.85,
+    0.9
+  ],
+  "reference_camera_file": "E:/GITHUB/MultiLobeSpec/.codex-build/FogMS_ViewIntegration_20260922/camera.json",
+  "pan_cm": 20000
+}

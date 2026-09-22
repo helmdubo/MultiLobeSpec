@@ -210,6 +210,80 @@ float4 FogMS_FieldSample(uint Descriptor, float3 Cell, uint3 Size)
 	return lerp(Z0, Z1, F.z);
 }
 
+// Requested B2 owns its authored density even while the lighting producer is
+// unavailable. This marker survives lighting fallback; the raster MID is zero.
+float4 FogMS_TransportCoefficients(float3 TranslatedPosition)
+{
+	if (FogMS_BoxRow(23).w != 4.0f) return 0;
+	float Sigma = FogMS_AuthoredDensity(TranslatedPosition);
+	return float4(Sigma * saturate(FogMS_BoxRow(23).rgb), Sigma);
+}
+
+bool FogMS_TransportFieldIncident(Texture2D<float4> Field, float3 CellPosition, uint N, out float3 Incident)
+{
+	Incident = 0;
+	float3 Position = clamp(CellPosition, 0.0f, float(N - 1));
+	uint3 A = uint3(floor(Position)), B = min(A + 1u, N - 1u);
+	float3 F = frac(Position);
+	uint3 Cells[8]; uint Masks[8]; float3 Values[8]; float Weights[8];
+	bool AllOpen = true;
+	UNROLL for (uint I = 0; I < 8; ++I)
+	{
+		uint3 Bit = uint3(I & 1u, (I >> 1u) & 1u, (I >> 2u) & 1u);
+		Cells[I] = uint3(Bit.x ? B.x : A.x, Bit.y ? B.y : A.y, Bit.z ? B.z : A.z);
+		uint2 XY = uint2(Cells[I].x, Cells[I].y + Cells[I].z * N);
+		Values[I] = Field.Load(int3(XY, 0)).rgb;
+		Masks[I] = (uint)Field.Load(int3(XY + uint2(0, N * N), 0)).a;
+		AllOpen = AllOpen && (Masks[I] & 63u) == 63u;
+		float3 W = lerp(1.0f - F, F, float3(Bit)); Weights[I] = W.x * W.y * W.z;
+	}
+	// Most of a cloud has no solid boundary. Preserve exactly the same weighted
+	// sum, but avoid seven graph-connectivity iterations for a fully open stencil.
+	BRANCH if (AllOpen)
+	{
+		float Weight = 0;
+		UNROLL for (uint I = 0; I < 8; ++I) { Incident += Values[I] * Weights[I]; Weight += Weights[I]; }
+		Incident /= max(Weight, 1.e-8f);
+		return all(isfinite(Incident)) && all(Incident >= -1.e-6f);
+	}
+	uint Anchor = (F.x >= .5f ? 1u : 0u) | (F.y >= .5f ? 2u : 0u) | (F.z >= .5f ? 4u : 0u);
+	uint Reachable = 1u << Anchor;
+	// Reconstruct only inside the connected part of this eight-cell stencil.
+	// Geometry is represented by reciprocal, RT-tested faces of the world grid.
+	UNROLL for (uint Step = 0; Step < 7; ++Step)
+	{
+		uint Next = Reachable;
+		UNROLL for (uint I = 0; I < 8; ++I) if ((Reachable & (1u << I)) != 0)
+			UNROLL for (uint Axis = 0; Axis < 3; ++Axis)
+			{
+				uint J = I ^ (1u << Axis); uint Side = Cells[J][Axis] > Cells[I][Axis] ? 1u : 0u;
+				if (Cells[J][Axis] == Cells[I][Axis] || (((Masks[I] >> (2u * Axis + Side)) & 1u) != 0 && ((Masks[J] >> (2u * Axis + 1u - Side)) & 1u) != 0))
+					Next |= 1u << J;
+			}
+		Reachable = Next;
+	}
+	float Weight = 0;
+	UNROLL for (uint I = 0; I < 8; ++I) if ((Reachable & (1u << I)) != 0)
+	{ Incident += Values[I] * Weights[I]; Weight += Weights[I]; }
+	Incident /= max(Weight, 1.e-8f);
+	return all(isfinite(Incident)) && all(Incident >= -1.e-6f);
+}
+
+bool FogMS_TransportIncident(float3 TranslatedPosition, out float3 Incident)
+{
+	Incident = 0;
+	float4 Info = FogMS_BoxRow(22);
+	if ((FogMS_BoxRow(5).y != 4.0f && FogMS_BoxRow(5).y != 5.0f) || Info.z < 0.5f || Info.w != 4.0f) return false;
+	float3 Center = DFAddDemote(MakeDFVector3(FogMS_BoxRow(0).xyz, FogMS_BoxRow(1).xyz), PrimaryView.PreViewTranslation);
+	float3 P = TranslatedPosition - Center;
+	float4 X = FogMS_BoxRow(2), Y = FogMS_BoxRow(3), Z = FogMS_BoxRow(4);
+	float3 UVW = float3(dot(P, X.xyz) / X.w, dot(P, Y.xyz) / Y.w, dot(P, Z.xyz) / Z.w) * 0.5f + 0.5f;
+	if (any(UVW < 0) || any(UVW > 1)) return false;
+	uint N = (uint)Info.y;
+	Texture2D<float4> Field = GetSRVFromHeap(Texture2D<float4>, (uint)Info.x);
+	return FogMS_TransportFieldIncident(Field, UVW * float(N) - .5f, N, Incident);
+}
+
 float FogMS_CachedSunTransmittance(float3 RelativePosition)
 {
 	float4 X = FogMS_BoxRow(17), Y = FogMS_BoxRow(18), Z = FogMS_BoxRow(19);

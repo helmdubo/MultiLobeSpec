@@ -9,6 +9,8 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 {
 	FVector4f BoxRows[24];
 	float Strength = 0.35f;
+	bool bTransport = false;
+	int32 Iterations = 24;
 	FFogMSWorldRequest() { FMemory::Memzero(BoxRows, sizeof(BoxRows)); }
 };
 

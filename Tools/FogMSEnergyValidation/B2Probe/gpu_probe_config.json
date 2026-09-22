@@ -1,0 +1,10 @@
+{
+  "action": "run",
+  "id": "numeric-repro-001",
+  "iterations": 24,
+  "warmup_frames": 12,
+  "wait_frames": 4,
+  "dump_timeout_seconds": 45,
+  "max_duration_seconds": 900,
+  "baseline_reference": null
+}

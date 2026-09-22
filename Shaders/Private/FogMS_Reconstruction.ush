@@ -1,0 +1,373 @@
+// Plugin-owned reconstruction of the current-frame Transport medium into UE froxels.
+// Included only by VolumetricFog.usf, after its position/depth helpers.
+#ifndef FOGMS_RECONSTRUCTION_USH
+#define FOGMS_RECONSTRUCTION_USH
+#if FOGMS_ENABLED && FOGMS_BOX_MODE
+
+// The deterministic Transport medium has its own current-frame world solution.
+// Keep it out of UE's stochastic light-scattering history entirely. Reprojecting
+// a thresholded density blurs old occupied cells into newly opened holes on dolly.
+// The SAME predicate owns coefficients and source in every producer/consumer.
+uint FogMS_BoxViewIntegrationMode()
+{
+	Texture2D<float4> Data = GetSRVFromHeap(Texture2D<float4>, FOGMS_BOX_DATA_SRV);
+	return (uint)Data.Load(int3(0, 1, 0)).x;
+}
+bool FogMS_BoxUsesCurrentFrameIntegration()
+{
+	float4 Field = FogMS_BoxRow(22);
+	float Mode = FogMS_BoxRow(5).y;
+	return FogMS_BoxViewIntegrationMode() != 0 && FogMS_DebugMode() == 0 && FogMS_BoxRow(0).w > .5f
+		&& FogMS_BoxRow(23).w == 4.f && (Mode == 4.f || Mode == 5.f)
+		&& Field.z >= .5f && Field.w == 4.f && Field.y > 1.f
+		&& FogMS_GetIndirectData(false).Valid;
+}
+
+// Four symmetric tetrahedral points in froxel coordinates, with positive equal
+// weights. Exact through total degree two (including linear sigma_s * linear J),
+// but not the mixed cubic xyz. The same four positions inject coefficients and
+// receive average(sigma_s * J), never average(sigma_s) * average(J).
+// Fixed within a cell: no animated sampling noise.
+float3 FogMS_BoxQuadraturePosition(uint3 Cell, uint Index)
+{
+	float2 SignXY = 1.f - 2.f * float2((Index >> 1u) & 1u, Index & 1u);
+	float3 Sign = float3(SignXY, SignXY.x * SignXY.y); // +++, +--, -+-, --+
+#ifdef FinalIntegrationCS
+	// Mirrored tetrahedra form eight positive Gauss points. More spatial coverage
+	// without animated noise or camera-history accumulation. No SceneDepth binding
+	// exists in native FinalIntegration: this quadrature is deliberately geometric.
+	if (Index >= 4u) Sign = -Sign;
+#endif
+	float3 Offset = .5f + Sign * .2886751345948129f;
+#ifndef FinalIntegrationCS
+	ApplyDepthConstraintsToOffset(Cell, Offset);
+#endif
+	return ComputeCellTranslatedWorldPosition(Cell, Offset);
+}
+
+// Conservative sphere of the froxel frustum. A sample's centre being outside must not discard
+// density entering through the edge of a cell.
+bool FogMS_BoxFroxelOverlap(uint3 Cell)
+{
+	if (FogMS_BoxRow(23).w != 4.f || FogMS_BoxRow(0).w < .5f) return false;
+	float3 C = ComputeCellTranslatedWorldPosition(Cell, .5f);
+	float Radius = 0;
+	// Native depth constraints can move a sample towards the camera by this
+	// many slices. Bound the expanded frustum; never cull those shifted samples.
+#ifdef FinalIntegrationCS
+	float NearExpansion = 0.f;
+#else
+	float NearExpansion = GridCenterOffsetFromDepthBuffer >= 0.f
+		? max(GridCenterOffsetThresholdToAcceptDepthBufferOffset, 0.f) : 0.f;
+#endif
+	UNROLL for (uint I = 0; I < 8; ++I)
+	{
+		float3 Corner = float3(I & 1u, (I >> 1u) & 1u, (I >> 2u) & 1u);
+		if ((I & 4u) == 0u) Corner.z -= NearExpansion;
+		Radius = max(Radius, length(ComputeCellTranslatedWorldPosition(Cell, Corner) - C));
+	}
+	float3 Center = DFAddDemote(MakeDFVector3(FogMS_BoxRow(0).xyz, FogMS_BoxRow(1).xyz), PrimaryView.PreViewTranslation);
+	float3 P = C - Center;
+	float4 X = FogMS_BoxRow(2);
+	float4 Y = FogMS_BoxRow(3);
+	float4 Z = FogMS_BoxRow(4);
+	return all(abs(float3(dot(P, X.xyz), dot(P, Y.xyz), dot(P, Z.xyz))) <= float3(X.w, Y.w, Z.w) + Radius);
+}
+
+float4 FogMS_BoxFroxelCoefficients(uint3 Cell)
+{
+	float4 Sum = 0;
+	if (FogMS_BoxUsesCurrentFrameIntegration()) return Sum;
+	BRANCH if (FogMS_BoxFroxelOverlap(Cell))
+	{
+		FogMS_IndirectData Data = FogMS_GetIndirectData(false);
+		BRANCH if (Data.Valid)
+		{
+			LOOP for (uint I = 0; I < 4; ++I)
+			{
+				float Sigma = FogMS_IndirectLocalDensity(FogMS_IndirectLocalPosition(FogMS_BoxQuadraturePosition(Cell, I), Data), Data);
+				Sum += float4(Sigma * saturate(FogMS_BoxRow(23).rgb), Sigma);
+			}
+		}
+	}
+	return Sum * .25f;
+}
+
+#if defined(LightScatteringCS) || defined(FinalIntegrationCS)
+// Returns the coefficient subset whose native lighting is replaced and its
+// already-weighted source. The legacy/fallback path retains native lighting for
+// invalid samples. FinalIntegration fails closed to source=0 but retains sigma_t
+// for a non-finite/negative J; a disconnected geometric stencil is not invalid.
+void FogMS_BoxFroxelSource(uint3 Cell, out float3 ReplacedSigma, out float3 Source, out float BoxExtinction, out bool Footprint)
+{
+	ReplacedSigma = 0;
+	Source = 0;
+	BoxExtinction = 0;
+	Footprint = false;
+#ifdef LightScatteringCS
+	if (FogMS_BoxUsesCurrentFrameIntegration()) return;
+	const uint SampleCount = 4u;
+#else
+	if (!FogMS_BoxUsesCurrentFrameIntegration() || FogMS_BoxViewIntegrationMode() != 1) return;
+	const uint SampleCount = 8u;
+#endif
+	Footprint = FogMS_BoxFroxelOverlap(Cell);
+	BRANCH if (Footprint)
+	{
+		FogMS_IndirectData Data = FogMS_GetIndirectData(false);
+		if (!Data.Valid) return;
+		float3 Albedo = saturate(FogMS_BoxRow(23).rgb);
+		float4 FieldInfo = FogMS_BoxRow(22);
+		float Mode = FogMS_BoxRow(5).y;
+		bool HasField = (Mode == 4.f || Mode == 5.f) && FieldInfo.z >= .5f && FieldInfo.w == 4.f;
+		uint N = (uint)FieldInfo.y;
+		LOOP for (uint I = 0; I < SampleCount; ++I)
+		{
+			float3 P = FogMS_BoxQuadraturePosition(Cell, I);
+			float3 LocalPosition = FogMS_IndirectLocalPosition(P, Data);
+			float Extinction = FogMS_IndirectLocalDensity(LocalPosition, Data);
+			float3 Sigma = Extinction * Albedo;
+			BoxExtinction += Extinction;
+			BRANCH if (HasField && any(Sigma > 0))
+			{
+				float3 UVW = LocalPosition / Data.Extent * .5f + .5f;
+				BRANCH if (!any(UVW < 0) && !any(UVW > 1))
+				{
+					Texture2D<float4> Field = GetSRVFromHeap(Texture2D<float4>, (uint)FieldInfo.x);
+					float3 J;
+					BRANCH if (FogMS_TransportFieldIncident(Field, UVW * float(N) - .5f, N, J))
+					{
+						ReplacedSigma += Sigma;
+						Source += Sigma * max(J, 0);
+					}
+				}
+			}
+		}
+	}
+	ReplacedSigma /= float(SampleCount);
+	Source /= float(SampleCount);
+	BoxExtinction /= float(SampleCount);
+}
+#endif
+
+#ifdef FinalIntegrationCS
+// Full infinite-line intersection: do NOT clamp Entry to the camera or the
+// current froxel. In particular, a camera inside the Box retains negative Entry
+// so moving it along the same physical ray does not move the density samples.
+bool FogMS_IntersectAnchoredViewBox(float3 Origin, float3 Direction, float3 Extent,
+	out float Entry, out float Exit)
+{
+	Entry = -3.402823466e+38f;
+	Exit = 3.402823466e+38f;
+	UNROLL for (uint Axis = 0u; Axis < 3u; ++Axis)
+	{
+		if (Direction[Axis] == 0.f)
+		{
+			if (abs(Origin[Axis]) > Extent[Axis]) return false;
+		}
+		else
+		{
+			float A = (-Extent[Axis] - Origin[Axis]) / Direction[Axis];
+			float B = ( Extent[Axis] - Origin[Axis]) / Direction[Axis];
+			Entry = max(Entry, min(A, B));
+			Exit = min(Exit, max(A, B));
+		}
+	}
+	return isfinite(Entry) && isfinite(Exit) && Exit > Entry;
+}
+
+void FogMS_AccumulateViewSegment(float4 Coeff, float Length,
+	inout float3 SegmentL, inout float SegmentT)
+{
+	if (Length <= 0.f) return;
+	float T = exp(-Coeff.a * Length);
+	SegmentL += SegmentT * Coeff.rgb * (1.f - T) / max(Coeff.a, .00001f);
+	SegmentT *= T;
+}
+
+// Mode 3 is a piecewise-constant, Box-entry-anchored view medium. Each of the
+// fixed 256 cells samples the SAME world point regardless of camera-log-Z layer
+// boundaries. A froxel clips that cell's integral, never its sampling position.
+// This is deterministic spatial quadrature, not temporal AA or a density LOD.
+void FogMS_IntegrateAnchoredViewLayer(float3 Origin, float3 Direction,
+	float3 A, float3 B, float StepLength, float4 Native,
+	FogMS_IndirectData Data, Texture2D<float4> Field, uint N, float3 Albedo,
+	inout float3 SegmentL, inout float SegmentT, inout bool HasBox,
+	inout uint CachedIndex, inout float4 CachedBoxCoeff)
+{
+	float Entry, Exit;
+	if (!FogMS_IntersectAnchoredViewBox(Origin, Direction, Data.Extent, Entry, Exit))
+	{
+		FogMS_AccumulateViewSegment(Native, StepLength, SegmentL, SegmentT);
+		return;
+	}
+	float3 Anchor = Origin + Direction * Entry;
+	float ChordLength = Exit - Entry;
+	float Start = dot(A - Anchor, Direction);
+	float End = dot(B - Anchor, Direction);
+	float RayLength = End - Start;
+	float InsideStart = max(Start, 0.f);
+	float InsideEnd = min(End, ChordLength);
+	if (InsideEnd <= InsideStart || RayLength <= 1.e-6f || StepLength <= 0.f)
+	{
+		FogMS_AccumulateViewSegment(Native, StepLength, SegmentL, SegmentT);
+		return;
+	}
+	// Native was produced in center-ray distance measure. Rescale only Box
+	// coefficients, then integrate in that same native measure for exact no-Box
+	// compatibility (including the native small-extinction denominator floor).
+	float WorldToNativeLength = StepLength / RayLength;
+	float LengthRatio = RayLength / StepLength;
+	FogMS_AccumulateViewSegment(Native, (InsideStart - Start) * WorldToNativeLength, SegmentL, SegmentT);
+
+	const uint Steps = 256u;
+	float CellLength = ChordLength / float(Steps);
+	uint First = min((uint)max(floor(InsideStart / CellLength), 0.f), Steps - 1u);
+	uint Last = min((uint)max(ceil(InsideEnd / CellLength) - 1.f, 0.f), Steps - 1u);
+	LOOP for (uint Index = First; Index <= Last; ++Index)
+	{
+		float CellStart = float(Index) * CellLength;
+		float CellEnd = float(Index + 1u) * CellLength;
+		float PartialLength = min(InsideEnd, CellEnd) - max(InsideStart, CellStart);
+		if (PartialLength <= 0.f) continue;
+		// Adjacent native layers often split the same anchored interval. Its
+		// midpoint and Box medium are unchanged for this ray in this dispatch.
+		// Cache only pre-exposed Box coefficients, never layer-dependent native
+		// coefficients, length measure, transfer, or fade. Empty cells cache too.
+		BRANCH if (CachedIndex != Index)
+		{
+			float3 P = Anchor + Direction * ((float(Index) + .5f) * CellLength);
+			float Sigma = FogMS_IndirectLocalDensity(P, Data);
+			float3 J = 0;
+			BRANCH if (Sigma > 0.f)
+			{
+				float3 UVW = P / Data.Extent * .5f + .5f;
+				if (!FogMS_TransportFieldIncident(Field, UVW * float(N) - .5f, N, J)) J = 0;
+			}
+			CachedBoxCoeff = float4(View.PreExposure * Sigma * Albedo * max(J, 0), Sigma);
+			CachedIndex = Index;
+		}
+		if (CachedBoxCoeff.a > 0.f) HasBox = true;
+		float4 Coeff = Native + CachedBoxCoeff * LengthRatio;
+		FogMS_AccumulateViewSegment(Coeff, PartialLength * WorldToNativeLength, SegmentL, SegmentT);
+	}
+	FogMS_AccumulateViewSegment(Native, (End - InsideEnd) * WorldToNativeLength, SegmentL, SegmentT);
+}
+
+// Preserve XY-ray identity through the whole column, then average integrated L/T.
+// Averaging extinction across clear/opaque subrays before Beer destroys coverage.
+void FogMS_IntegrateCoherentLayer(uint3 Cell, float4 Native, float StepLength, float Fade,
+	inout float3 RayLighting[4], inout float4 RayTransmittance, inout bool HasBox,
+	inout uint4 CachedIndices, inout float4 CachedBoxCoeffs[4])
+{
+	uint IntegrationMode = FogMS_BoxViewIntegrationMode();
+	if (!FogMS_BoxUsesCurrentFrameIntegration() || (IntegrationMode != 2u && IntegrationMode != 3u)) return;
+	FogMS_IndirectData Data = FogMS_GetIndirectData(false);
+	float3 Albedo = saturate(FogMS_BoxRow(23).rgb);
+	float4 FieldInfo = FogMS_BoxRow(22);
+	uint N = (uint)FieldInfo.y;
+	Texture2D<float4> Field = GetSRVFromHeap(Texture2D<float4>, (uint)FieldInfo.x);
+	LOOP for (uint R = 0; R < 4; ++R)
+	{
+		float2 XY = .5f + (1.f - 2.f * float2(R & 1u, (R >> 1u) & 1u)) * .2886751345948129f;
+		float3 A = ComputeCellTranslatedWorldPosition(uint3(Cell.xy, Cell.z == 0 ? 0 : Cell.z - 1u), float3(XY, Cell.z == 0 ? 0.f : .5f));
+		float3 B = ComputeCellTranslatedWorldPosition(Cell, float3(XY, .5f));
+		float LengthRatio = length(B - A) / max(StepLength, 1.e-6f);
+		float3 SegmentL = 0;
+		float SegmentT = 1;
+		BRANCH if (IntegrationMode == 3u)
+		{
+			// Column endpoints are fixed for every Z layer. Deriving D anew from
+			// short adjacent slices would add avoidable direction-rounding drift.
+			float3 ColumnNear = ComputeCellTranslatedWorldPosition(uint3(Cell.xy, 0u), float3(XY, 0.f));
+			float3 ColumnFar = ComputeCellTranslatedWorldPosition(uint3(Cell.xy, (uint)max(VolumetricFog.ViewGridSizeInt.z - 1, 0)), float3(XY, .5f));
+			float3 WorldDirection = normalize(ColumnFar - ColumnNear);
+			// Projection also gives the correct per-pixel origin for ortho rays.
+			float3 WorldOrigin = ColumnNear + WorldDirection * dot(PrimaryView.TranslatedWorldCameraOrigin - ColumnNear, WorldDirection);
+			float3 LocalDirection = float3(dot(WorldDirection, Data.AxisX), dot(WorldDirection, Data.AxisY), dot(WorldDirection, Data.AxisZ));
+			FogMS_IntegrateAnchoredViewLayer(FogMS_IndirectLocalPosition(WorldOrigin, Data), LocalDirection,
+				FogMS_IndirectLocalPosition(A, Data), FogMS_IndirectLocalPosition(B, Data), StepLength, Native,
+				Data, Field, N, Albedo, SegmentL, SegmentT, HasBox, CachedIndices[R], CachedBoxCoeffs[R]);
+		}
+		else
+		{
+			// Mode 2 remains the camera-slice quadrature comparison path.
+			LOOP for (uint Z = 0; Z < 2; ++Z)
+			{
+				float U = .5f + (Z == 0 ? -1.f : 1.f) * .2886751345948129f;
+				float3 P = FogMS_IndirectLocalPosition(lerp(A, B, U), Data);
+				float Sigma = FogMS_IndirectLocalDensity(P, Data);
+				float3 J = 0;
+				BRANCH if (Sigma > 0)
+				{
+					HasBox = true;
+					float3 UVW = P / Data.Extent * .5f + .5f;
+					if (!FogMS_TransportFieldIncident(Field, UVW * float(N) - .5f, N, J)) J = 0;
+				}
+				float4 Coeff = Native + float4(View.PreExposure * Sigma * Albedo * max(J, 0), Sigma) * LengthRatio;
+				float T = exp(-Coeff.a * (StepLength * .5f));
+				SegmentL += SegmentT * Coeff.rgb * (1.f - T) / max(Coeff.a, .00001f);
+				SegmentT *= T;
+			}
+		}
+		RayLighting[R] += RayTransmittance[R] * Fade * SegmentL;
+		RayTransmittance[R] *= lerp(1.f, SegmentT, Fade);
+	}
+}
+#endif
+
+#ifdef LightScatteringCS
+bool FogMS_BoxTemporalSupport(uint3 Cell, float CurrentBoxExtinction, bool Footprint)
+{
+	if (CurrentBoxExtinction > 0) return true;
+	// Empty/absent medium must not change native HeightFog history. Also reject
+	// old Box density when animation has just moved it out of the current cell.
+	// Structural edits already reset history; previous phases are valid only for
+	// continuous animation of this same texture and authored density definition.
+	if (!Footprint || FogMS_BoxRow(5).w <= .5f || FogMS_BoxHistoryChanged()) return false;
+	FogMS_IndirectData Data = FogMS_GetIndirectData(false);
+	if (!Data.Valid) return false;
+	Data.WorldPhase0 = FogMS_BoxPreviousPhase(0);
+	Data.WorldPhase1 = FogMS_BoxPreviousPhase(1);
+	Data.WorldPhase2 = FogMS_BoxPreviousPhase(2);
+	LOOP for (uint I = 0; I < 4; ++I)
+	{
+		if (FogMS_IndirectLocalDensity(FogMS_IndirectLocalPosition(FogMS_BoxQuadraturePosition(Cell, I), Data), Data) > 0)
+			return true;
+	}
+	return false;
+}
+
+// Camera reprojection displacement in previous froxel units. Use unclamped NDC;
+// native HistoryUV is clamped and cannot measure motion at the view border.
+float FogMS_BoxCameraMotion(uint3 Cell)
+{
+	float3 P = ComputeCellTranslatedWorldPosition(Cell, .5f);
+	float4 Prev = mul(float4(P, 1), UnjitteredPrevTranslatedWorldToClip);
+	if (Prev.w <= 0) return 32.f;
+	float2 PreviousUV = Prev.xy / Prev.w * float2(.5f, -.5f) + .5f;
+	float2 CurrentUV = (float2(Cell.xy) + .5f) / VolumetricFog.ViewGridSize.xy;
+	float2 PreviousGrid = View.VolumetricFogViewGridUVToPrevViewRectUV.xy
+		* View.VolumetricFogPrevViewGridRectUVToResourceUV.xy * View.VolumetricFogPrevResourceGridSize.xy;
+	float2 DeltaXY = (PreviousUV - CurrentUV) * PreviousGrid;
+	float DeltaZ = ComputeZSliceFromDepth(Prev.w) - (float(Cell.z) + .5f);
+	float ResolutionChange = max(abs(PreviousGrid.x / VolumetricFog.ViewGridSize.x - 1.f),
+		abs(PreviousGrid.y / VolumetricFog.ViewGridSize.y - 1.f));
+	return max(max(length(DeltaXY), abs(DeltaZ)), ResolutionChange);
+}
+
+float FogMS_BoxHistoryConfidence(uint3 Cell, float4 Current, float4 History)
+{
+	float DensityChange = abs(Current.a - History.a) / max(max(Current.a, History.a), 1.e-6f);
+	float3 Difference = abs(Current.rgb - History.rgb);
+	float LightChange = max3(Difference.x, Difference.y, Difference.z)
+		/ max(max(max3(Current.r, Current.g, Current.b), max3(History.r, History.g, History.b)), 1.e-6f);
+	float Change = max(DensityChange, LightChange);
+	// At >= one froxel of motion, history contributes <= 22.5% (native alpha .9).
+	// Radiance is compared after native exposure conversion, extinction is not.
+	// No brightness clamp or modification of the physical transport operator.
+	return exp2(-2.f * FogMS_BoxCameraMotion(Cell) - 8.f * max(Change - .02f, 0.f));
+}
+#endif
+#endif
+#endif

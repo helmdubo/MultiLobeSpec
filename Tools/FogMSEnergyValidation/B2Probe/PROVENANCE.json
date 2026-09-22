@@ -1,0 +1,34 @@
+{
+  "source": "FogMS_B2_20260921 prepared harness; wall Actor-setter API correction included",
+  "changes": [
+    "Portable paths",
+    "Optional baseline provenance",
+    "Explicit entry main guard",
+    "Example ids and local protocols",
+    "Optional reconstruction CVar/schema capture with a separate native-receiver analyzer; numerical analyzers unchanged"
+  ],
+  "pre_reconstruction_source_sha256": {
+    "gpu_numerical_probe.py": "58c735b74d97a5104d84c83f7836d63f51c6ca6ff8d01576bc589986d53b1d51",
+    "gpu_numerical_impl.py": "63942557abee0ad47da3a398dbf8881d8a87a070b35900add088357788607a89",
+    "analyze_gpu.py": "ec4b4947a4d59839515df4cd95648963fe379d63b4eb55c713282d39519f785b",
+    "gpu_wall_probe.py": "407213f0a96f8229da1402032c112747bfed075c5c30c6d81b8ddf700db7ef78",
+    "gpu_wall_impl.py": "2c4df15135518c67e809cbf23b86618c267b638c213b9e7d83238581868bc280",
+    "gpu_wall_analyze.py": "b2f82ab1a1b28a1112eac5363fd9fa9a1514b7b638d304af0c2902c281389aa9",
+    "gpu_probe_config.json": "3b1b625287380212878b6d841c685f4395db6447c0a6a7989167797086280106",
+    "gpu_wall_config.json": "969d2378de1b5af2754ad16495a7ee2bad19a76dbe389b0b97bbfe590f475c45"
+  },
+  "source_sha256": {
+    "gpu_numerical_probe.py": "58c735b74d97a5104d84c83f7836d63f51c6ca6ff8d01576bc589986d53b1d51",
+    "gpu_numerical_impl.py": "63942557abee0ad47da3a398dbf8881d8a87a070b35900add088357788607a89",
+    "analyze_gpu.py": "ec4b4947a4d59839515df4cd95648963fe379d63b4eb55c713282d39519f785b",
+    "gpu_wall_probe.py": "407213f0a96f8229da1402032c112747bfed075c5c30c6d81b8ddf700db7ef78",
+    "gpu_wall_impl.py": "5f3af1591c9f77719ad45ffcee04d799887a8fe3d5eecc218a407cd683f12dbc",
+    "gpu_wall_analyze.py": "b2f82ab1a1b28a1112eac5363fd9fa9a1514b7b638d304af0c2902c281389aa9",
+    "gpu_probe_config.json": "cafaaab088386cb288a51129fcb4197922951ae86de33a412debd2e052b1366e",
+    "gpu_wall_config.json": "4b7ca25f589621a52ea6644117f545e56fee62dbcc84210465a8c75cdaf63755",
+    "gpu_wall_reconstruction_probe.py": "d7c3062c8f7ce43aedc6839439721bf947791a70cbd5a788718324b1d5eebbf0",
+    "gpu_wall_reconstruction_config.json": "cf386e66920668d54b0807578aa8fa0991033327d246eba812babd45271190be",
+    "gpu_wall_reconstruction_analyze.py": "45edcba2cb9883340ad08cc8de61016ce0b6fc3eefadfe95b09466adb925d9f6"
+  },
+  "preserved_standard_source": "FogMS_B2_20260921/gpu_wall_standard_v1; wall-01 failed and wall-02 passed receipts retained outside repo"
+}

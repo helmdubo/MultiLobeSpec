@@ -5,6 +5,7 @@
 #include "FogMS_BoxVolume.generated.h"
 
 class UBoxComponent;
+class UArrowComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UStaticMeshComponent;
@@ -26,10 +27,58 @@ enum class EFogMSScatteringMode : uint8
 	Off = 0 UMETA(DisplayName="Off (A1 Only)"),
 	Octaves = 1 UMETA(DisplayName="Octaves"),
 	SpatialPreview = 2 UMETA(DisplayName="Spatial (Experimental)"),
-	WorldSpace = 3 UMETA(DisplayName="World (Current Frame)")
+	WorldSpace = 3 UMETA(DisplayName="World (Current Frame)"),
+	Transport = 4 UMETA(DisplayName="Transport (B2)"),
+	AngularTransport = 5 UMETA(DisplayName="Transport (B3 Angular)")
 };
 
-/** Defines the live A1 region, optional directional scattering octaves and independent native volume density. */
+UENUM(BlueprintType)
+enum class EFogMSAngularQuality : uint8
+{
+	Balanced48 = 0 UMETA(DisplayName="48 Directions"),
+	High96 = 1 UMETA(DisplayName="96 Directions")
+};
+
+UENUM(BlueprintType)
+enum class EFogMSDensityMotionMode : uint8
+{
+	LegacyVectors = 0 UMETA(DisplayName="Legacy Velocity Vectors"),
+	Directional = 1 UMETA(DisplayName="Directional Wind")
+};
+
+/** Saved reference for the current piecewise-linear motion segment, in world cm. */
+USTRUCT(BlueprintType)
+struct FFogMSDensityMotionReference
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS")
+	bool bInitialized = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(Units="s"))
+	double Time = 0.0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(Units="cm"))
+	FVector Displacement0 = FVector::ZeroVector;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(Units="cm"))
+	FVector Displacement1 = FVector::ZeroVector;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(Units="cm"))
+	FVector Displacement2 = FVector::ZeroVector;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(Units="cm/s"))
+	FVector Velocity0 = FVector::ZeroVector;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(Units="cm/s"))
+	FVector Velocity1 = FVector::ZeroVector;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(Units="cm/s"))
+	FVector Velocity2 = FVector::ZeroVector;
+
+	bool IsFinite() const;
+	bool Equals(const FFogMSDensityMotionReference& Other) const;
+};
+
+inline bool FogMS_IsTransportMode(EFogMSScatteringMode Mode)
+{
+	return Mode == EFogMSScatteringMode::Transport || Mode == EFogMSScatteringMode::AngularTransport;
+}
+
+/** Defines the live fog region, directional/spatial scattering and authored volume density. */
 UCLASS(BlueprintType, Blueprintable, ClassGroup=(FogMS), meta=(DisplayName="FogMS Box Volume"))
 class MULTILOBESPEC_API AFogMSBoxVolume : public AActor
 {
@@ -37,6 +86,7 @@ class MULTILOBESPEC_API AFogMSBoxVolume : public AActor
 
 public:
 	AFogMSBoxVolume();
+	virtual void Serialize(FArchive& Ar) override;
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void PostLoad() override;
 	virtual void Tick(float DeltaSeconds) override;
@@ -57,7 +107,7 @@ public:
 
 	UBoxComponent* GetBoxComponent() const { return BoxComponent.Get(); }
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(ToolTip="Off keeps A1 self-shadowing. Octaves approximate extra directional scattering. Spatial uses the previous camera fog field. World computes primary lighting and three spatial scattering orders in the current frame, without fog history; native Lumen surface-cache coverage still applies. Changes apply live after Enable Live Box; density is independent."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(ToolTip="Off keeps A1 self-shadowing. Octaves approximate extra directional scattering. Spatial uses previous camera fog. World computes primary lighting and three extra orders in the current frame. B2 uses six transport directions; B3 uses 48 or 96 with a finite-volume solver. Both Transport modes are isotropic, without artistic damping or fog history; inspect convergence diagnostics. World and Transport use native Lumen surface-cache coverage. Changes apply live after Enable Live Box."))
 	EFogMSScatteringMode ScatteringMode = EFogMSScatteringMode::Off;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves", ClampMin="1", ClampMax="2", UIMin="1", UIMax="2", ToolTip="Number of added directional scattering octaves, beyond the native first order. One or two; changes apply live."))
@@ -77,6 +127,12 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::SpatialPreview || ScatteringMode == EFogMSScatteringMode::WorldSpace", ClampMin="10.0", ClampMax="2000.0", Units="cm", ToolTip="Maximum world distance over which neighbouring fog contributes scattered light. Solid geometry stops each transport ray."))
 	float SpatialDistance = 500.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ClampMin="4", ClampMax="64", UIMin="4", UIMax="64", ToolTip="Current-frame iterations of isotropic transport over the full box. Requires Scattering Distribution 0 and hardware ray tracing. More iterations increase GPU cost; inspect convergence diagnostics. Spatial Strength, Spatial Distance and Indirect Shadow Strength do not control this mode."))
+	int32 TransportIterations = 24;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Positive paired angular quadrature for B3. 48 is the default; 96 reduces angular error at higher GPU cost. The spatial grid stays 32 cubed. B2 always uses its original six directions."))
+	EFogMSAngularQuality AngularQuality = EFogMSAngularQuality::Balanced48;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS|Scattering")
 	FString SpatialStatus = TEXT("Off");
@@ -108,13 +164,13 @@ public:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS|Sun", meta=(ToolTip="Reports surface sun shadow availability or the reason for bypassing it."))
 	FString SurfaceShadowStatus = TEXT("Off");
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Indirect", meta=(DisplayName="Indirect Shadowing", ToolTip="Experimental attenuation of incoming Lumen lighting by this box's density, up to each ray's surface hit. Requires Enable Indirect Preview for the supported renderer settings. Does not add multiple scattering. Toggle live for comparison with A1b under identical renderer settings."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Indirect", meta=(DisplayName="Indirect Shadowing", EditCondition="ScatteringMode != EFogMSScatteringMode::Transport && ScatteringMode != EFogMSScatteringMode::AngularTransport", ToolTip="Experimental attenuation of incoming Lumen lighting by this box's density, up to each ray's surface hit. Requires Enable Indirect Preview for the supported renderer settings. Does not add multiple scattering. Transport uses its own density attenuation and ignores this switch."))
 	bool bIndirectShadowing = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Indirect", meta=(EditCondition="bIndirectShadowing", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Blend between native Lumen fog illumination and attenuation through the local density. Zero preserves native illumination; changes apply live."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Indirect", meta=(EditCondition="bIndirectShadowing && ScatteringMode != EFogMSScatteringMode::Transport && ScatteringMode != EFogMSScatteringMode::AngularTransport", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Blend between native Lumen fog illumination and attenuation through the local density. Zero preserves native illumination; changes apply live. Ignored by Transport."))
 	float IndirectShadowStrength = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Indirect", meta=(EditCondition="bIndirectShadowing", ClampMin="1", ClampMax="64", UIMin="4", UIMax="32", ToolTip="Density samples per incoming Lumen ray. More samples improve thin/noisy density at increased GPU cost."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Indirect", meta=(EditCondition="bIndirectShadowing && ScatteringMode != EFogMSScatteringMode::Transport && ScatteringMode != EFogMSScatteringMode::AngularTransport", ClampMin="1", ClampMax="64", UIMin="4", UIMax="32", ToolTip="Density samples per incoming Lumen ray. More samples improve thin/noisy density at increased GPU cost. Ignored by Transport."))
 	int32 IndirectShadowSteps = 16;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS|Indirect", meta=(ToolTip="Reports the last rendered view family's experimental indirect-shadow status."))
@@ -126,7 +182,7 @@ public:
 	UFUNCTION(CallInEditor, Category="FogMS|Indirect", meta=(DisplayName="Restore Standard Lumen", ToolTip="Disable experimental indirect shadows and restore the renderer settings captured by Enable Indirect Preview. Directional FogMS and density remain enabled."))
 	void RestoreStandardLumen();
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(DisplayName="Density Enabled", ToolTip="Add density from the 3D texture through native Volumetric Fog. Independent of A1 Enabled and Box Mode; changes apply live without FogMS.Apply."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(DisplayName="Density Enabled", ToolTip="Enable authored density from the 3D texture. An enabled Transport box renders its matching density; other modes use native Volumetric Fog independently of A1 Enabled. Changes apply live without FogMS.Apply."))
 	bool bDensityEnabled = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled", ToolTip="Existing 3D texture. Missing or invalid textures disable this density source; no uniform replacement is used."))
@@ -140,6 +196,72 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && bWorldAlignedTexture", ClampMin="1.0", ClampMax="100000000.0", UIMin="1.0", UIMax="100000000.0", Units="cm", ToolTip="World-space size of one repetition of the base 3D texture. Uses the same texture channel and detail controls as local density; changes apply live."))
 	float WorldTextureSize = 2000.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(DisplayName="Texture Offset (World)", EditCondition="bDensityEnabled && bWorldAlignedTexture", Units="cm", ToolTip="World XYZ translation of the texture, independent of Box bounds. Positive X moves the pattern towards positive world X. Applies with animation on or off; zero preserves the original static mapping."))
+	FVector TextureOffsetWorld = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density Animation", meta=(DisplayName="Animate Density", ToolTip="Animate world-aligned density in World or Transport mode. Off preserves the static mapping. Uses one CPU world-time snapshot for the native density material and all FogMS lighting/shadow paths; no GPU clock. Spatial, Octaves and Off keep static density."))
+	bool bAnimateDensity = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="FogMS|Density Animation", meta=(ToolTip="Existing saved actors retain Legacy Velocity Vectors. Use Directional Motion converts explicitly without changing the current phase. New actors use Directional Wind."))
+	EFogMSDensityMotionMode DensityMotionMode = EFogMSDensityMotionMode::Directional;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="FogMS|Density Animation", meta=(ToolTip="Select this component and rotate its arrow to set world wind direction. Its rotation is independent of the Box; its position follows the Box. Used by Directional Wind."))
+	TObjectPtr<UArrowComponent> WindDirectionComponent;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density Animation", meta=(EditCondition="DensityMotionMode == EFogMSDensityMotionMode::Directional", EditConditionHides, ClampMin="0.0", UIMin="0.0", Units="cm/s", ToolTip="Common speed along the independent wind arrow. All three noise octaves share this motion; Edge Flow Speed and advanced relative velocities add detail motion. Speed and arrow edits preserve the current density phase."))
+	double WindSpeed = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density Animation", meta=(EditCondition="DensityMotionMode == EFogMSDensityMotionMode::Directional", EditConditionHides, ClampMin="0.0", UIMin="0.0", Units="cm/s", ToolTip="Speed of slow contour changes on top of the common wind. Requires Animate Density and Detail Strength > 0; Detail Strength controls their amount. The large-scale noise continues to follow Wind Speed. Zero stops relative detail flow. Editing this speed preserves the current pattern."))
+	double EdgeFlowSpeed = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS|Density Animation", meta=(EditCondition="DensityMotionMode == EFogMSDensityMotionMode::LegacyVectors", EditConditionHides, Units="cm/s", ToolTip="Original serialized world velocity. Legacy mode preserves its exact absolute-time behavior. Use Directional Motion to get a wind arrow, speed and continuous velocity edits."))
+	FVector DensityWindVelocity = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS|Density Animation", meta=(DisplayName="Relative Detail Velocity", EditCondition="bAnimateDensity", Units="cm/s", ToolTip="Advanced world velocity added to both detail octaves on top of common wind and their automatic Edge Flow. Zero with Edge Flow Speed zero keeps all shapes moving together. Legacy mode retains its original cumulative vector behavior."))
+	FVector DensityDetailVelocity = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS|Density Animation", meta=(DisplayName="Relative Second Detail Velocity", EditCondition="bAnimateDensity", Units="cm/s", ToolTip="Advanced world velocity added only to the second detail octave. Its total is Wind + Relative Detail + Relative Second Detail, plus its automatic Edge Flow in Directional mode. Zero with the other relative velocity and Edge Flow zero is coherent advection."))
+	FVector DensityEvolutionVelocity = FVector::ZeroVector;
+
+	/** Serialized implementation state; accessible through editor reflection for test/recovery snapshots. */
+	// BlueprintReadOnly is deliberate: non-editable BlueprintReadWrite actor
+	// properties are reset to the CDO by ResetPropertiesForConstruction on edits.
+	UPROPERTY(BlueprintReadOnly, Category="FogMS|Density Animation")
+	FFogMSDensityMotionReference DensityMotionReference;
+
+	UFUNCTION(BlueprintCallable, Category="FogMS|Density Animation", meta=(ToolTip="Restore a finite saved motion reference after restoring the matching wind controls. Intended for reproducible scripting and recovery; does not add a Details control."))
+	bool RestoreDensityMotionReference(const FFogMSDensityMotionReference& Reference);
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category="FogMS|Density Animation", meta=(ToolTip="Convert the original velocity vectors to the wind arrow and speed, preserving the current phase and advanced relative detail controls. Does not enable animation or change density settings."))
+	void UseDirectionalMotion();
+
+	UFUNCTION(BlueprintCallable, Category="FogMS|Density Animation", meta=(ToolTip="Return to the retained original absolute-time velocity controls. This is an explicit phase change, not a continuous conversion back; Directional wind and its saved reference are retained."))
+	void UseLegacyMotion();
+
+	UFUNCTION(BlueprintCallable, Category="FogMS|Density Animation", meta=(ToolTip="Directional mode: set all motion displacements to zero at the current animation time. This is an explicit phase reset; wind controls, manual time and Texture Offset are unchanged."))
+	void ResetMotionOrigin();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS|Density Animation", meta=(EditCondition="bAnimateDensity", ToolTip="Freeze the density at Manual Animation Time plus Time Offset. Editing the manual time is an explicit seek and rejects old fog history once. Live world time respects game pause and time dilation."))
+	bool bUseManualAnimationTime = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS|Density Animation", meta=(EditCondition="bAnimateDensity && bUseManualAnimationTime", Units="s", ToolTip="Absolute density animation time for a frozen, reproducible frame. May be negative. Time Offset is added after selecting manual or live world time."))
+	double ManualAnimationTime = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS|Density Animation", meta=(EditCondition="bAnimateDensity", Units="s", ToolTip="Time offset added to manual or live world time. Editing it explicitly seeks the density and rejects old fog history once."))
+	double AnimationTimeOffset = 0.0;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, AdvancedDisplay, Category="FogMS|Density Animation", meta=(Units="s"))
+	double DensityAnimationTime = 0.0;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS|Density Animation")
+	FString DensityAnimationStatus = TEXT("Off");
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category="FogMS|Density Animation", meta=(ToolTip="Freeze at the current density phase without changing the Time Offset."))
+	void FreezeDensityAnimation();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category="FogMS|Density Animation", meta=(ToolTip="Resume live world time from the frozen phase by adjusting Time Offset."))
+	void ResumeDensityAnimation();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && !bWorldAlignedTexture", ClampMin="0.0001", UIMin="0.0001", ToolTip="Positive repetitions of the 3D texture along the box local axes. One means one texture across the box. Ignored when World Aligned Texture is enabled."))
 	FVector TileScale = FVector::OneVector;
@@ -177,6 +299,7 @@ public:
 
 	uint64 GetDensityRevision() const { return DensityRevision; }
 	bool IsDensitySourceActive() const { return LastDensityState.bActive; }
+	bool IsDensityAnimationActive() const { return LastDensityState.bAnimationActive; }
 	const FString& GetDensityProblem() const { return LastDensityProblem; }
 	/** Shares the validated float mapping used by the MID with the authored-density shader packet. */
 	void GetDensityWorldMapping(FVector4f& OutFrequenciesAndMode, FVector3f& OutPhase0, FVector3f& OutPhase1, FVector3f& OutPhase2) const;
@@ -191,6 +314,7 @@ private:
 	struct FDensityState
 	{
 		bool bActive = false;
+		bool bUseNativeDensity = true;
 		TWeakObjectPtr<UVolumeTexture> Texture;
 		const FTextureResource* TextureResource = nullptr;
 		FLinearColor ChannelMask = FLinearColor::Black;
@@ -210,7 +334,19 @@ private:
 		FLinearColor WorldExtent = FLinearColor::Black;
 		float Feather = 0.0f;
 		FTransform WorldTransform = FTransform::Identity;
+		FVector TextureOffset = FVector::ZeroVector;
+		bool bAnimationActive = false;
+		EFogMSDensityMotionMode MotionMode = EFogMSDensityMotionMode::LegacyVectors;
+		FFogMSDensityMotionReference MotionReference;
+		bool bManualAnimationTime = false;
+		FVector WindVelocity = FVector::ZeroVector;
+		FVector DetailVelocity = FVector::ZeroVector;
+		FVector EvolutionVelocity = FVector::ZeroVector;
+		double ManualTime = 0.0;
+		double TimeOffset = 0.0;
+		double SampleTime = 0.0;
 
+		bool HasSameDensityParameters(const FDensityState& Other) const;
 		bool HasSameMaterialParameters(const FDensityState& Other) const;
 		bool HasSameEffect(const FDensityState& Other) const;
 	};
@@ -227,4 +363,9 @@ private:
 	bool bHasMaterialState = false;
 	bool bUpdatingDensity = false;
 	FString LastDensityProblem;
+
+	bool GetDensityMotionVelocities(FVector& Out0, FVector& Out1, FVector& Out2) const;
+	bool EvaluateDirectionalMotion(double Time, const FVector& Velocity0, const FVector& Velocity1,
+		const FVector& Velocity2, FVector& Out0, FVector& Out1, FVector& Out2);
+
 };

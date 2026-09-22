@@ -1,0 +1,467 @@
+// B2: conservative six-ordinate, cell-average formal transport. No frame history.
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Shared/RayTracingDefinitions.h"
+float4 BoxRows[24];
+#include "/Plugin/FogMS/Private/FogMS_Indirect.ush"
+#if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
+#include "/Plugin/FogMS/Private/FogMS_LumenSource.ush"
+#include "/Engine/Private/RayTracing/RayTracingCommon.ush"
+#include "/Engine/Private/RayTracing/RayTracingHitGroupCommon.ush"
+#include "/Engine/Private/RayTracing/TraceRayInline.ush"
+StructuredBuffer<FRayTracingSceneMetadataRecord> RayTracingSceneMetadata;
+#endif
+#if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 2 || FOGMS_TRANSPORT_PASS == 14
+#include "/Plugin/FogMS/Private/FogMS_WorldSources.ush"
+#endif
+RaytracingAccelerationStructure TLAS;
+StructuredBuffer<uint> ShadowHitData;
+float3 BoxCenterTranslated;
+float4 BoxAxisX;
+float4 BoxAxisY;
+float4 BoxAxisZ;
+float3 CellSize;
+float SourceTraceDistance;
+int GridSize;
+int AngularCount;
+int SkipConverged;
+float4 Ordinates[96];
+int IndirectEnabled;
+int SweepKind;
+int GatherKind;
+int ReductionKind;
+int TestMode;
+int TestGeometry;
+int TestBoundary;
+float TestTau;
+float TestAlbedo;
+Texture3D<float4> Coefficients;
+Texture3D<float4> DirectField;
+Texture2D<float4> ReconstructionAtlas;
+StructuredBuffer<float4> Faces;
+StructuredBuffer<float4> DirectionBoundaries;
+StructuredBuffer<float4> Angular;
+StructuredBuffer<float4> Flux;
+StructuredBuffer<float4> InputA;
+StructuredBuffer<float4> InputB;
+StructuredBuffer<float4> InputC;
+StructuredBuffer<float4> Primary;
+StructuredBuffer<float4> Partial;
+RWTexture3D<float4> OutCoefficients;
+RWTexture3D<float4> OutDirect;
+RWStructuredBuffer<float4> OutFaces;
+RWStructuredBuffer<float4> OutDirectionBoundaries;
+RWStructuredBuffer<float4> OutAngular;
+RWStructuredBuffer<float4> OutFlux;
+RWStructuredBuffer<float4> OutA;
+RWStructuredBuffer<float4> OutB;
+RWStructuredBuffer<float4> OutC;
+RWStructuredBuffer<float4> OutPrimary;
+RWStructuredBuffer<float4> OutPartial;
+RWStructuredBuffer<float4> Scalars;
+RWTexture2D<float4> OutAtlas;
+
+uint Count() { return uint(GridSize*GridSize*GridSize); }
+uint Flat(uint3 C) { return C.x+uint(GridSize)*(C.y+uint(GridSize)*C.z); }
+uint3 Cell(uint I) { return uint3(I%GridSize,(I/GridSize)%GridSize,I/(GridSize*GridSize)); }
+float3 Extent() { return float3(BoxAxisX.w,BoxAxisY.w,BoxAxisZ.w); }
+float3 Local(float3 P) { float3 R=P-BoxCenterTranslated; return float3(dot(R,BoxAxisX.xyz),dot(R,BoxAxisY.xyz),dot(R,BoxAxisZ.xyz)); }
+float3 World(float3 L) { return BoxCenterTranslated+L.x*BoxAxisX.xyz+L.y*BoxAxisY.xyz+L.z*BoxAxisZ.xyz; }
+float3 CellPosition(uint3 C) { return World((float3(C)+.5f)*CellSize-Extent()); }
+float3 Axis(uint A) { return A==0?BoxAxisX.xyz:(A==1?BoxAxisY.xyz:BoxAxisZ.xyz); }
+uint FaceIndex(uint A,uint Plane,uint U,uint V) { return A*uint((GridSize+1)*GridSize*GridSize)+Plane+uint(GridSize+1)*(U+uint(GridSize)*V); }
+uint3 LineCell(uint A,uint K,uint U,uint V) { return A==0?uint3(K,U,V):(A==1?uint3(U,K,V):uint3(U,V,K)); }
+uint CellFace(uint3 C,uint A,uint Side) { return A==0?FaceIndex(A,C.x+Side,C.y,C.z):(A==1?FaceIndex(A,C.y+Side,C.x,C.z):FaceIndex(A,C.z+Side,C.x,C.y)); }
+float MeanT(float Tau) { return Tau<.001f?1.f-Tau*.5f+Tau*Tau/6.f-Tau*Tau*Tau/24.f:(1.f-exp(-Tau))/Tau; }
+float3 InverseDiagonal(float4 S,uint3 C)
+{
+    if(AngularCount>6) return rcp(max(1.f-S.rgb*DirectField.Load(int4(C,0)).a,1.e-12f));
+    float F=(MeanT(S.a*CellSize.x)+MeanT(S.a*CellSize.y)+MeanT(S.a*CellSize.z))/3.f;
+    float3 Albedo=S.a>0?S.rgb/S.a:0;
+    return rcp(max(1.f-Albedo*(1.f-F),1.e-12f));
+}
+RayDesc Ray(float3 P,float3 D,float Limit)
+{
+    FDFVector3 T=MakeDFVector3(View.TLASPreViewTranslationHigh,View.TLASPreViewTranslationLow);
+    RayDesc R; R.Origin=P-DFFastSubtractDemote(PrimaryView.PreViewTranslation,T);
+    R.Direction=D; R.TMin=.01f; R.TMax=max(.01f,Limit); return R;
+}
+bool Blocked(float3 P,float3 D,float Limit,uint Mask)
+{
+    if(Limit<=.01f) return false;
+    RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> Q;
+    Q.TraceRayInline(TLAS,RAY_FLAG_NONE,Mask,Ray(P,D,Limit));
+    while(Q.Proceed()) {}
+    return Q.CommittedStatus()==COMMITTED_TRIANGLE_HIT;
+}
+bool DirectShadow(float3 P,float3 D,float Limit)
+{
+    // UE 5.8.2 LumenHardwareRayTracingMaterials packs CastShadow in bit 29.
+    // Force candidate callbacks so mixed-material instances respect each segment.
+    // Masked geometry remains opaque in this reference; no material opacity eval.
+    RayQuery<RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> Q;
+    Q.TraceRayInline(TLAS,RAY_FLAG_NONE,RAY_TRACING_MASK_OPAQUE_SHADOW,Ray(P,D,Limit));
+    while(Q.Proceed())
+    {
+        if(Q.CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE)
+        {
+            uint Index=Q.CandidateInstanceContributionToHitGroupIndex()/RAY_TRACING_NUM_SHADER_SLOTS+Q.CandidateGeometryIndex();
+            if((ShadowHitData[Index]&(1u<<29))!=0) Q.CommitNonOpaqueTriangleHit();
+        }
+    }
+    return Q.CommittedStatus()==COMMITTED_TRIANGLE_HIT;
+}
+#if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
+float3 BoundaryRadiance(float3 P,float3 D,float Limit,out bool Hit,out bool Valid)
+{
+    FTraceRayInlineContext C=CreateTraceRayInlineContext();
+    FTraceRayInlineResult H=TraceRayInline(TLAS,RAY_FLAG_FORCE_OPAQUE,RAY_TRACING_MASK_OPAQUE,Ray(P,D,Limit),C);
+    Hit=H.IsHit();
+    Valid=true;
+    if(!Hit) return FogMS_WorldSky(D);
+    float3 N=0;
+#if PLATFORM_SUPPORTS_INLINE_RAY_TRACING_TRIANGLE_NORMALS
+    N=H.WorldGeometryNormal;
+#elif PLATFORM_SUPPORTS_INLINE_RAY_TRACING_TRIANGLE_ATTRIBUTES
+    FTriangleBaseAttributes A=LoadInlineRayTracingTriangleAttributes(RayTracingSceneMetadata,H.InstanceContributionToHitGroupIndex,RAY_TRACING_NUM_SHADER_SLOTS,H.GeometryIndex,H.PrimitiveIndex);
+    N=normalize(mul(cross(A.LocalPositions[2]-A.LocalPositions[0],A.LocalPositions[1]-A.LocalPositions[0]),(float3x3)H.WorldToObject3x4));
+#endif
+    if(dot(N,D)>0) N=-N;
+    return FogMS_SurfaceRadiance(H.InstanceID,P+D*H.HitT,N,Valid);
+}
+#endif
+float MediumT(float3 P,float3 D,float Limit)
+{
+    float3 L=Local(P), DL=float3(dot(D,BoxAxisX.xyz),dot(D,BoxAxisY.xyz),dot(D,BoxAxisZ.xyz));
+    int3 C=clamp(int3(floor((L+Extent())/CellSize)),0,GridSize-1);
+    int3 Step=int3(sign(DL));
+    float3 Delta=CellSize/max(abs(DL),1.e-20f);
+    float3 Edge=(float3(C)+float3(DL.x>0,DL.y>0,DL.z>0))*CellSize-Extent();
+    float3 Next=float3(abs(DL.x)>1.e-10f?(Edge.x-L.x)/DL.x:1.e27f,abs(DL.y)>1.e-10f?(Edge.y-L.y)/DL.y:1.e27f,abs(DL.z)>1.e-10f?(Edge.z-L.z)/DL.z:1.e27f);
+    float T=0,Tau=0;
+    LOOP for(uint I=0;I<uint(3*GridSize+3);++I)
+    {
+        float End=min(Limit,min3(Next.x,Next.y,Next.z));
+        Tau+=Coefficients.Load(int4(C,0)).a*max(End-T,0.f);
+        if(End>=Limit) break;
+        bool3 Cross=Next<=End+1.e-4f;
+        C+=int3(Cross)*Step; Next+=float3(Cross)*Delta; T=End;
+        if(any(C<0)||any(C>=GridSize)) break;
+    }
+    return exp(-min(Tau,80.f));
+}
+
+[numthreads(64,1,1)]
+void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
+{
+    uint I=DispatchId.x,N=Count();
+#if FOGMS_TRANSPORT_PASS == 0
+    if(I>=N) return;
+    uint3 C=Cell(I); float Density=0;
+    FogMS_IndirectData Data=FogMS_GetIndirectData(false);
+    UNROLL for(uint J=0;J<8;++J)
+    {
+        float3 Offset=float3(J&1,(J>>1)&1,(J>>2)&1)*.5f+.25f;
+        Density+=FogMS_IndirectLocalDensity((float3(C)+Offset)*CellSize-Extent(),Data)/8.f;
+    }
+    float3 Albedo=saturate(BoxRows[23].rgb);
+    if(TestMode>0)
+    {
+        Density=TestTau/(2.f*BoxAxisX.w); if(TestAlbedo>=0) Albedo=TestAlbedo.xxx;
+        if(TestMode==2&&C.x>=uint(GridSize/4)&&C.x<uint(3*GridSize/4)) Density=0;
+    }
+    OutCoefficients[C]=float4(Density*Albedo,Density);
+#elif FOGMS_TRANSPORT_PASS == 1
+    uint PerAxis=uint((GridSize+1)*GridSize*GridSize);
+    if(I>=3*PerAxis) return;
+    uint A=I/PerAxis,F=I%PerAxis,Plane=F%uint(GridSize+1),U=(F/uint(GridSize+1))%uint(GridSize),V=F/uint((GridSize+1)*GridSize);
+    bool Exterior=Plane==0||Plane==uint(GridSize);
+    float3 L=(float3(LineCell(A,Plane,U,V))+.5f)*CellSize-Extent(); L[A]-=.5f*CellSize[A];
+    float3 P=World(L),D=Axis(A),Left=0,Right=0; bool Open=!Exterior;
+    bool OuterHalfCellBlocked=false;
+    bool LeftValid=true,RightValid=true;
+    if(TestMode==0||TestGeometry!=0)
+    {
+        if(Exterior)
+        {
+            float3 Outward=Plane==0?-D:D;
+            float3 Interior=P-Outward*(.5f*CellSize[A]);
+            // Include the boundary half-cell: otherwise a thin wall there is
+            // missed by both the exterior ray and every center-to-center edge.
+            OuterHalfCellBlocked=Blocked(Interior,Outward,.5f*CellSize[A],RAY_TRACING_MASK_OPAQUE);
+            bool Hit,Valid; float3 Value=BoundaryRadiance(Interior,Outward,SourceTraceDistance+.5f*CellSize[A],Hit,Valid);
+            if(Plane==0) {Right=Value;RightValid=Valid;} else {Left=Value;LeftValid=Valid;}
+        }
+        else
+        {
+            bool H0,H1;
+            Left=BoundaryRadiance(P-D*(.5f*CellSize[A]),D,CellSize[A],H0,LeftValid);
+            Right=BoundaryRadiance(P+D*(.5f*CellSize[A]),-D,CellSize[A],H1,RightValid);
+            Open=!(H0||H1);
+            if(Open) {Left=0;Right=0;}
+            else {if(!H0) Left=0;if(!H1) Right=0;}
+        }
+    }
+    if(TestMode>0)
+    {
+        LeftValid=true;RightValid=true;
+        Left=0;Right=0;
+        if(Exterior)
+        {
+            float Value=!OuterHalfCellBlocked && (TestBoundary==0|| (A==0&&Plane==0))?1.f:0.f;
+            if(Plane==0) Right=Value; else Left=Value;
+        }
+    }
+    else if(IndirectEnabled==0) {Left=0;Right=0;LeftValid=true;RightValid=true;}
+    OutFaces[2*I]=float4(Left,Open?1.f:(LeftValid?0.f:-1.f));
+    OutFaces[2*I+1]=float4(Right,Open?1.f:(RightValid?0.f:-1.f));
+#elif FOGMS_TRANSPORT_PASS == 2
+    if(I>=N) return;
+    uint3 C=Cell(I); float3 Direct=0;
+    if(TestMode==0)
+    {
+        UNROLL for(uint Sample=0;Sample<8;++Sample)
+        {
+            float3 Offset=float3(Sample&1,(Sample>>1)&1,(Sample>>2)&1)*.5f+.25f;
+            float3 P=World((float3(C)+Offset)*CellSize-Extent());
+            LOOP for(uint Light=0;Light<FogMS_WorldLightCount();++Light)
+            {
+                float3 D,J; float Distance; bool Shadow;
+                FogMS_WorldLight(Light,P,D,Distance,J,Shadow);
+                if(any(J>0)&&(!Shadow||!DirectShadow(P,D,Distance))) Direct+=J*MediumT(P,D,Distance)/8.f;
+            }
+        }
+    }
+    float LambdaDiagonal=0;
+    if(AngularCount>6)
+    {
+        float Sigma=Coefficients.Load(int4(C,0)).a;
+        LOOP for(uint D=0;D<uint(AngularCount);++D)
+            LambdaDiagonal+=Ordinates[D].w/(Sigma+dot(abs(Ordinates[D].xyz),rcp(CellSize)));
+    }
+    OutDirect[C]=float4(Direct,LambdaDiagonal);
+#elif FOGMS_TRANSPORT_PASS == 14
+    // One incoming ordinate per exterior face/cell. Internal closed-face
+    // surface radiance remains the reciprocal diffuse face adapter.
+    uint PlaneCells=uint(GridSize*GridSize);
+    if(I>=uint(AngularCount)*3*PlaneCells) return;
+    uint D=I/(3*PlaneCells),A=(I/PlaneCells)%3,U=I%uint(GridSize),V=(I%PlaneCells)/uint(GridSize);
+    bool Positive=Ordinates[D][A]>0;
+    uint3 C=LineCell(A,Positive?0:uint(GridSize-1),U,V);
+    uint F=CellFace(C,A,Positive?0:1);
+    float4 Value=Faces[2*F+(Positive?1:0)];
+    if(TestMode==0&&IndirectEnabled!=0)
+    {
+        float3 Look=-(Ordinates[D].x*BoxAxisX.xyz+Ordinates[D].y*BoxAxisY.xyz+Ordinates[D].z*BoxAxisZ.xyz);
+        bool Hit,Valid;
+        Value.rgb=BoundaryRadiance(CellPosition(C),Look,SourceTraceDistance+length(CellSize),Hit,Valid);
+        Value.a=Valid?0.f:-1.f;
+    }
+    OutDirectionBoundaries[I]=Value;
+#elif FOGMS_TRANSPORT_PASS == 3 || FOGMS_TRANSPORT_PASS == 11 || FOGMS_TRANSPORT_PASS == 12
+    const int ActiveSweep=FOGMS_TRANSPORT_PASS==3?0:(FOGMS_TRANSPORT_PASS==11?1:2);
+    uint Lines=uint(GridSize*GridSize); if(I>=6*Lines) return;
+    uint Dir=I/Lines,A=Dir/2,U=(I%Lines)%uint(GridSize),V=(I%Lines)/uint(GridSize);
+    bool Positive=(Dir&1)==0; float H=CellSize[A],Area=CellSize.x*CellSize.y*CellSize.z/H;
+    float3 Incoming=0;
+    LOOP for(uint K=0;K<uint(GridSize);++K)
+    {
+        uint X=Positive?K:uint(GridSize-1)-K;
+        uint3 C=LineCell(A,X,U,V); uint Index=Flat(C);
+        uint InFace=FaceIndex(A,X+(Positive?0:1),U,V),OutFace=FaceIndex(A,X+(Positive?1:0),U,V);
+        float4 B=Faces[2*InFace+(Positive?1:0)]; bool InClosed=B.a<.5f,OutClosed=Faces[2*OutFace].a<.5f;
+        if(InClosed) Incoming=ActiveSweep==1?0:B.rgb;
+        float4 S=Coefficients.Load(int4(C,0)); float Tau=S.a*H,T=exp(-Tau),F=MeanT(Tau);
+        float3 Q=ActiveSweep==0?0:sqrt(S.rgb)*InputA[Index].rgb;
+        float W=Tau<.001f?H*(1.f-Tau*.5f+Tau*Tau/6.f):(1.f-T)/max(S.a,1.e-30f);
+        float CWeight=Tau<.001f?H*(.5f-Tau/6.f+Tau*Tau/24.f):(1.f-F)/max(S.a,1.e-30f);
+        float3 Average=Incoming*F+Q*CWeight;
+        float3 Outgoing=Incoming*T+Q*W;
+        OutAngular[Dir*N+Index]=float4(Average,0);
+        if(ActiveSweep==2)
+            OutFlux[Dir*N+Index]=float4(InClosed?Luminance(Incoming)*Area*(4.f*PI/6.f):0,OutClosed?Luminance(Outgoing)*Area*(4.f*PI/6.f):0,0,0);
+        Incoming=Outgoing;
+    }
+#elif FOGMS_TRANSPORT_PASS == 4 || FOGMS_TRANSPORT_PASS == 10
+    if(I>=N) return;
+    // Match the existing per-channel PCG stop exactly. No approximate new
+    // tolerance: once all channels are inactive, alpha is already zero.
+    if(FOGMS_TRANSPORT_PASS==10 && AngularCount>6 && SkipConverged!=0)
+    {
+        float3 Rho=Scalars[0].rgb,InitialRho=Scalars[3].rgb;
+        if(all(isfinite(Rho))&&all(isfinite(InitialRho))&&all(Rho>=0)&&all(InitialRho>=0)
+            &&all(Rho<=InitialRho*1.e-14f)) {OutA[I]=0;return;}
+    }
+    uint3 C=Cell(I); float4 S=Coefficients.Load(int4(C,0)); float3 Mean=0;
+    LOOP for(uint D=0;D<uint(AngularCount);++D) Mean+=Angular[D*N+I].rgb*(AngularCount==6?1.f/6.f:Ordinates[D].w);
+    if(FOGMS_TRANSPORT_PASS==4)
+    {
+        float3 Base=DirectField.Load(int4(C,0)).rgb+Mean;
+        float3 R=sqrt(S.rgb)*Base;
+        OutA[I]=0;OutB[I]=float4(R,0);OutC[I]=float4(R*InverseDiagonal(S,C),0);
+        uint Mask=0; UNROLL for(uint D=0;D<6;++D)
+        {
+            uint F=CellFace(C,D/2,D&1);
+            if(Faces[2*F].a>.5f) Mask|=1u<<D;
+            // Bits 6..11 expose missing incident surface-cache samples per face.
+            if(Faces[2*F+1-(D&1)].a<0) Mask|=1u<<(D+6);
+        }
+        if(AngularCount>6)
+        {
+            uint Missing=0;
+            LOOP for(uint D=0;D<uint(AngularCount);++D) UNROLL for(uint A=0;A<3;++A)
+            {
+                bool Positive=Ordinates[D][A]>0;
+                if(C[A]==(Positive?0:uint(GridSize-1)))
+                {
+                    uint U=A==0?C.y:C.x,V=A==2?C.y:C.z;
+                    uint B=(D*3+A)*uint(GridSize*GridSize)+U+uint(GridSize)*V;
+                    if(DirectionBoundaries[B].a<0) ++Missing;
+                }
+            }
+            Mask|=Missing<<12; // <=288, exact integer in float32 together with low face flags.
+        }
+        OutPrimary[I]=float4(Base,float(Mask));
+    }
+    else OutA[I]=float4(InputA[I].rgb-sqrt(S.rgb)*Mean,0);
+#elif FOGMS_TRANSPORT_PASS == 7
+    if(I>=N) return;
+    float3 Alpha=Scalars[1].rgb;
+    float3 U=InputA[I].rgb+Alpha*InputC[I].rgb;
+    float3 R=InputB[I].rgb-Alpha*Primary[I].rgb;
+    OutA[I]=float4(U,0); OutB[I]=float4(R,0);
+    OutC[I]=float4(R*InverseDiagonal(Coefficients.Load(int4(Cell(I),0)),Cell(I)),0);
+#elif FOGMS_TRANSPORT_PASS == 8
+    if(I>=N) return;
+    OutA[I]=float4(InputA[I].rgb+Scalars[2].rgb*InputB[I].rgb,0);
+#elif FOGMS_TRANSPORT_PASS == 13
+    if(I>=N) return;
+    uint3 C=Cell(I);float3 Maximum=0;bool Valid=true;
+    UNROLL for(uint S=0;S<8;++S)
+    {
+        float3 Offset=float3(S&1,(S>>1)&1,(S>>2)&1)*.96f+.02f;
+        float3 J;Valid=FogMS_TransportFieldIncident(ReconstructionAtlas,float3(C)+Offset-.5f,uint(GridSize),J)&&Valid;
+        Maximum=max(Maximum,J);
+    }
+    OutAtlas[uint2(C.x,C.y+C.z*GridSize+3*GridSize*GridSize)]=float4(Maximum,Valid?1.f:0.f);
+#elif FOGMS_TRANSPORT_PASS == 9
+    if(I>=N) return;
+    uint3 C=Cell(I); float4 S=Coefficients.Load(int4(C,0)); float3 Diffuse=0;float2 Power=0;
+    LOOP for(uint D=0;D<uint(AngularCount);++D) {Diffuse+=Angular[D*N+I].rgb*(AngularCount==6?1.f/6.f:Ordinates[D].w);Power+=Flux[D*N+I].xy;}
+    float3 Direct=DirectField.Load(int4(C,0)).rgb,Total=Direct+Diffuse;
+    float3 R=sqrt(S.rgb)*Total-InputA[I].rgb;
+    float Error=length(R)/max(length(sqrt(S.rgb)*Total),1.e-15f);
+    uint2 XY=uint2(C.x,C.y+C.z*GridSize); uint Stride=uint(GridSize*GridSize);
+    OutAtlas[XY]=float4(Total,Error);
+    OutAtlas[XY+uint2(0,Stride)]=Primary[I];
+    OutAtlas[XY+uint2(0,2*Stride)]=S;
+    float Volume=CellSize.x*CellSize.y*CellSize.z;
+    OutAtlas[XY+uint2(0,3*Stride)]=float4(Power,4.f*PI*Volume*Luminance((S.a-S.rgb)*Diffuse),4.f*PI*Volume*Luminance(S.rgb*Direct));
+#endif
+}
+
+#if FOGMS_ANGULAR_SWEEP
+// A direction owns one group. Every upwind neighbour lies on the previous
+// x+y+z front; shared memory makes ordering explicit without cross-group races.
+groupshared float3 AngularFront[2048];
+[numthreads(256,1,1)]
+void AngularSweepCS(uint3 Group:SV_GroupID,uint Thread:SV_GroupIndex)
+{
+    const int ActiveSweep=FOGMS_ANGULAR_KIND;
+    if(ActiveSweep==1 && SkipConverged!=0)
+    {
+        // Same globally uniform predicate as operator gather. It must not read
+        // Angular on this path. No group has entered its barriers yet.
+        float3 Rho=Scalars[0].rgb,InitialRho=Scalars[3].rgb;
+        if(all(isfinite(Rho))&&all(isfinite(InitialRho))&&all(Rho>=0)&&all(InitialRho>=0)
+            &&all(Rho<=InitialRho*1.e-14f)) return;
+    }
+    uint D=Group.x,N=Count(),Size=uint(GridSize),PlaneCells=Size*Size;
+    float3 Omega=Ordinates[D].xyz,Rate=abs(Omega)/CellSize;
+    bool3 Positive=Omega>0;
+    float RateSum=Rate.x+Rate.y+Rate.z,Volume=CellSize.x*CellSize.y*CellSize.z;
+    LOOP for(uint Front=0;Front<3*Size-2;++Front)
+    {
+        uint WriteBase=(Front&1)*1024,ReadBase=((Front+1)&1)*1024;
+        LOOP for(uint IJ=Thread;IJ<PlaneCells;IJ+=256)
+        {
+            uint X=IJ%Size,Y=IJ/Size;int Z=int(Front)-int(X)-int(Y);
+            if(Z>=0&&Z<int(Size))
+            {
+                uint3 K=uint3(X,Y,Z),C=uint3(Positive.x?X:Size-1-X,Positive.y?Y:Size-1-Y,Positive.z?uint(Z):Size-1-uint(Z));
+                uint Index=Flat(C);float4 S=Coefficients.Load(int4(C,0));
+                float3 Numerator=ActiveSweep==0?0:sqrt(S.rgb)*InputA[Index].rgb;
+                float2 Power=0;float OutRate=0;
+                UNROLL for(uint A=0;A<3;++A)
+                {
+                    bool Pos=Positive[A];uint InFace=CellFace(C,A,Pos?0:1),OutFace=CellFace(C,A,Pos?1:0);
+                    float4 B=Faces[2*InFace+(Pos?1:0)];bool Closed=B.a<.5f;
+                    float3 Incoming=0;
+                    if(!Closed)
+                    {
+                        uint Upstream=IJ-(A==0?1:(A==1?Size:0));
+                        Incoming=AngularFront[ReadBase+Upstream];
+                    }
+                    else if(ActiveSweep!=1)
+                    {
+                        if(K[A]==0)
+                        {
+                            uint U=A==0?C.y:C.x,V=A==2?C.y:C.z;
+                            Incoming=DirectionBoundaries[(D*3+A)*PlaneCells+U+Size*V].rgb;
+                        }
+                        else Incoming=B.rgb;
+                    }
+                    Numerator+=Rate[A]*Incoming;
+                    if(ActiveSweep==2)
+                    {
+                        float Factor=4.f*PI*Ordinates[D].w*Volume*Rate[A];
+                        if(Closed) Power.x+=Factor*Luminance(Incoming);
+                        if(Faces[2*OutFace].a<.5f) OutRate+=Factor;
+                    }
+                }
+                float3 Value=Numerator/(S.a+RateSum);
+                AngularFront[WriteBase+IJ]=Value;
+                OutAngular[D*N+Index]=float4(Value,0);
+                if(ActiveSweep==2) {Power.y=OutRate*Luminance(Value);OutFlux[D*N+Index]=float4(Power,0,0);}
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+}
+#endif
+
+#if FOGMS_TRANSPORT_PASS == 5 || FOGMS_TRANSPORT_PASS == 6
+groupshared float3 Sums[256];
+[numthreads(256,1,1)]
+void ReduceCS(uint3 Group:SV_GroupID,uint Thread:SV_GroupIndex,uint3 Dispatch:SV_DispatchThreadID)
+{
+    uint I=Dispatch.x;float3 Value=0;
+#if FOGMS_TRANSPORT_PASS == 5
+    if(I<Count()) Value=InputA[I].rgb*InputB[I].rgb;
+#else
+    if(Thread<uint((Count()+255)/256)) Value=Partial[Thread].rgb;
+#endif
+    Sums[Thread]=Value;GroupMemoryBarrierWithGroupSync();
+    UNROLL for(uint Offset=128;Offset>0;Offset>>=1) {if(Thread<Offset) Sums[Thread]+=Sums[Thread+Offset];GroupMemoryBarrierWithGroupSync();}
+    if(Thread==0)
+    {
+#if FOGMS_TRANSPORT_PASS == 5
+        OutPartial[Group.x]=float4(Sums[0],0);
+#else
+        float3 Sum=Sums[0];
+        if(ReductionKind==0) {Scalars[0]=float4(Sum,0);Scalars[1]=0;Scalars[2]=0;Scalars[3]=float4(Sum,0);}
+        else if(ReductionKind==1)
+        {
+            float3 Rho=Scalars[0].rgb;float3 Alpha=0;
+            UNROLL for(uint A=0;A<3;++A) if(Sum[A]>1.e-30f&&Rho[A]>Scalars[3][A]*1.e-14f) Alpha[A]=Rho[A]/Sum[A];
+            Scalars[1]=float4(Alpha,0);
+        }
+        else
+        {
+            float3 Old=Scalars[0].rgb,Beta=0;
+            UNROLL for(uint A=0;A<3;++A) if(Old[A]>1.e-30f&&Sum[A]>Scalars[3][A]*1.e-14f) Beta[A]=Sum[A]/Old[A];
+            Scalars[2]=float4(Beta,0);Scalars[0]=float4(Sum,0);
+        }
+#endif
+    }
+}
+#endif

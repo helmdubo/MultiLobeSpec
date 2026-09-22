@@ -1,0 +1,8 @@
+__pycache__/
+_verification/
+*.rgba32f
+gpu_*-barrier.json
+gpu_*-measurement.json
+gpu_numerical-*.json
+gpu_wall-*.json
+*.json.tmp

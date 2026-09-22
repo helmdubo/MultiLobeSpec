@@ -1,6 +1,7 @@
 #include "FogMS_WorldLighting.h"
 #include "FogMS_LumenSource.h"
 #include "FogMS_WorldSources.h"
+#include "FogMS_Transport.h"
 
 #include "DynamicRHI.h"
 #include "GlobalShader.h"
@@ -113,8 +114,14 @@ namespace
 		uint64 LastUse = 0;
 		FFogMSWorldRequest LastRequest;
 		int32 LastIndirectEnabled = 1;
+		int32 LastTransportTest = 0;
+		int32 LastTransportGeometry = 0;
+		int32 LastTransportBoundary = 0;
+		bool bLastReconstructionTest = false;
+		float LastTransportTau = 0;
+		float LastTransportAlbedo = 1;
 
-		bool EnsureResource()
+		bool EnsureResource(bool bTransport)
 		{
 			if (bAllocationAttempted) return DescriptorIndex != MAX_uint32;
 			bAllocationAttempted = true;
@@ -126,7 +133,7 @@ namespace
 			D3D12_RESOURCE_DESC Desc{};
 			Desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 			Desc.Width = WorldSize;
-			Desc.Height = 2 * WorldSize * WorldSize;
+			Desc.Height = (bTransport ? 4 : 2) * WorldSize * WorldSize;
 			Desc.DepthOrArraySize = Desc.MipLevels = Desc.SampleDesc.Count = 1;
 			Desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
 			Desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -166,10 +173,10 @@ namespace
 		TUniquePtr<FWorldViewState> State;
 		FGPUFenceRHIRef Fence;
 	};
-	TMap<uint32, TUniquePtr<FWorldViewState>> WorldViews;
+	TMap<uint64, TUniquePtr<FWorldViewState>> WorldViews;
 	TArray<FRetiredWorldView> RetiredViews;
 	uint64 WorldAccessSerial = 0;
-	uint32 LastValidViewKey = 0;
+	uint64 LastValidViewKey = 0;
 	uint32 LastValidRenderFrame = 0;
 	bool bLastBuildValid = false;
 
@@ -184,7 +191,7 @@ namespace
 		RetiredViews.Add(MoveTemp(Item));
 	}
 
-	void CollectWorldViews(uint32 CurrentKey, FRHICommandListImmediate& RHICmdList)
+	void CollectWorldViews(uint64 CurrentKey, FRHICommandListImmediate& RHICmdList)
 	{
 		for (int32 Index = RetiredViews.Num() - 1; Index >= 0; --Index)
 		{
@@ -202,7 +209,7 @@ namespace
 		}
 		if (!WorldViews.Contains(CurrentKey) && WorldViews.Num() >= MaxWorldViews)
 		{
-			uint32 OldestKey = 0;
+			uint64 OldestKey = 0;
 			uint64 OldestUse = MAX_uint64;
 			for (const auto& Item : WorldViews)
 			{
@@ -223,9 +230,10 @@ namespace
 			&& FMath::Abs(FVector3f::DotProduct(Request.AxisX, Request.AxisY)) < 1.0e-3f
 			&& FMath::Abs(FVector3f::DotProduct(Request.AxisX, Request.AxisZ)) < 1.0e-3f
 			&& FMath::Abs(FVector3f::DotProduct(Request.AxisY, Request.AxisZ)) < 1.0e-3f
-			&& FMath::IsFinite(Request.RangeCm) && Request.RangeCm > 0.0f && Request.RangeCm <= 2000.0f
+			&& FMath::IsFinite(Request.RangeCm) && Request.RangeCm > 0.0f && (Request.bTransport || Request.RangeCm <= 2000.0f)
 			&& FMath::IsFinite(Request.PhaseG) && FMath::Abs(Request.PhaseG) <= 1.0e-6f
-			&& Request.Steps >= 1 && Request.Steps <= 32 && Request.Directions == 12;
+			&& Request.Steps >= 1 && Request.Steps <= 32 && (Request.bTransport ? (Request.Directions == 6 || Request.Directions == 48 || Request.Directions == 96) : Request.Directions == 12)
+			&& (!Request.bTransport || (Request.Iterations >= 4 && Request.Iterations <= 64));
 	}
 }
 
@@ -248,7 +256,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		Result.Error = TEXT("World lighting requires one real-time perspective view, without scene/reflection captures or stereo.");
 		return Result;
 	}
-	if (!ValidRequest(Request) || !FMath::IsFinite(Request.Strength) || Request.Strength < 0 || Request.Strength > .5f)
+	if (!ValidRequest(Request) || !FMath::IsFinite(Request.Strength) || Request.Strength < 0 || (!Request.bTransport && Request.Strength > .5f))
 	{
 		Result.Error = TEXT("World lighting requires finite orthonormal bounds, g=0, range (0,2000] cm and strength [0,0.5].");
 		return Result;
@@ -261,6 +269,11 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		return Result;
 	}
 	const FViewInfo& View = static_cast<const FViewInfo&>(SceneView);
+	if (Request.bTransport && !View.LumenHardwareRayTracingHitDataBuffer)
+	{
+		Result.Error = TEXT("B2 is waiting for per-segment ray-traced shadow flags.");
+		return Result;
+	}
 	if (!View.ViewState || !View.ViewUniformBuffer.IsValid() || !View.HasRayTracingScene()
 		|| !View.GetInlineRayTracingBindingDataBuffer())
 	{
@@ -277,7 +290,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	FMemory::Memzero(&Common, sizeof(Common));
 	if (!FogMS_GetLumenSource(GraphBuilder, View, Common.LumenSource, Result.Error)
 		|| !FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Common.LightSources, Result.Error)) return Result;
-	const uint32 Key = View.ViewState->GetViewKey();
+	const uint64 Key = (uint64(View.ViewState->GetViewKey()) << 1) | (Request.bTransport ? 1u : 0u);
 	FRHICommandListImmediate& RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
 	++WorldAccessSerial;
 	CollectWorldViews(Key, RHICmdList);
@@ -285,7 +298,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	if (!StatePtr) StatePtr = MakeUnique<FWorldViewState>();
 	FWorldViewState& State = *StatePtr;
 	State.LastUse = WorldAccessSerial;
-	if (!State.EnsureResource()) { Result.Error = State.AllocationError; return Result; }
+	if (!State.EnsureResource(Request.bTransport)) { Result.Error = State.AllocationError; return Result; }
 	Common.View = View.ViewUniformBuffer;
 	Common.Scene = GetSceneUniformBufferRef(GraphBuilder, View);
 	Common.TLAS = View.GetRayTracingSceneLayerViewChecked(ERayTracingSceneLayer::Base);
@@ -295,6 +308,15 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	Common.BoxAxisX = FVector4f(Request.AxisX, Request.Extent.X);
 	Common.BoxAxisY = FVector4f(Request.AxisY, Request.Extent.Y);
 	Common.BoxAxisZ = FVector4f(Request.AxisZ, Request.Extent.Z);
+	Common.IndirectEnabled = CVarWorldIndirect.GetValueOnRenderThread() != 0 ? 1 : 0;
+	FRDGTextureRef Work = nullptr;
+	if (Request.bTransport)
+	{
+		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0);
+		if (!Work) { Result.Error = TEXT("B2 transport graph unavailable."); return Result; }
+	}
+	else
+	{
 	Common.RangeCm = Request.RangeCm;
 	Common.SourceTraceDistance = FMath::Max(1000.0f, View.FinalPostProcessSettings.LumenMaxTraceDistance);
 	Common.Strength = Request.Strength;
@@ -348,13 +370,14 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		Source = Next;
 		MS = Sum;
 	}
-	FRDGTextureRef Work = GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(FIntPoint(WorldSize, 2 * WorldSize * WorldSize),
+	Work = GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(FIntPoint(WorldSize, 2 * WorldSize * WorldSize),
 		PF_A32B32G32R32F, FClearValueBinding::None, Flags), TEXT("FogMS.WorldPacked"));
 	{
 		auto Parameters = Common;
 		Parameters.PreviousMS = MS;
 		Parameters.OutAtlas = GraphBuilder.CreateUAV(Work);
 		Dispatch(3, TEXT("FogMS World Publish"), Parameters);
+	}
 	}
 	FRDGTextureRef Output = RegisterExternalTexture(GraphBuilder, State.Texture, TEXT("FogMS.WorldResident"));
 	GraphBuilder.UseInternalAccessMode(Output);
@@ -363,6 +386,15 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	State.LastFrameIndex = View.ViewState->GetFrameIndex();
 	State.LastRequest = Request;
 	State.LastIndirectEnabled = Common.IndirectEnabled;
+	if (Request.bTransport)
+	{
+		State.LastTransportTest = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.Test"))->GetInt();
+		State.LastTransportGeometry = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.TestGeometry"))->GetInt();
+		State.LastTransportBoundary = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.TestBoundary"))->GetInt();
+		State.bLastReconstructionTest = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.TestReconstruction"))->GetInt() != 0;
+		State.LastTransportTau = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.TestTau"))->GetFloat();
+		State.LastTransportAlbedo = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.TestAlbedo"))->GetFloat();
+	}
 	Result.Texture = State.Texture;
 	Result.SRV = State.SRV;
 	Result.GraphTexture = Output;
@@ -406,20 +438,81 @@ bool FogMS_DumpWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList, 
 	TArray<FLinearColor> Pixels;
 	FReadSurfaceDataFlags Flags(RCM_MinMax);
 	Flags.SetLinearToGamma(false);
-	RHICmdList.ReadSurfaceData(State.Texture, FIntRect(0, 0, WorldSize, 2 * WorldSize * WorldSize), Pixels, Flags);
+	const int32 Layers = State.LastRequest.bTransport ? 4 : 2;
+	RHICmdList.ReadSurfaceData(State.Texture, FIntRect(0, 0, WorldSize, Layers * WorldSize * WorldSize), Pixels, Flags);
 	RHICmdList.Transition(FRHITransitionInfo(State.Texture, ERHIAccess::Unknown, ERHIAccess::SRVMask));
-	if (Pixels.Num() != 2 * WorldSize * WorldSize * WorldSize) return false;
+	if (Pixels.Num() != Layers * WorldSize * WorldSize * WorldSize) return false;
 	TArray<uint8> Bytes;
 	Bytes.SetNumUninitialized(Pixels.Num() * sizeof(FLinearColor));
 	FMemory::Memcpy(Bytes.GetData(), Pixels.GetData(), Bytes.Num());
 	const bool Saved = FFileHelper::SaveArrayToFile(Bytes, *(PathPrefix + TEXT(".rgba32f")));
+	const FFogMSWorldRequest& Last = State.LastRequest;
+	const FString AnimationMetadata = FString::Printf(
+		TEXT(",\"revision\":%llu,\"animationActive\":%s,\"historyReset\":%s,\"densityPhase0\":[%.9g,%.9g,%.9g],\"densityPhase1\":[%.9g,%.9g,%.9g],\"densityPhase2\":[%.9g,%.9g,%.9g]"),
+		static_cast<unsigned long long>(Last.Revision), Last.BoxRows[5].W > .5f ? TEXT("true") : TEXT("false"),
+		Last.ResetHistory ? TEXT("true") : TEXT("false"),
+		Last.BoxRows[13].X, Last.BoxRows[13].Y, Last.BoxRows[13].Z,
+		Last.BoxRows[14].X, Last.BoxRows[14].Y, Last.BoxRows[14].Z,
+		Last.BoxRows[15].X, Last.BoxRows[15].Y, Last.BoxRows[15].Z);
+	if (State.LastRequest.bTransport && State.bLastReconstructionTest)
+	{
+		const FString Metadata = FString::Printf(
+			TEXT("{\"success\":%s,\"domain\":\"transport_reconstruction\",\"format\":\"RGBA32F_LE\",\"width\":%d,\"height\":%d,\"grid\":%d,\"bytes\":%d,")
+			TEXT("\"layout\":\"x,y+z*N; slabs: totalJ/residual, primaryJ/openFaces, sigma_s/sigma_t, maxReceiverRGB/valid\",\"reconstructionTest\":true,\"fluxDiagnosticsValid\":false,")
+			TEXT("\"viewKey\":%u,\"renderFrame\":%u,\"dumpRenderFrame\":%u,\"sourceProducedRenderFrame\":%u,\"iterations\":%d,\"directions\":%d,\"transport_scheme\":\"%s\",")
+			TEXT("\"test\":%d,\"testTau\":%.9g,\"testAlbedo\":%.9g,\"testGeometry\":%d,\"testBoundary\":%d,\"cellSizeCm\":[%.9g,%.9g,%.9g]%s}\n"),
+			Saved ? TEXT("true") : TEXT("false"), WorldSize, Layers * WorldSize * WorldSize, WorldSize, Bytes.Num(),
+			uint32(LastValidViewKey >> 1), LastValidRenderFrame, GFrameNumberRenderThread, LastValidRenderFrame, State.LastRequest.Iterations, State.LastRequest.Directions,
+			State.LastRequest.Directions == 6 ? TEXT("formal_six") : TEXT("upwind_half_gauss"),
+			State.LastTransportTest, State.LastTransportTau, State.LastTransportAlbedo, State.LastTransportGeometry, State.LastTransportBoundary,
+			State.LastRequest.Extent.X * (2.0 / WorldSize), State.LastRequest.Extent.Y * (2.0 / WorldSize), State.LastRequest.Extent.Z * (2.0 / WorldSize), *AnimationMetadata);
+		FFileHelper::SaveStringToFile(Metadata, *(PathPrefix + TEXT(".json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+		return true;
+	}
+	if (State.LastRequest.bTransport)
+	{
+		constexpr int32 Cells = WorldSize * WorldSize * WorldSize;
+		double Incoming = 0, Outgoing = 0, Absorbed = 0, DirectSource = 0;
+		float MaxResidual = 0, MinRadiance = MAX_flt;
+		uint32 MissingSurfaceSamples = 0, MissingAngularSamples = 0;
+		bool bFinite = true;
+		for (int32 I = 0; I < Cells; ++I)
+		{
+			const FLinearColor J = Pixels[I], F = Pixels[3 * Cells + I];
+			const uint32 Packed = uint32(FMath::Max(Pixels[Cells + I].A, 0.0f));
+			const uint32 MissingMask = (Packed >> 6) & 63u;
+			MissingAngularSamples += Packed >> 12;
+			for (uint32 Bit = 0; Bit < 6; ++Bit) MissingSurfaceSamples += (MissingMask >> Bit) & 1u;
+			bFinite = bFinite && FMath::IsFinite(J.R) && FMath::IsFinite(J.G) && FMath::IsFinite(J.B) && FMath::IsFinite(J.A)
+				&& FMath::IsFinite(F.R) && FMath::IsFinite(F.G) && FMath::IsFinite(F.B) && FMath::IsFinite(F.A);
+			MaxResidual = FMath::Max(MaxResidual, J.A);
+			MinRadiance = FMath::Min(MinRadiance, FMath::Min3(J.R, J.G, J.B));
+			Incoming += F.R; Outgoing += F.G; Absorbed += F.B; DirectSource += F.A;
+		}
+		const double Balance = (Outgoing + Absorbed - Incoming - DirectSource) / FMath::Max(Incoming + DirectSource, 1.e-20);
+		const FString Metadata = FString::Printf(
+			TEXT("{\"success\":%s,\"domain\":\"transport\",\"format\":\"RGBA32F_LE\",\"width\":%d,\"height\":%d,\"grid\":%d,\"bytes\":%d,")
+			TEXT("\"layout\":\"x,y+z*N; slabs: totalJ/residual, primaryJ/openFaces, sigma_s/sigma_t, diffuse input/output/absorption/directSource\",")
+			TEXT("\"viewKey\":%u,\"renderFrame\":%u,\"dumpRenderFrame\":%u,\"sourceProducedRenderFrame\":%u,\"iterations\":%d,\"directions\":%d,\"transport_scheme\":\"%s\",")
+			TEXT("\"test\":%d,\"testTau\":%.9g,\"testAlbedo\":%.9g,\"testGeometry\":%d,\"testBoundary\":%d,\"cellSizeCm\":[%.9g,%.9g,%.9g],\"finite\":%s,\"minRadiance\":%.9g,\"maxRelativeCellResidual\":%.9g,")
+			TEXT("\"missingSurfaceBoundarySamples\":%u,\"missingAngularBoundarySamples\":%u,\"diffuseIncoming\":%.17g,\"diffuseOutgoing\":%.17g,\"diffuseAbsorbed\":%.17g,\"directScatteringSource\":%.17g,\"relativeFluxDefect\":%.17g%s}\n"),
+			Saved ? TEXT("true") : TEXT("false"), WorldSize, Layers * WorldSize * WorldSize, WorldSize, Bytes.Num(),
+			uint32(LastValidViewKey >> 1), LastValidRenderFrame, GFrameNumberRenderThread, LastValidRenderFrame, State.LastRequest.Iterations, State.LastRequest.Directions,
+			State.LastRequest.Directions == 6 ? TEXT("formal_six") : TEXT("upwind_half_gauss"),
+			State.LastTransportTest, State.LastTransportTau, State.LastTransportAlbedo, State.LastTransportGeometry, State.LastTransportBoundary,
+			State.LastRequest.Extent.X * (2.0 / WorldSize), State.LastRequest.Extent.Y * (2.0 / WorldSize), State.LastRequest.Extent.Z * (2.0 / WorldSize),
+			bFinite ? TEXT("true") : TEXT("false"), MinRadiance, MaxResidual,
+			MissingSurfaceSamples, MissingAngularSamples, Incoming, Outgoing, Absorbed, DirectSource, Balance, *AnimationMetadata);
+		FFileHelper::SaveStringToFile(Metadata, *(PathPrefix + TEXT(".json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+		return true;
+	}
 	const FString Metadata = FString::Printf(
 		TEXT("{\"success\":%s,\"domain\":\"world\",\"format\":\"RGBA32F_LE\",\"width\":%d,\"height\":%d,\"grid\":%d,\"bytes\":%d,")
 		TEXT("\"layout\":\"x,y+z*N; lower half MSOnly; upper half BaseIndirect\",\"rgb\":\"scene-linear incident radiance\",\"alpha\":\"zero (MS); missing surface-card ray fraction (base)\",")
 		TEXT("\"viewKey\":%u,\"viewFrame\":%u,\"renderFrame\":%u,\"dumpRenderFrame\":%u,\"sourceProducedRenderFrame\":%u,")
 		TEXT("\"revision\":%llu,\"rangeCm\":%.9g,\"strength\":%.9g,\"steps\":16,\"directions\":12,\"orders\":3,\"indirectEnabled\":%d}\n"),
 		Saved ? TEXT("true") : TEXT("false"), WorldSize, 2 * WorldSize * WorldSize, WorldSize, Bytes.Num(),
-		LastValidViewKey, State.LastFrameIndex, LastValidRenderFrame, GFrameNumberRenderThread, LastValidRenderFrame,
+		uint32(LastValidViewKey >> 1), State.LastFrameIndex, LastValidRenderFrame, GFrameNumberRenderThread, LastValidRenderFrame,
 		static_cast<unsigned long long>(State.LastRequest.Revision), State.LastRequest.RangeCm,
 		State.LastRequest.Strength, State.LastIndirectEnabled);
 	FFileHelper::SaveStringToFile(Metadata, *(PathPrefix + TEXT(".json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);

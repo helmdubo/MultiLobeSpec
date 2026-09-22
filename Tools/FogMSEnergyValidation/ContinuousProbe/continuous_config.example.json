@@ -1,0 +1,15 @@
+{
+  "action": "run",
+  "id": "continuous-001",
+  "evidence_root": "E:/GITHUB/MultiLobeSpec/.codex-build/FogMS_Continuous_20260922",
+  "world": "/Game/FogMS_Test/FogMS_Box.FogMS_Box",
+  "box_label": "FogMS - Live Box",
+  "exposure_label": "FogMS - Fixed Exposure",
+  "distance_cm": 20000.0,
+  "leg_frames": 180,
+  "warmup_frames": 60,
+  "captures_per_leg": 16,
+  "timeout_seconds": 240,
+  "worker_timeout_seconds": 20,
+  "capture_timeout_seconds": 20
+}

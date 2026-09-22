@@ -1,0 +1,14 @@
+{
+  "action": "run",
+  "id": "motion-b3-regression-001",
+  "output_root": "E:/GITHUB/MultiLobeSpec/.codex-build/FogMS_Motion_20260921",
+  "iterations": 24,
+  "warmup_frames": 16,
+  "wait_frames": 4,
+  "dump_timeout_seconds": 60,
+  "max_duration_seconds": 900,
+  "wall_actor_label": "FogMS - Pillar 1",
+  "wall_thickness_cm": 5,
+  "grid": 32,
+  "baseline_reference": null
+}

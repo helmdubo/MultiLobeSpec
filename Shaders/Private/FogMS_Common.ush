@@ -34,6 +34,16 @@ float4 FogMS_BoxRow(uint Row)
 	return Data.Load(int3(Row, 0, 0));
 #endif
 }
+#if !FOGMS_PRODUCER
+// Previous actual game-frame phases share the current packet's resident snapshot.
+// Use only for continuous animation with no Box history reset: the current atlas
+// and all structural density parameters must still describe the previous medium.
+float3 FogMS_BoxPreviousPhase(uint Octave)
+{
+	Texture2D<float4> Data = GetSRVFromHeap(Texture2D<float4>, FOGMS_BOX_DATA_SRV);
+	return Data.Load(int3(13u + Octave, 1, 0)).xyz;
+}
+#endif
 #endif
 
 float FogMS_BoxWeight(float3 TranslatedPosition)

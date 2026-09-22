@@ -1,0 +1,30 @@
+{
+  "scope": "B3Probe adapted from B2 portable capture/restoration and analyzer; new angular reference selected explicitly",
+  "sources": [
+    {
+      "source": "B2Probe/gpu_wall_impl.py",
+      "sha256": "62ca8952c9f71bbdea867711a50b26d1c2ccf4b390d8afe12d8c7d80b4df38a1"
+    },
+    {
+      "source": "B2Probe/analyze_gpu.py",
+      "sha256": "451413db694c01bbe1182021f8dbc0da393fd9efe3475849ad520c75de89990d"
+    },
+    {
+      "source": "B2Probe/gpu_wall_analyze.py",
+      "sha256": "943840a8dded2729777da5f8debd4232859f10fb52d6a3f3dce2deb6e2d21edc"
+    },
+    {
+      "source": "angular_transport_reference.py",
+      "sha256": "6376a5ef86c79f3c4f628d0c2c7d35986e137e59cf78379237e672a0d396f910"
+    }
+  ],
+  "ownership": "Only B3Probe/ files changed for this harness task",
+  "changes": [
+    "48/96 angular mode and quality controls with restoration",
+    "TestAlbedo=-1 RGB fixture and restoration",
+    "nine bounded cases with one existing-cube wall pair",
+    "evidence output root outside source folder",
+    "paired-ordinate FV CPU comparison and packed angular missing-source diagnostics",
+    "synthetic offline checks; no UE runtime run by harness author"
+  ]
+}
