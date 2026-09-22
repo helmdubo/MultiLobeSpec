@@ -11,6 +11,10 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	float Strength = 0.35f;
 	bool bTransport = false;
 	int32 Iterations = 24;
+	/** World-space unit vector toward the atmosphere sun light; zero when there is none.
+	 * B3 transport rotates its angular quadrature so one ordinate points exactly at the sun.
+	 */
+	FVector3f DirectionToSun = FVector3f::ZeroVector;
 	FFogMSWorldRequest() { FMemory::Memzero(BoxRows, sizeof(BoxRows)); }
 };
 

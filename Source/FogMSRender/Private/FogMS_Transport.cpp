@@ -38,6 +38,8 @@ namespace
         TEXT("1 continues the PCG solution from the previous frame's atlas (same Box); 0 restarts from zero every frame."), ECVF_RenderThreadSafe);
     TAutoConsoleVariable<float> CVarTolerance(TEXT("r.FogMS.Transport.Tolerance"), 1.e-14f,
         TEXT("Relative rho threshold (against the cold-start rho) below which remaining PCG matrix passes are skipped."), ECVF_RenderThreadSafe);
+    TAutoConsoleVariable<int32> CVarSunAligned(TEXT("r.FogMS.Transport.SunAligned"), 1,
+        TEXT("B3: 1 rotates the whole angular quadrature each frame so one ordinate points exactly toward the sun (weights and positive pairing unchanged); 0 keeps the Box-axis-aligned set."), ECVF_RenderThreadSafe);
 
 #if RHI_RAYTRACING
     BEGIN_SHADER_PARAMETER_STRUCT(FTransportParameters, )
@@ -217,6 +219,38 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
             Common.Ordinates[Hemisphere * Polar * Azimuth + P * Azimuth + A] = FVector4f(
                 float(Radius * FMath::Cos(Phi)), float(Radius * FMath::Sin(Phi)),
                 float(Hemisphere == 0 ? -Mu : Mu), float(Weight / (2 * Azimuth)));
+        }
+        // Sun-aligned quadrature. Ballistic sun flux is the dominant boundary input;
+        // with 16..24 ordinates an axis-aligned set smears it over neighbours. Rotate
+        // the whole set rigidly so the reference ordinate (Hemisphere 1, P 0, A 0;
+        // index Polar*Azimuth) points exactly toward the sun in Box-local axes. A
+        // rigid rotation keeps every weight and the positive pairing: the partner of
+        // index h*PA + P*Az + A is (1-h)*PA + P*Az + ((A + Az/2) % Az) (Az is even),
+        // and R(-d) = -R(d). The sweep takes upwind signs from the ordinate components,
+        // so nothing downstream assumes axis alignment. J is direction independent, so
+        // the warm start remains valid across changing sun directions.
+        if (CVarSunAligned.GetValueOnRenderThread() != 0
+            && !Request.DirectionToSun.ContainsNaN() && Request.DirectionToSun.SizeSquared() > 1.0e-12f)
+        {
+            const FVector Sun(Request.DirectionToSun);
+            const FVector SunLocal = FVector(Sun | FVector(Request.AxisX), Sun | FVector(Request.AxisY), Sun | FVector(Request.AxisZ)).GetSafeNormal();
+            const int32 Reference = Polar * Azimuth;
+            const FVector ReferenceDir = FVector(Common.Ordinates[Reference]).GetSafeNormal();
+            // Antiparallel within 1e-6: the rotation axis is undefined; keep the axis-aligned set.
+            if (!SunLocal.IsZero() && !ReferenceDir.IsZero() && (ReferenceDir | SunLocal) > -1.0 + 1.0e-6)
+            {
+                const FQuat Rotation = FQuat::FindBetweenNormals(ReferenceDir, SunLocal);
+                FVector4f Rotated[UE_ARRAY_COUNT(Common.Ordinates)];
+                bool bFinite = true;
+                for (int32 I = 0; I < Common.AngularCount && bFinite; ++I)
+                {
+                    const FVector Direction = Rotation.RotateVector(FVector(Common.Ordinates[I])).GetSafeNormal();
+                    Rotated[I] = FVector4f(FVector3f(Direction), Common.Ordinates[I].W);
+                    bFinite = !Rotated[I].ContainsNaN() && Direction.SizeSquared() > 0.5;
+                }
+                // Any non-finite result falls back to the unrotated set.
+                if (bFinite) for (int32 I = 0; I < Common.AngularCount; ++I) Common.Ordinates[I] = Rotated[I];
+            }
         }
     }
     Common.TestMode = FMath::Clamp(TestMode.GetValueOnRenderThread(), 0, 2);

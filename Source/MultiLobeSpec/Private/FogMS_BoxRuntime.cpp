@@ -794,6 +794,7 @@ namespace
 				FMemory::Memcpy(WorldRequest.BoxRows, Packet.Rows, sizeof(Packet.Rows));
 				WorldRequest.Strength = Packet.Rows[21].X;
 				WorldRequest.bTransport = bTransport;
+				WorldRequest.DirectionToSun = GPU->DirectionToSun;
 				if (bTransport) WorldRequest.Iterations = static_cast<int32>(Packet.Rows[21].Z);
 				// Strength=0 still produces current primary indirect lighting. World
 				// applies per-order strength in its atlas; the consumer must not repeat it.
