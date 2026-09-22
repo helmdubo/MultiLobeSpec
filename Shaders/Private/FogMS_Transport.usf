@@ -397,8 +397,11 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
 #if FOGMS_ANGULAR_SWEEP
 // A direction owns one group. Every upwind neighbour lies on the previous
 // x+y+z front; shared memory makes ordering explicit without cross-group races.
+#ifndef FOGMS_SWEEP_THREADS
+#define FOGMS_SWEEP_THREADS 256
+#endif
 groupshared float3 AngularFront[2048];
-[numthreads(256,1,1)]
+[numthreads(FOGMS_SWEEP_THREADS,1,1)]
 void AngularSweepCS(uint3 Group:SV_GroupID,uint Thread:SV_GroupIndex)
 {
     const int ActiveSweep=FOGMS_ANGULAR_KIND;
@@ -417,7 +420,7 @@ void AngularSweepCS(uint3 Group:SV_GroupID,uint Thread:SV_GroupIndex)
     LOOP for(uint Front=0;Front<3*Size-2;++Front)
     {
         uint WriteBase=(Front&1)*1024,ReadBase=((Front+1)&1)*1024;
-        LOOP for(uint IJ=Thread;IJ<PlaneCells;IJ+=256)
+        LOOP for(uint IJ=Thread;IJ<PlaneCells;IJ+=FOGMS_SWEEP_THREADS)
         {
             uint X=IJ%Size,Y=IJ/Size;int Z=int(Front)-int(X)-int(Y);
             if(Z>=0&&Z<int(Size))

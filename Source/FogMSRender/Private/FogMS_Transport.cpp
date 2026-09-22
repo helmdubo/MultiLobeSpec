@@ -38,6 +38,8 @@ namespace
         TEXT("1 continues the PCG solution from the previous frame's atlas (same Box); 0 restarts from zero every frame."), ECVF_RenderThreadSafe);
     TAutoConsoleVariable<float> CVarTolerance(TEXT("r.FogMS.Transport.Tolerance"), 1.e-14f,
         TEXT("Relative rho threshold (against the cold-start rho) below which remaining PCG matrix passes are skipped."), ECVF_RenderThreadSafe);
+    TAutoConsoleVariable<int32> CVarSweepThreads(TEXT("r.FogMS.Transport.SweepThreads"), 256,
+        TEXT("B3 ordinate wavefront sweep: threads per direction group (256, 512 or 1024). One group owns one direction, so few directions leave the GPU sparsely occupied; more threads shorten each front's loop. Same result, cost differs."), ECVF_RenderThreadSafe);
     TAutoConsoleVariable<int32> CVarSunAligned(TEXT("r.FogMS.Transport.SunAligned"), 1,
         TEXT("B3: 1 rotates the whole angular quadrature each frame so one ordinate points exactly toward the sun (weights and positive pairing unchanged); 0 keeps the Box-axis-aligned set. Requires the sector-prefiltered sky boundary (default) to be beneficial."), ECVF_RenderThreadSafe);
 
@@ -140,7 +142,8 @@ namespace
     public:
         using FParameters = FTransportParameters;
         class FKind : SHADER_PERMUTATION_INT("FOGMS_ANGULAR_KIND", 3);
-        using FPermutationDomain = TShaderPermutationDomain<FKind>;
+        class FThreads : SHADER_PERMUTATION_SPARSE_INT("FOGMS_SWEEP_THREADS", 256, 512, 1024);
+        using FPermutationDomain = TShaderPermutationDomain<FKind, FThreads>;
         static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& P) { return SupportsTransport(P.Platform); }
         static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& P, FShaderCompilerEnvironment& E)
         {
@@ -324,7 +327,9 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
             Dispatch(Kind == 0 ? 3 : (Kind == 1 ? 11 : 12), TEXT("FogMS B2 six full-line sweeps"), P, 6 * TransportGridSize * TransportGridSize);
         else
         {
+            const int32 SweepThreads = CVarSweepThreads.GetValueOnRenderThread();
             FAngularSweepCS::FPermutationDomain Permutation; Permutation.Set<FAngularSweepCS::FKind>(Kind);
+            Permutation.Set<FAngularSweepCS::FThreads>(SweepThreads >= 1024 ? 1024 : (SweepThreads >= 512 ? 512 : 256));
             TShaderMapRef<FAngularSweepCS> Shader(ShaderMap, Permutation);
             auto* Parameters = GraphBuilder.AllocParameters<FTransportParameters>(); *Parameters = P;
             FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS B3 %d ordinate wavefronts", Common.AngularCount),
