@@ -1,0 +1,12 @@
+"output": "FROZEN\r\n"
+"output": "OVERLAY\r\n"
+== inj_off_overlay | == inj_off_overlay: GPU frame 11.55 ms, 532 events | FogMS transport/world (B2/B3)                    2.35 ms | maxres 0.0971538052
+"output": "INJECTION Active B3 isotropic transport (16 directions; see convergence diagnostics)\r\n"
+== inj_on_material | == inj_on_material: GPU frame 10.76 ms, 534 events | FogMS transport/world (B2/B3)                    2.33 ms | maxres 0.118756086
+"output": "STATUS Active B3 isotropic transport (16 directions; emissive injection via material; see convergence diagnostics) | Active authored density + height fog\r\n"
+--- image comparison (PSNR, injection vs overlay)
+inj_off_overlay             99.00 0.0971538052       2.35    11.55
+inj_on_material             27.47 0.118756086       2.33    10.76
+--- field comparison (should be identical field, same solver)
+inj_on_material vs inj_off_overlay: rel L2 0.0002 | weighted mean rel diff 0.0001 | mean lum ratio 1.0000 | bright-half mean |dJ|/J 0.0001
+"output": "RESTORED\r\n"

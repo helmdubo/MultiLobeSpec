@@ -1,0 +1,30 @@
+== inj_on_material: GPU frame 10.76 ms, 534 events
+  FogMS transport/world (B2/B3)                    2.33 ms
+  FogMS other (shadow/spatial/SSFS/publish)        0.60 ms
+  Native VolumetricFog                             8.09 ms
+  Lumen                                            1.29 ms
+  ShadowDepths/VSM                                 0.29 ms
+  -- top FogMS events:
+       0.650 ms  FogMS B3 16 ordinate wavefronts
+       0.374 ms  FogMS B3 16 ordinate wavefronts
+       0.342 ms  FogMS B3 16 ordinate wavefronts
+       0.259 ms  FogMS_Box.FogMS - Sun
+       0.164 ms  FogMS B2 direct cell average
+       0.123 ms  FogMS SSFS
+       0.081 ms  FogMS_Box.FogMS - Sun
+       0.057 ms  FogMS B2 density average
+       0.051 ms  FogMS B2 publish radiance residual flux
+       0.049 ms  FogMS SSFS Composite 701x473
+       0.041 ms  FogMS B2 initialize PCG
+       0.031 ms  FogMS B2 reciprocal geometry faces
+  -- top 10 events overall:
+      10.748 ms  <root>
+      10.738 ms  Frame 2151
+      10.264 ms  SceneRender - ViewFamilies
+      10.237 ms  RenderGraphExecute - /ViewFamilies
+      10.160 ms  Scene
+       3.455 ms  ComputeVolumetricFog
+       3.453 ms  VolumetricFog
+       2.262 ms  VolumetricFog::RaytraceDirLightShadow
+       2.261 ms  RayTracedShadowedDirectionalLight
+       1.248 ms  VolumetricCloud
