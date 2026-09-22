@@ -38,8 +38,8 @@ namespace
         TEXT("1 continues the PCG solution from the previous frame's atlas (same Box); 0 restarts from zero every frame."), ECVF_RenderThreadSafe);
     TAutoConsoleVariable<float> CVarTolerance(TEXT("r.FogMS.Transport.Tolerance"), 1.e-14f,
         TEXT("Relative rho threshold (against the cold-start rho) below which remaining PCG matrix passes are skipped."), ECVF_RenderThreadSafe);
-    TAutoConsoleVariable<int32> CVarSweepThreads(TEXT("r.FogMS.Transport.SweepThreads"), 256,
-        TEXT("B3 ordinate wavefront sweep: threads per direction group (256, 512 or 1024). One group owns one direction, so few directions leave the GPU sparsely occupied; more threads shorten each front's loop. Same result, cost differs."), ECVF_RenderThreadSafe);
+    TAutoConsoleVariable<int32> CVarSweepThreads(TEXT("r.FogMS.Transport.SweepThreads"), 1024,
+        TEXT("B3 ordinate wavefront sweep: threads per direction group (256, 512 or 1024). One group owns one direction, so few directions leave the GPU sparsely occupied; more threads shorten each front's loop. Same result; measured 16 directions: 256 -> 2.35 ms, 1024 -> 2.20 ms transport."), ECVF_RenderThreadSafe);
     TAutoConsoleVariable<int32> CVarSunAligned(TEXT("r.FogMS.Transport.SunAligned"), 1,
         TEXT("B3: 1 rotates the whole angular quadrature each frame so one ordinate points exactly toward the sun (weights and positive pairing unchanged); 0 keeps the Box-axis-aligned set. Requires the sector-prefiltered sky boundary (default) to be beneficial."), ECVF_RenderThreadSafe);
 
