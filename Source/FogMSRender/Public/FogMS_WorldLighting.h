@@ -15,6 +15,11 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	 * B3 transport rotates its angular quadrature so one ordinate points exactly at the sun.
 	 */
 	FVector3f DirectionToSun = FVector3f::ZeroVector;
+	/** Render thread only. Transport + Emissive Injection: 32^3 UAV-capable Texture3D (FloatRGBA or
+	 * RGBA32F) that receives total incident J per Box cell (alpha 1), then is left in SRV state for
+	 * the Box Volume material. Null: no field write. An invalid texture fails the request.
+	 */
+	FTextureRHIRef InjectionTexture;
 	FFogMSWorldRequest() { FMemory::Memzero(BoxRows, sizeof(BoxRows)); }
 };
 

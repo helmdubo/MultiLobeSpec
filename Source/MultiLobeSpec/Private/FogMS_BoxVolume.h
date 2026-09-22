@@ -9,6 +9,7 @@ class UArrowComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UStaticMeshComponent;
+class UTextureRenderTargetVolume;
 class UVolumeTexture;
 class FTextureResource;
 
@@ -92,6 +93,7 @@ public:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void PostLoad() override;
 	virtual void Tick(float DeltaSeconds) override;
+	virtual void Destroyed() override;
 	virtual bool ShouldTickIfViewportsOnly() const override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
@@ -135,6 +137,21 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Positive paired angular quadrature for B3. 16 and 24 are production budgets (best with warm start), 48 balanced, 96 reference. Fewer directions smear light across the axes; more directions cost linearly."))
 	EFogMSAngularQuality AngularQuality = EFogMSAngularQuality::Balanced48;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Experimental: deliver the transport field to the native volumetric fog through this Box's Volume material (Emissive = sigma_s * J) instead of the bindless overlay. Native voxelization then owns density, jitter and history for this Box; the overlay skips its density/source injection. Requires the material to read FogMS_TransportField / FogMS_InjectionMode."))
+	bool bEmissiveInjection = false;
+
+	/** Transport field J for Emissive Injection: 32^3 PF_FloatRGBA, scene-linear, not pre-exposed.
+	 * Texel (x,y,z) is Box-local cell (x,y,z) along the Box rotation axes, cell centres at half texels:
+	 * uvw = (Local + Extent) / (2 * Extent). RGB = total incident radiance J; A = 1 where the current
+	 * frame's field is valid, 0 when cleared (the material then falls back to native albedo lighting). */
+	UPROPERTY(Transient, DuplicateTransient, VisibleAnywhere, AdvancedDisplay, Category="FogMS|Scattering", meta=(ToolTip="Transport field J for Emissive Injection (32^3 FloatRGBA, scene-linear). Texel (x,y,z) = Box-local cell (x,y,z) along the Box axes; uvw = (Local + Extent) / (2 * Extent), cell centres at half texels. Alpha 1 = valid current field, 0 = cleared (fall back to native albedo lighting)."))
+	TObjectPtr<UTextureRenderTargetVolume> TransportField;
+
+	/** Requested: Emissive Injection is enabled on a Transport/AngularTransport Box. */
+	bool UsesEmissiveInjection() const { return bEmissiveInjection && FogMS_IsTransportMode(ScatteringMode); }
+	/** Effective state applied to the MID by the last UpdateDensity (enabled Box, active density, valid field). */
+	bool IsEmissiveInjectionActive() const { return LastDensityState.bActive && LastDensityState.bEmissiveInjection; }
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS|Scattering")
 	FString SpatialStatus = TEXT("Off");
@@ -317,6 +334,8 @@ private:
 	{
 		bool bActive = false;
 		bool bUseNativeDensity = true;
+		bool bEmissiveInjection = false;
+		TWeakObjectPtr<UTextureRenderTargetVolume> InjectionField;
 		TWeakObjectPtr<UVolumeTexture> Texture;
 		const FTextureResource* TextureResource = nullptr;
 		FLinearColor ChannelMask = FLinearColor::Black;
@@ -365,6 +384,11 @@ private:
 	bool bHasMaterialState = false;
 	bool bUpdatingDensity = false;
 	FString LastDensityProblem;
+
+	/** Lazily creates TransportField; returns true when it has a render resource. */
+	bool EnsureTransportField();
+	/** Drops TransportField, clears the MID overrides (re-applied on the next active update); GC releases the resource. */
+	void ReleaseTransportField();
 
 	bool GetDensityMotionVelocities(FVector& Out0, FVector& Out1, FVector& Out2) const;
 	bool EvaluateDirectionalMotion(double Time, const FVector& Velocity0, const FVector& Velocity1,

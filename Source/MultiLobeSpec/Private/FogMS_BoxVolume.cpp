@@ -7,6 +7,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/TextureRenderTargetVolume.h"
 #include "Engine/VolumeTexture.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
@@ -25,6 +26,9 @@ namespace
 	const FGuid FogMS_MotionVersionGuid(0xD9F49C37, 0xBE184764, 0xA270B431, 0x3E0D958A);
 	constexpr int32 FogMS_DirectionalMotionVersion = 1;
 	FCustomVersionRegistration FogMS_MotionVersion(FogMS_MotionVersionGuid, FogMS_DirectionalMotionVersion, TEXT("FogMSDirectionalMotion"));
+	// Must equal the transport grid (TransportGridSize in FogMS_Transport.cpp, WorldSize in
+	// FogMS_WorldLighting.cpp); the producer rejects any other field size.
+	constexpr int32 FogMS_TransportFieldSize = 32;
 
 	bool FogMS_IsFinitePositiveVector(const FVector& Value)
 	{
@@ -224,9 +228,51 @@ void AFogMSBoxVolume::Tick(float DeltaSeconds)
 	UpdateDensity();
 }
 
+void AFogMSBoxVolume::Destroyed()
+{
+	ReleaseTransportField();
+	Super::Destroyed();
+}
+
 bool AFogMSBoxVolume::ShouldTickIfViewportsOnly() const
 {
 	return true;
+}
+
+bool AFogMSBoxVolume::EnsureTransportField()
+{
+	if (!IsValid(TransportField))
+	{
+		UTextureRenderTargetVolume* Field = NewObject<UTextureRenderTargetVolume>(this,
+			MakeUniqueObjectName(this, UTextureRenderTargetVolume::StaticClass(), TEXT("FogMS_TransportField")), RF_Transient);
+		// bSupportsUAV makes CreateResource set bCanCreateUAV, i.e. TexCreate_UAV on the RHI texture.
+		Field->bSupportsUAV = true;
+		Field->bHDR = true;
+		Field->bForceLinearGamma = true;
+		// Alpha 0 marks "no current field": the material falls back to native albedo lighting.
+		Field->ClearColor = FLinearColor::Transparent;
+		Field->Filter = TF_Bilinear;
+		Field->Init(FogMS_TransportFieldSize, FogMS_TransportFieldSize, FogMS_TransportFieldSize, PF_FloatRGBA);
+		Field->UpdateResourceImmediate(true);
+		TransportField = Field;
+		bHasMaterialState = false;
+	}
+	return TransportField->GetResource() != nullptr;
+}
+
+void AFogMSBoxVolume::ReleaseTransportField()
+{
+	if (!TransportField) return;
+	TransportField = nullptr;
+	if (IsValid(DensityMID))
+	{
+		// A null texture value cannot clear an existing MID override. Clear all overrides;
+		// the next active UpdateDensity re-applies every parameter (bHasMaterialState=false).
+		DensityMID->ClearParameterValues();
+	}
+	bHasMaterialState = false;
+	// The UObject is released by GC (UTexture::BeginDestroy fences the resource). The render
+	// thread holds its own FTextureRHIRef until the next Box packet replaces it.
 }
 
 #if WITH_EDITOR
@@ -315,6 +361,7 @@ bool AFogMSBoxVolume::EvaluateDirectionalMotion(double Time, const FVector& Velo
 bool AFogMSBoxVolume::FDensityState::HasSameDensityParameters(const FDensityState& Other) const
 {
 	return bUseNativeDensity == Other.bUseNativeDensity
+		&& bEmissiveInjection == Other.bEmissiveInjection && InjectionField == Other.InjectionField
 		&& Texture == Other.Texture && TextureResource == Other.TextureResource
 		&& ChannelMask == Other.ChannelMask && TileScaleValue == Other.TileScaleValue
 		&& bWorldAligned == Other.bWorldAligned && WorldFrequencies == Other.WorldFrequencies
@@ -362,6 +409,8 @@ void AFogMSBoxVolume::UpdateDensity()
 {
 	if (bUpdatingDensity || HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || IsActorBeingDestroyed()) return;
 	TGuardValue<bool> UpdateGuard(bUpdatingDensity, true);
+	// Mode or switch change away from Emissive Injection: drop the field and its MID binding.
+	if (TransportField && !UsesEmissiveInjection()) ReleaseTransportField();
 	if (WindDirectionComponent) WindDirectionComponent->SetVisibility(DensityMotionMode == EFogMSDensityMotionMode::Directional);
 
 	FDensityState State;
@@ -511,9 +560,15 @@ void AFogMSBoxVolume::UpdateDensity()
 					}
 				}
 				State.bActive = true;
+				// Emissive Injection: native voxelization owns sigma_t and receives sigma_s*J as
+				// emissive; the Box packet marks row 23.w = 5 so the overlay adds neither.
+				// Falls back to the overlay path (MID density 0) if the field has no resource.
+				const bool bInjection = bEnabled && UsesEmissiveInjection() && EnsureTransportField();
 				// Keep authored density valid for the B2 atlas while avoiding duplicate
 				// native voxelization. Leaving Transport restores the authored value.
-				State.bUseNativeDensity = !bEnabled || !FogMS_IsTransportMode(ScatteringMode);
+				State.bUseNativeDensity = !bEnabled || !FogMS_IsTransportMode(ScatteringMode) || bInjection;
+				State.bEmissiveInjection = bInjection;
+				State.InjectionField = bInjection ? TransportField.Get() : nullptr;
 				State.Texture = DensityTexture.Get();
 				State.TextureResource = DensityTexture->GetResource();
 				State.ChannelMask = FLinearColor(0, 0, 0, 0);
@@ -568,6 +623,10 @@ void AFogMSBoxVolume::UpdateDensity()
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_Albedo"), State.Albedo);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldExtent"), State.WorldExtent);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DensityFeather"), State.Feather);
+					// Material contract: Albedo -> lerp(Albedo, 0, Mode*Field.a), Emissive += J*Albedo*Extinction_per_m*Mode*Field.a.
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_InjectionMode"), State.bEmissiveInjection ? 1.0f : 0.0f);
+					if (State.bEmissiveInjection)
+						DensityMID->SetTextureParameterValue(TEXT("FogMS_TransportField"), TransportField);
 					LastMaterialState = State;
 					bHasMaterialState = true;
 				}

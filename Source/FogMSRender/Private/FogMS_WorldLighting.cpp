@@ -29,6 +29,10 @@
 #include "RayTracing/RayTracingScene.h"
 #endif
 
+// Implemented in FogMS_Transport.cpp (transport pass 17). Declared here, not in FogMS_Transport.h,
+// to keep this change within the reviewed file set.
+void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field);
+
 namespace
 {
 	constexpr int32 WorldSize = 32;
@@ -263,6 +267,19 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		Result.Error = TEXT("World lighting requires finite orthonormal bounds, g=0, range (0,2000] cm and strength [0,0.5].");
 		return Result;
 	}
+	if (Request.InjectionTexture.IsValid())
+	{
+		// Fail before the solve: the Box material is the only consumer of an injection request.
+		const FRHITextureDesc& FieldDesc = Request.InjectionTexture->GetDesc();
+		if (!Request.bTransport || FieldDesc.Dimension != ETextureDimension::Texture3D
+			|| FieldDesc.Extent != FIntPoint(WorldSize, WorldSize) || FieldDesc.Depth != WorldSize
+			|| (FieldDesc.Format != PF_FloatRGBA && FieldDesc.Format != PF_A32B32G32R32F)
+			|| !EnumHasAnyFlags(FieldDesc.Flags, TexCreate_UAV))
+		{
+			Result.Error = TEXT("Emissive injection requires Transport and a 32^3 UAV FloatRGBA/RGBA32F volume field.");
+			return Result;
+		}
+	}
 	static const IConsoleVariable* const Culling = IConsoleManager::Get().FindConsoleVariable(TEXT("r.RayTracing.Culling"));
 	static const IConsoleVariable* const LumenAsync = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Lumen.AsyncCompute"));
 	if (!Culling || Culling->GetInt() != 0 || !LumenAsync || LumenAsync->GetInt() != 0)
@@ -332,6 +349,16 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0, Previous);
 		if (!Work) { Result.Error = TEXT("B2 transport graph unavailable."); return Result; }
 		GraphBuilder.QueueTextureExtraction(Work, &State.PreviousAtlas);
+		if (Request.InjectionTexture.IsValid())
+		{
+			// Emissive Injection: slab 0 total J of cell (x,y,z) -> field texel (x,y,z), written in
+			// this graph before native fog voxelization samples it through the Box Volume material.
+			// That material binding is invisible to RDG: leave the field in external SRV access.
+			FRDGTextureRef Field = RegisterExternalTexture(GraphBuilder, Request.InjectionTexture, TEXT("FogMS.TransportField"));
+			GraphBuilder.UseInternalAccessMode(Field);
+			FogMS_PublishTransportField(GraphBuilder, View, Work, Field);
+			GraphBuilder.UseExternalAccessMode(Field, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
+		}
 	}
 	else
 	{
@@ -403,6 +430,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	GraphBuilder.UseExternalAccessMode(Output, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
 	State.LastFrameIndex = View.ViewState->GetFrameIndex();
 	State.LastRequest = Request;
+	State.LastRequest.InjectionTexture.SafeRelease(); // Do not extend the Box field's lifetime.
 	State.LastIndirectEnabled = Common.IndirectEnabled;
 	if (Request.bTransport)
 	{

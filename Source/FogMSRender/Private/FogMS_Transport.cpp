@@ -97,6 +97,7 @@ namespace
         SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<float4>, OutPartial)
         SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<float4>, Scalars)
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutAtlas)
+        SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float4>, OutField)
     END_SHADER_PARAMETER_STRUCT()
 
     bool SupportsTransport(EShaderPlatform Platform)
@@ -122,7 +123,7 @@ namespace
         SHADER_USE_PARAMETER_STRUCT(FTransportCS, FGlobalShader);
     public:
         using FParameters = FTransportParameters;
-        class FPass : SHADER_PERMUTATION_INT("FOGMS_TRANSPORT_PASS", 17);
+        class FPass : SHADER_PERMUTATION_INT("FOGMS_TRANSPORT_PASS", 18);
         using FPermutationDomain = TShaderPermutationDomain<FPass>;
         static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& P)
         {
@@ -383,5 +384,26 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
     return Atlas;
 #else
     return nullptr;
+#endif
+}
+
+// Emissive Injection (pass 17): copy slab 0 (total incident J, scene-linear, not pre-exposed) of
+// the transport atlas into the Box-owned 32^3 volume field. Texel (x,y,z) = cell (x,y,z), alpha 1.
+// The caller registers Field, puts it in internal access before and external SRV access after.
+void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field)
+{
+#if RHI_RAYTRACING
+    if (!Atlas || !Field) return;
+    FTransportParameters Params;
+    FMemory::Memzero(&Params, sizeof(Params));
+    Params.View = View.ViewUniformBuffer;
+    Params.GridSize = TransportGridSize;
+    Params.ReconstructionAtlas = Atlas;
+    Params.OutField = GraphBuilder.CreateUAV(Field);
+    FTransportCS::FPermutationDomain Permutation; Permutation.Set<FTransportCS::FPass>(17);
+    TShaderMapRef<FTransportCS> Shader(GetGlobalShaderMap(View.GetShaderPlatform()), Permutation);
+    auto* P = GraphBuilder.AllocParameters<FTransportParameters>(); *P = Params;
+    FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS transport field publish (emissive injection)"),
+        ERDGPassFlags::Compute, Shader, P, FIntVector(FMath::DivideAndRoundUp(Cells, 64), 1, 1));
 #endif
 }

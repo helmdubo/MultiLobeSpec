@@ -12,6 +12,7 @@
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/ExponentialHeightFog.h"
+#include "Engine/TextureRenderTargetVolume.h"
 #include "DynamicRHI.h"
 #include "Engine/World.h"
 #include "Engine/Scene.h"
@@ -26,11 +27,13 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "RenderGraphBuilder.h"
+#include "RenderGraphUtils.h"
 #include "SceneInterface.h"
 #include "SceneView.h"
 #include "SceneViewExtension.h"
 #include "ShaderPlatformConfig.h"
 #include "ShaderCompiler.h"
+#include "TextureResource.h"
 
 namespace
 {
@@ -64,7 +67,9 @@ namespace
 		// Row 12: world frequencies f0/f1/f2, world-aligned mode.
 		// Rows 13..15: world phases 0/1/2, with surface shadow enabled/strength/steps in W.
 		// Row 21: spatial strength/range/steps/directions; B2 uses 1/diagonal/iterations/6.
-		// Row 22: descriptor/grid/valid/mode. Row 23: density albedo RGB, B2 density marker (4).
+		// Row 22: descriptor/grid/valid/mode. Row 23: density albedo RGB, B2 density marker:
+		// 4 = overlay injects density + source; 5 = Emissive Injection (native Volume MID owns
+		// sigma_t and receives sigma_s*J; every overlay density/source reader requires exactly 4).
 		FVector4f Rows[FogMS_BoxPacketRowCount];
 		FBoxPacket() { FMemory::Memzero(Rows, sizeof(Rows)); }
 	};
@@ -301,6 +306,10 @@ namespace
 		FTextureRHIRef Texture;
 		FShaderResourceViewRHIRef SRV;
 		uint32 DescriptorIndex = MAX_uint32;
+		// Emissive Injection target (Box-owned UTextureRenderTargetVolume RHI texture). Render thread only.
+		FTextureRHIRef InjectionTexture;
+		// True after a graph wrote a current J into InjectionTexture; a non-publishing frame clears it.
+		bool bInjectionFieldWritten = false;
 
 		bool GetAtlasStatus(uint64 AtlasRevision, FString& OutProblem)
 		{
@@ -495,8 +504,10 @@ namespace
 								{
 									// Density injection must survive a lighting-producer fallback:
 									// the native MID is zero while this authored Transport box is enabled.
+									// Emissive Injection (5) instead keeps the native MID density on and
+									// the overlay adds neither density nor source for this Box.
 									const FLinearColor Albedo = Selected->DensityAlbedo;
-									Packet.Rows[23] = FVector4f(Albedo.R, Albedo.G, Albedo.B, 4.0f);
+									Packet.Rows[23] = FVector4f(Albedo.R, Albedo.G, Albedo.B, Selected->IsEmissiveInjectionActive() ? 5.0f : 4.0f);
 								}
 								bAtlasStatusKnown = GPU->GetAtlasStatus(DensityUpload->Revision, DensityProblem);
 							}
@@ -615,7 +626,8 @@ namespace
 						SpatialProblem = TEXT("World requires finite Density Albedo RGB in [0,1].");
 					else
 					{
-						Packet.Rows[23] = FVector4f(Albedo.R, Albedo.G, Albedo.B, bTransport ? 4.0f : 0.0f);
+						Packet.Rows[23] = FVector4f(Albedo.R, Albedo.G, Albedo.B,
+							bTransport ? (Selected->IsEmissiveInjectionActive() ? 5.0f : 4.0f) : 0.0f);
 						// Public additional streaming origin: keep native Lumen cards
 						// around the medium when the real camera leaves it. Preserve
 						// existing origins; native Lumen admits at most one extra origin.
@@ -715,9 +727,25 @@ namespace
 						Selected->SpatialStatus = GPU->SpatialFieldStatus;
 				}
 			}
-			ENQUEUE_RENDER_COMMAND(FogMS_UpdateBox)([Resource = GPU, Snapshot, DensityUpload, DirectionToSun, Revision = Previous.Revision](FRHICommandListImmediate& RHICmdList) mutable
+			// Emissive Injection: hand the Box-owned field to the render thread. The resource is
+			// created and released only through render commands enqueued in game-thread order
+			// (UpdateResource / UTexture::BeginDestroy), so it is alive when this command runs
+			// (same hand-off as NiagaraDataInterfaceRenderTargetVolume). Only its RHI ref is kept.
+			FTextureRenderTargetResource* InjectionResource = nullptr;
+			if (Selected && Selected->IsEmissiveInjectionActive() && IsValid(Selected->TransportField))
+				InjectionResource = Selected->TransportField->GameThread_GetRenderTargetResource();
+			ENQUEUE_RENDER_COMMAND(FogMS_UpdateBox)([Resource = GPU, Snapshot, DensityUpload, DirectionToSun, Revision = Previous.Revision, InjectionResource](FRHICommandListImmediate& RHICmdList) mutable
 			{
 				FBoxPacket& Packet = Snapshot.Packet;
+				{
+					FTextureRHIRef Injection = InjectionResource ? InjectionResource->GetTextureRHI() : FTextureRHIRef();
+					if (Injection.GetReference() != Resource->InjectionTexture.GetReference())
+					{
+						// A new field starts cleared (ClearColor alpha 0); a dropped one is no longer sampled.
+						Resource->InjectionTexture = Injection;
+						Resource->bInjectionFieldWritten = false;
+					}
+				}
 				// Hidden bindless reads have no RDG dependency. Fence prior async readers
 				// before overwriting the packet or retiring an atlas, including manual CVar changes.
 				RHICmdList.Transition(TArrayView<const FRHITransitionInfo>(), ERHIPipeline::AsyncCompute, ERHIPipeline::Graphics);
@@ -774,8 +802,14 @@ namespace
 			Packet.Rows[22] = FVector4f(0, 0, 0, 0);
 			const bool bTransport = FogMS_IsTransportMode(static_cast<EFogMSScatteringMode>(Packet.Rows[5].Y));
 			const bool bWorldLighting = FogMS_UsesWorldProducer(Packet.Rows[5].Y);
+			// Row 23.w == 5: the Box Volume MID reads J from InjectionTexture; the overlay reads nothing.
+			const bool bInjection = bTransport && Packet.Rows[23].W == 5.0f && GPU->InjectionTexture.IsValid();
 			if (!bWorldLighting || Packet.Rows[0].W < 0.5f) FogMS_InvalidateWorldLighting_RenderThread();
-			if (Packet.Rows[0].W < 0.5f || (!bWorldLighting && (Packet.Rows[5].Y != 2 || Packet.Rows[21].X <= 0))) return;
+			if (Packet.Rows[0].W < 0.5f || (!bWorldLighting && (Packet.Rows[5].Y != 2 || Packet.Rows[21].X <= 0)))
+			{
+				ClearInjectionField(GraphBuilder);
+				return;
+			}
 			FFogMSSpatialRequest Request;
 			Request.CenterWS = FVector(Packet.Rows[0]) + FVector(Packet.Rows[1]);
 			Request.AxisX = FVector3f(Packet.Rows[2]); Request.AxisY = FVector3f(Packet.Rows[3]); Request.AxisZ = FVector3f(Packet.Rows[4]);
@@ -796,6 +830,7 @@ namespace
 				WorldRequest.bTransport = bTransport;
 				WorldRequest.DirectionToSun = GPU->DirectionToSun;
 				if (bTransport) WorldRequest.Iterations = static_cast<int32>(Packet.Rows[21].Z);
+				if (bInjection) WorldRequest.InjectionTexture = GPU->InjectionTexture;
 				// Strength=0 still produces current primary indirect lighting. World
 				// applies per-order strength in its atlas; the consumer must not repeat it.
 				Result = FogMS_BuildWorldLighting(GraphBuilder, View, WorldRequest);
@@ -815,12 +850,16 @@ namespace
 					bTransport ? 4.0f : (bWorldLighting ? 3.0f : 0.0f));
 			else if (bWorldLighting)
 				Packet.Rows[5].Y = 0; // No replacement GI may consume an invalid World atlas.
+			// The producer wrote the field in this graph only for a published injection request.
+			if (bInjection && bPublished) GPU->bInjectionFieldWritten = true;
+			else ClearInjectionField(GraphBuilder);
 			{
 				FScopeLock Lock(&GPU->FieldStatusMutex);
 				GPU->FieldStatusRevision = GPU->Revision;
 				if (bPublished)
 					GPU->SpatialFieldStatus = bTransport
-						? FString::Printf(TEXT("Active %s isotropic transport (%d directions; see convergence diagnostics)"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions)
+						? FString::Printf(TEXT("Active %s isotropic transport (%d directions%s; see convergence diagnostics)"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
+							bInjection ? TEXT("; emissive injection via material") : TEXT(""))
 						: (bWorldLighting
 							? (Packet.Rows[21].X > 0 ? TEXT("Active World primary + three current-frame scattering orders (no fog history)")
 								: TEXT("Active World primary (Strength=0: extra orders disabled; no fog history)"))
@@ -828,7 +867,9 @@ namespace
 				else
 				{
 					const FString Reason = Result.Error.IsEmpty() ? TEXT("Invalid output atlas or descriptor.") : Result.Error;
-					GPU->SpatialFieldStatus = bTransport ? TEXT("Transport unavailable; native lighting with authored density: ") + Reason
+					GPU->SpatialFieldStatus = bTransport ? (bInjection
+							? TEXT("Transport unavailable; native lighting with authored density (emissive injection field cleared): ")
+							: TEXT("Transport unavailable; native lighting with authored density: ")) + Reason
 						: (bWorldLighting ? TEXT("World unavailable; native lighting: ") + Reason : Reason);
 				}
 			}
@@ -880,7 +921,9 @@ namespace
 			const FPostProcessingInputs& Inputs) override
 		{
 			const FBoxPacket& Packet = GPU->RenderSnapshot.Packet;
-			if (Packet.Rows[0].W > .5f && Packet.Rows[23].W == 4.f
+			// Screen scattering is a post filter, not density/source injection: keep it for both
+			// Transport deliveries (4 overlay, 5 emissive injection) with a published field.
+			if (Packet.Rows[0].W > .5f && (Packet.Rows[23].W == 4.f || Packet.Rows[23].W == 5.f)
 				&& Packet.Rows[22].Z >= .5f && Packet.Rows[22].W == 4.f
 				&& !View.bIsSceneCapture && !View.bIsReflectionCapture && !View.bIsPlanarReflection
 				&& View.Family && View.Family->Views.Num() == 1)
@@ -889,6 +932,21 @@ namespace
 			}
 		}
 	private:
+		void ClearInjectionField(FRDGBuilder& GraphBuilder)
+		{
+			// Fail closed: a frame that does not publish J must not leave the previous J lit.
+			// Alpha 0 makes the material fall back to native albedo lighting, matching the
+			// overlay's Transport fallback (authored density, native lighting).
+			FRHITexture* Texture = GPU->InjectionTexture.GetReference();
+			if (!Texture || !GPU->bInjectionFieldWritten || !EnumHasAnyFlags(Texture->GetDesc().Flags, TexCreate_UAV)) return;
+			FRDGTextureRef Field = RegisterExternalTexture(GraphBuilder, Texture, TEXT("FogMS.TransportField"));
+			GraphBuilder.UseInternalAccessMode(Field);
+			AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(Field), FLinearColor::Transparent);
+			// The Volume material binding is invisible to RDG; hand the field back as SRV.
+			GraphBuilder.UseExternalAccessMode(Field, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
+			GPU->bInjectionFieldWritten = false;
+		}
+
 		void PublishFields(FRDGBuilder& GraphBuilder, const FBoxRenderSnapshot& Snapshot) const
 		{
 			// Consumers use a stable resident descriptor. Each publication follows its

@@ -61,6 +61,8 @@ RWStructuredBuffer<float4> OutPrimary;
 RWStructuredBuffer<float4> OutPartial;
 RWStructuredBuffer<float4> Scalars;
 RWTexture2D<float4> OutAtlas;
+// Pass 17 (Emissive Injection) output: Box-owned UTextureRenderTargetVolume, GridSize^3.
+RWTexture3D<float4> OutField;
 
 uint Count() { return uint(GridSize*GridSize*GridSize); }
 uint Flat(uint3 C) { return C.x+uint(GridSize)*(C.y+uint(GridSize)*C.z); }
@@ -376,6 +378,19 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
     OutAtlas[XY+uint2(0,2*Stride)]=S;
     float Volume=CellSize.x*CellSize.y*CellSize.z;
     OutAtlas[XY+uint2(0,3*Stride)]=float4(Power,4.f*PI*Volume*Luminance((S.a-S.rgb)*Diffuse),4.f*PI*Volume*Luminance(S.rgb*Direct));
+#elif FOGMS_TRANSPORT_PASS == 17
+    // Emissive Injection: publish slab 0 (total incident J; scene-linear, not pre-exposed,
+    // no sigma_s) of the published atlas (bound as ReconstructionAtlas) to a GridSize^3 volume.
+    // Mapping: Cell(I) = (I%N, (I/N)%N, I/(N*N)) is Box-local cell C along the Box axes, and
+    // field texel C == atlas texel (C.x, C.y + C.z*N). Cell centres sit at half texels, so the
+    // material samples uvw = (Local + Extent) / (2*Extent) with Local in Box-axis centimetres
+    // (CellPosition(C): Local = (C + .5)*CellSize - Extent). Alpha 1 marks a valid current
+    // field; a cleared field (alpha 0) tells the material to fall back to native albedo lighting.
+    if(I>=N) return;
+    uint3 C=Cell(I);
+    float3 J=max(ReconstructionAtlas.Load(int3(C.x,C.y+C.z*GridSize,0)).rgb,0.f);
+    if(!all(isfinite(J))) J=0;
+    OutField[C]=float4(J,1);
 #endif
 }
 
