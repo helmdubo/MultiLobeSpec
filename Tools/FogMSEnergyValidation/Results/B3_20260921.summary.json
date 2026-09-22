@@ -1,0 +1,983 @@
+{
+  "schema": "fogms_b3_delivery_summary_v1",
+  "date": "2026-09-21",
+  "branch": "codex/fogms-b2",
+  "published": false,
+  "package": 5,
+  "engine": "UE5.8.2 CL56702186 D3D12/SM6",
+  "evidence_root": "E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_B3_20260921",
+  "evidence_sha256": {
+    "gpu_b3-b3-numeric-002-analysis.json": "9c5bc47cc7fadd9efcbd01de8d62acb7015e921ef3b9aed2ffc74f0badf67f56",
+    "scene-01/analysis.json": "856a301c5d25726769994a9447357825b2110522c72233fddc9fbdfdabe5136c",
+    "animation/animation-002/analysis.json": "e6c17ecc06e4b7419bba218629caad363ac743a8c9f90aec06f3d7ce2ee064fe",
+    "profile-summary-optimized.json": "2d2f5c5b96aabb9598b6e9f34427317b5260d50d7f82367d9ed5b1ac79ff5ffd",
+    "terminal-skip-equivalence.json": "94c908d61e79297dd95d5e531adba65f1f3aa2214d9646c2bd04161859a9718e",
+    "delivery-verification.json": "0c2fda620093eb162a4ab9dba8d88874ec60ed48a90ea024e05ca120d6f544f4",
+    "field-ready.json": "d793a6856f6a12eb06049a070608fbf4ebe0ae38f8aafac50543a454f5987a80",
+    "soak-02/receipt.json": "aa9f5b8a7b2a35958fffef965cf143d74fe74ec051e1d312ab91ab162f9e0638"
+  },
+  "numerical": {
+    "status": "PASS",
+    "count": 9,
+    "max_radiance_rms": 6.3602622441598094e-06,
+    "max_abs_relative_flux_defect": 2.686921268771238e-06,
+    "cases": [
+      {
+        "name": "furnace48-tau4",
+        "status": "PASS",
+        "radiance": {
+          "relative_rms": 8.859504902595282e-07,
+          "max_absolute": 1.3113021850585938e-06,
+          "max_relative_to_reference_peak": 1.3113021850585938e-06,
+          "max_cell_relative": 1.3113021850585938e-06,
+          "actual_min": 0.9999986886978149,
+          "actual_max": 0.9999996423721313,
+          "reference_peak": 1.0
+        },
+        "residual": 8.815654268801154e-07,
+        "relative_flux_defect": -8.067156827688206e-07
+      },
+      {
+        "name": "furnace96-tau16",
+        "status": "PASS",
+        "radiance": {
+          "relative_rms": 6.3602622441598094e-06,
+          "max_absolute": 1.8358230590820312e-05,
+          "max_relative_to_reference_peak": 1.8358230590820312e-05,
+          "max_cell_relative": 1.8358230590820312e-05,
+          "actual_min": 0.9999997615814209,
+          "actual_max": 1.0000183582305908,
+          "reference_peak": 1.0
+        },
+        "residual": 5.068967311672168e-06,
+        "relative_flux_defect": 2.686921268771238e-06
+      },
+      {
+        "name": "uniform48-tau4",
+        "status": "PASS",
+        "radiance": {
+          "relative_rms": 8.808852087199506e-07,
+          "max_absolute": 1.1148703309427077e-06,
+          "max_relative_to_reference_peak": 1.1912348744230796e-06,
+          "max_cell_relative": 1.936013629822175e-06,
+          "actual_min": 0.54893559217453,
+          "actual_max": 0.9358944296836853,
+          "reference_peak": 0.9358946374724333
+        },
+        "residual": 5.986250926071079e-07,
+        "relative_flux_defect": -8.780030903408315e-07
+      },
+      {
+        "name": "vacuum48",
+        "status": "PASS",
+        "radiance": {
+          "relative_rms": 4.1723251342773443e-07,
+          "max_absolute": 4.172325134277344e-07,
+          "max_relative_to_reference_peak": 4.172325134277344e-07,
+          "max_cell_relative": 4.172325134277344e-07,
+          "actual_min": 0.9999995827674866,
+          "actual_max": 0.9999995827674866,
+          "reference_peak": 1.0
+        },
+        "residual": 0.0,
+        "relative_flux_defect": -4.8484476421974e-08
+      },
+      {
+        "name": "gap48-tau4",
+        "status": "PASS",
+        "radiance": {
+          "relative_rms": 6.551632652009013e-07,
+          "max_absolute": 3.876695849891476e-07,
+          "max_relative_to_reference_peak": 6.029775139856507e-07,
+          "max_cell_relative": 2.3141397114911675e-06,
+          "actual_min": 0.016980867832899094,
+          "actual_max": 0.6429253816604614,
+          "reference_peak": 0.6429254424873514
+        },
+        "residual": 7.630183063156437e-07,
+        "relative_flux_defect": -7.665836033478432e-07
+      },
+      {
+        "name": "rgb48-tau4",
+        "status": "PASS",
+        "radiance": {
+          "relative_rms": 7.561615461733288e-07,
+          "max_absolute": 1.1148703309427077e-06,
+          "max_relative_to_reference_peak": 1.1912348744230796e-06,
+          "max_cell_relative": 1.936013629822175e-06,
+          "actual_min": 0.08307770639657974,
+          "actual_max": 0.9358944296836853,
+          "reference_peak": 0.9358946374724333
+        },
+        "residual": 5.613177336272202e-07,
+        "relative_flux_defect": -6.26644567869404e-07
+      },
+      {
+        "name": "absorption96-tau4",
+        "status": "PASS",
+        "radiance": {
+          "relative_rms": 1.2661695932867402e-07,
+          "max_absolute": 1.218086824184006e-07,
+          "max_relative_to_reference_peak": 3.2632362662581457e-07,
+          "max_cell_relative": 5.833057234310774e-07,
+          "actual_min": 0.0006381071289069951,
+          "actual_max": 0.3732757568359375,
+          "reference_peak": 0.37327570693517365
+        },
+        "residual": 0.0,
+        "relative_flux_defect": 1.1322855516560836e-07
+      },
+      {
+        "name": "no-wall48-center",
+        "status": "PASS",
+        "radiance": {
+          "relative_rms": 8.657281674651785e-07,
+          "max_absolute": 4.98037256546624e-07,
+          "max_relative_to_reference_peak": 7.356113261433567e-07,
+          "max_cell_relative": 3.5676962171118497e-06,
+          "actual_min": 0.004667310975492001,
+          "actual_max": 0.6770384311676025,
+          "reference_peak": 0.6770385920479506
+        },
+        "residual": 8.146384402607509e-07,
+        "relative_flux_defect": -9.357055306788991e-07
+      },
+      {
+        "name": "wall48-center",
+        "status": "PASS",
+        "radiance": {
+          "relative_rms": 5.888532977759207e-07,
+          "max_absolute": 3.848798920680352e-07,
+          "max_relative_to_reference_peak": 5.768225049825939e-07,
+          "max_cell_relative": 1.838839092227688e-06,
+          "actual_min": 0.0,
+          "actual_max": 0.6672412753105164,
+          "reference_peak": 0.6672414629170011
+        },
+        "residual": 7.366940053543658e-07,
+        "relative_flux_defect": -6.944239912251548e-07
+      }
+    ],
+    "wall": {
+      "status": "PASS",
+      "errors": [],
+      "no_wall_peak": 0.6770384311676025,
+      "no_wall_behind_mean": 0.0613958083644377,
+      "behind_wall_max": 0.0,
+      "relative_leakage": 0.0
+    }
+  },
+  "scene": {
+    "camera": {
+      "full-repeat": {
+        "rms": 0.0002751795349505418,
+        "peak_normalized_max": 0.0008140724734501154,
+        "max_abs": 0.050426483154296875
+      },
+      "full-fov30": {
+        "rms": 0.00026502023712203683,
+        "peak_normalized_max": 0.0010156199193600832,
+        "max_abs": 0.0629110336303711
+      },
+      "full-fov90": {
+        "rms": 0.0002142270161410334,
+        "peak_normalized_max": 0.0005760829830463048,
+        "max_abs": 0.03568458557128906
+      },
+      "full-dolly": {
+        "rms": 0.0002709847516626069,
+        "peak_normalized_max": 0.0007922103259295169,
+        "max_abs": 0.049072265625
+      },
+      "full-return": {
+        "rms": 0.00025392881629056737,
+        "peak_normalized_max": 0.0006969868171866286,
+        "max_abs": 0.043173789978027344
+      },
+      "full-final": {
+        "rms": 0.00019248705823613852,
+        "peak_normalized_max": 0.0005538821261979226,
+        "max_abs": 0.03430938720703125
+      }
+    },
+    "sun_linearity": {
+      "rms": 0.0,
+      "peak_normalized_max": 0.0,
+      "max_abs": 0.0
+    },
+    "point_linearity": {
+      "rms": 0.0,
+      "peak_normalized_max": 0.0,
+      "max_abs": 0.0
+    },
+    "zero_sources_max": 0.0,
+    "iterations64_vs24_with_live_lumen": {
+      "rms": 0.0002689955204688824,
+      "peak_normalized_max": 0.0008343083042894617,
+      "max_abs": 0.051685333251953125
+    },
+    "cases": {
+      "full": {
+        "maxResidual": 1.07524384e-05,
+        "fluxDefect": -3.145766410913368e-07,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-repeat": {
+        "maxResidual": 1.09906687e-05,
+        "fluxDefect": -3.1616969410020363e-07,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-fov30": {
+        "maxResidual": 1.08732884e-05,
+        "fluxDefect": -3.182111077205326e-07,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-fov90": {
+        "maxResidual": 1.10065339e-05,
+        "fluxDefect": -3.11728410770173e-07,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-dolly": {
+        "maxResidual": 1.10847395e-05,
+        "fluxDefect": -3.1613011593846587e-07,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-return": {
+        "maxResidual": 1.07938749e-05,
+        "fluxDefect": -3.152075174668908e-07,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "direct": {
+        "maxResidual": 2.0973599e-05,
+        "fluxDefect": -2.74195052718572e-07,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "direct-double": {
+        "maxResidual": 2.0973599e-05,
+        "fluxDefect": -2.74195052718572e-07,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "direct-zero": {
+        "maxResidual": 0,
+        "fluxDefect": 0,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "point": {
+        "maxResidual": 2.2580185e-05,
+        "fluxDefect": -4.395724544335128e-07,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "point-double": {
+        "maxResidual": 2.2580185e-05,
+        "fluxDefect": -4.395724544335128e-07,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "spot": {
+        "maxResidual": 5.80516207e-05,
+        "fluxDefect": -6.126578486624074e-07,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "spot-double": {
+        "maxResidual": 5.80516207e-05,
+        "fluxDefect": -6.126578486624074e-07,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "full-64": {
+        "maxResidual": 1.08579998e-05,
+        "fluxDefect": -3.0834862502239123e-07,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-final": {
+        "maxResidual": 1.08451814e-05,
+        "fluxDefect": -3.156957912222975e-07,
+        "missingSurfaces": 3028,
+        "min": 0
+      }
+    },
+    "restoration": {
+      "light": true,
+      "sun": true,
+      "mode": true,
+      "angular_quality": true,
+      "iterations": true,
+      "camera": true,
+      "fov": true,
+      "indirect": true,
+      "throttle": true,
+      "autosave": true,
+      "actor_count": true,
+      "/Game/FogMS_Test/FogMS_Box.FogMS_Box:PersistentLevel.PointLight_0.LightComponent0": true
+    },
+    "spot_linearity": {
+      "rms": 0.0,
+      "peak_normalized_max": 0.0,
+      "max_abs": 0.0
+    },
+    "source_peaks": {
+      "direct": 14.919149398803711,
+      "point": 794.9476928710938,
+      "spot": 51.70244216918945
+    },
+    "checks": {
+      "camera_rms_under_1pct": true,
+      "sun_linearity": true,
+      "point_linearity": true,
+      "zero_sources": true,
+      "residual_under_1pct": true,
+      "flux_under_1pct": true,
+      "spot_linearity": true,
+      "sources_nonzero": true
+    },
+    "status": "PASS"
+  },
+  "animation": {
+    "status": "PASS",
+    "checks": [
+      {
+        "name": "probe_completed_and_restored",
+        "passed": true
+      },
+      {
+        "name": "all_cases_present",
+        "passed": true
+      },
+      {
+        "name": "static_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "static_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "static_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "manual-zero_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "manual-zero_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "manual-zero_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "manual-shift_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "manual-shift_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "manual-shift_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "translated-tracking_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "translated-tracking_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "translated-tracking_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "resized-world-lock_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "resized-world-lock_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "resized-world-lock_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "detail-evolution_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "detail-evolution_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "detail-evolution_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "live-a_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "live-a_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "live-a_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "live-b_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "live-b_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "live-b_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "freeze_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "freeze_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "freeze_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "frozen-later_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "frozen-later_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "frozen-later_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "resume_animation_marker",
+        "passed": true
+      },
+      {
+        "name": "resume_settled_history_reset",
+        "passed": true
+      },
+      {
+        "name": "resume_no_continuous_global_revision",
+        "passed": true
+      },
+      {
+        "name": "cpu_phases_match_mid",
+        "passed": true,
+        "max_wrapped_error": 0.0
+      },
+      {
+        "name": "frozen_mid_matches_producer_packet",
+        "passed": true,
+        "max_wrapped_error": 4.963989219675113e-10
+      },
+      {
+        "name": "density_nontrivial",
+        "passed": true,
+        "peak": 0.0060000005178153515,
+        "std": 0.001654760853154351
+      },
+      {
+        "name": "disabled_vs_manual_zero",
+        "passed": true,
+        "relative_rms": 0.0,
+        "tolerance": 1e-07
+      },
+      {
+        "name": "positive_wind_follows_translated_box",
+        "passed": true,
+        "relative_rms": 0.0,
+        "tolerance": 3e-05
+      },
+      {
+        "name": "frozen_coefficients_stable",
+        "passed": true,
+        "relative_rms": 0.0,
+        "tolerance": 1e-07
+      },
+      {
+        "name": "manual_time_moves_density",
+        "passed": true,
+        "relative_rms": 1.1393077395320312
+      },
+      {
+        "name": "live_time_moves_density",
+        "passed": true,
+        "relative_rms": 0.40711324589659775
+      },
+      {
+        "name": "resume_moves_density",
+        "passed": true,
+        "relative_rms": 0.1671045676210241
+      },
+      {
+        "name": "resize_does_not_stretch_or_carry_world_mapping",
+        "passed": true,
+        "max_phase_error": 0.0
+      },
+      {
+        "name": "live_revision_stable_across_frames",
+        "passed": true
+      },
+      {
+        "name": "live_clock_advances",
+        "passed": true
+      },
+      {
+        "name": "live_producer_phase_advances",
+        "passed": true,
+        "max_wrapped_delta": 0.019687057000000063
+      },
+      {
+        "name": "freeze_same_call_phase_continuity",
+        "passed": true,
+        "max_wrapped_error": 0.0
+      },
+      {
+        "name": "resume_same_call_phase_continuity",
+        "passed": true,
+        "max_wrapped_error": 0.0
+      },
+      {
+        "name": "freeze_status_and_clock",
+        "passed": true
+      },
+      {
+        "name": "resume_status",
+        "passed": true
+      },
+      {
+        "name": "static_to_manual-zero_discontinuity_revision",
+        "passed": true
+      },
+      {
+        "name": "manual-zero_to_manual-shift_discontinuity_revision",
+        "passed": true
+      },
+      {
+        "name": "live-b_to_freeze_discontinuity_revision",
+        "passed": true
+      },
+      {
+        "name": "frozen-later_to_resume_discontinuity_revision",
+        "passed": true
+      },
+      {
+        "name": "relative_detail_evolves_shape",
+        "passed": true,
+        "relative_rms": 0.3826393979853136
+      }
+    ],
+    "limits": [
+      "Rendered motion trails, flicker and local reactive-history quality require separate viewport acceptance.",
+      "Exact live MID/producer time alignment is NOT_RUN: producer metadata does not carry its CPU time snapshot.",
+      "No performance conclusion: synchronous GPU readback deliberately stalls rendering."
+    ]
+  },
+  "performance": {
+    "scope": "Whole Graphics pipeline frame and own solver passes at unchanged global preview settings. Not a stock-UE feature-cost comparison; async overlap is not summed. 3 samples per mode, no readbacks.",
+    "profiles": [
+      {
+        "mode": "<FogMSScatteringMode.TRANSPORT: 4> <FogMSAngularQuality.BALANCED48: 0>",
+        "event": {
+          "label": "profile",
+          "frame": 61,
+          "engine_frame": 1124,
+          "spatial_status": "Active B2 isotropic transport (6 directions; see convergence diagnostics)",
+          "indirect_status": "Not used by Transport; attenuation follows authored density.",
+          "mode": "<FogMSScatteringMode.TRANSPORT: 4>",
+          "quality": "<FogMSAngularQuality.BALANCED48: 0>",
+          "native_mid_density": 0.0,
+          "component_visible": true,
+          "enabled": true,
+          "g": 0.0
+        },
+        "frame_ms": 16.72,
+        "root_ms": 16.718,
+        "solver_ms": 2.202999999999994,
+        "solver_passes": 198,
+        "frame_events": [
+          {
+            "frame": 1125,
+            "ms": 16.707
+          }
+        ]
+      },
+      {
+        "mode": "<FogMSScatteringMode.TRANSPORT: 4> <FogMSAngularQuality.BALANCED48: 0>",
+        "event": {
+          "label": "profile",
+          "frame": 101,
+          "engine_frame": 1164,
+          "spatial_status": "Active B2 isotropic transport (6 directions; see convergence diagnostics)",
+          "indirect_status": "Not used by Transport; attenuation follows authored density.",
+          "mode": "<FogMSScatteringMode.TRANSPORT: 4>",
+          "quality": "<FogMSAngularQuality.BALANCED48: 0>",
+          "native_mid_density": 0.0,
+          "component_visible": true,
+          "enabled": true,
+          "g": 0.0
+        },
+        "frame_ms": 16.59,
+        "root_ms": 16.582,
+        "solver_ms": 2.205999999999995,
+        "solver_passes": 198,
+        "frame_events": [
+          {
+            "frame": 1165,
+            "ms": 16.573
+          }
+        ]
+      },
+      {
+        "mode": "<FogMSScatteringMode.TRANSPORT: 4> <FogMSAngularQuality.BALANCED48: 0>",
+        "event": {
+          "label": "profile",
+          "frame": 141,
+          "engine_frame": 1204,
+          "spatial_status": "Active B2 isotropic transport (6 directions; see convergence diagnostics)",
+          "indirect_status": "Not used by Transport; attenuation follows authored density.",
+          "mode": "<FogMSScatteringMode.TRANSPORT: 4>",
+          "quality": "<FogMSAngularQuality.BALANCED48: 0>",
+          "native_mid_density": 0.0,
+          "component_visible": true,
+          "enabled": true,
+          "g": 0.0
+        },
+        "frame_ms": 16.64,
+        "root_ms": 16.629,
+        "solver_ms": 2.206999999999995,
+        "solver_passes": 198,
+        "frame_events": [
+          {
+            "frame": 1205,
+            "ms": 16.619
+          }
+        ]
+      },
+      {
+        "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5> <FogMSAngularQuality.BALANCED48: 0>",
+        "event": {
+          "label": "profile",
+          "frame": 241,
+          "engine_frame": 1304,
+          "spatial_status": "Active B3 isotropic transport (48 directions; see convergence diagnostics)",
+          "indirect_status": "Not used by Transport; attenuation follows authored density.",
+          "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5>",
+          "quality": "<FogMSAngularQuality.BALANCED48: 0>",
+          "native_mid_density": 0.0,
+          "component_visible": true,
+          "enabled": true,
+          "g": 0.0
+        },
+        "frame_ms": 31.85,
+        "root_ms": 31.846,
+        "solver_ms": 18.18600000000003,
+        "solver_passes": 199,
+        "frame_events": [
+          {
+            "frame": 1305,
+            "ms": 31.837
+          }
+        ]
+      },
+      {
+        "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5> <FogMSAngularQuality.BALANCED48: 0>",
+        "event": {
+          "label": "profile",
+          "frame": 281,
+          "engine_frame": 1344,
+          "spatial_status": "Active B3 isotropic transport (48 directions; see convergence diagnostics)",
+          "indirect_status": "Not used by Transport; attenuation follows authored density.",
+          "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5>",
+          "quality": "<FogMSAngularQuality.BALANCED48: 0>",
+          "native_mid_density": 0.0,
+          "component_visible": true,
+          "enabled": true,
+          "g": 0.0
+        },
+        "frame_ms": 31.81,
+        "root_ms": 31.802,
+        "solver_ms": 18.115000000000027,
+        "solver_passes": 199,
+        "frame_events": [
+          {
+            "frame": 1345,
+            "ms": 31.792
+          }
+        ]
+      },
+      {
+        "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5> <FogMSAngularQuality.BALANCED48: 0>",
+        "event": {
+          "label": "profile",
+          "frame": 321,
+          "engine_frame": 1384,
+          "spatial_status": "Active B3 isotropic transport (48 directions; see convergence diagnostics)",
+          "indirect_status": "Not used by Transport; attenuation follows authored density.",
+          "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5>",
+          "quality": "<FogMSAngularQuality.BALANCED48: 0>",
+          "native_mid_density": 0.0,
+          "component_visible": true,
+          "enabled": true,
+          "g": 0.0
+        },
+        "frame_ms": 32.26,
+        "root_ms": 32.253,
+        "solver_ms": 18.250000000000025,
+        "solver_passes": 199,
+        "frame_events": [
+          {
+            "frame": 1385,
+            "ms": 32.244
+          }
+        ]
+      },
+      {
+        "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5> <FogMSAngularQuality.HIGH96: 1>",
+        "event": {
+          "label": "profile",
+          "frame": 421,
+          "engine_frame": 1484,
+          "spatial_status": "Active B3 isotropic transport (96 directions; see convergence diagnostics)",
+          "indirect_status": "Not used by Transport; attenuation follows authored density.",
+          "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5>",
+          "quality": "<FogMSAngularQuality.HIGH96: 1>",
+          "native_mid_density": 0.0,
+          "component_visible": true,
+          "enabled": true,
+          "g": 0.0
+        },
+        "frame_ms": 43.83,
+        "root_ms": 43.82,
+        "solver_ms": 30.087000000000046,
+        "solver_passes": 199,
+        "frame_events": [
+          {
+            "frame": 1485,
+            "ms": 43.809
+          }
+        ]
+      },
+      {
+        "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5> <FogMSAngularQuality.HIGH96: 1>",
+        "event": {
+          "label": "profile",
+          "frame": 461,
+          "engine_frame": 1524,
+          "spatial_status": "Active B3 isotropic transport (96 directions; see convergence diagnostics)",
+          "indirect_status": "Not used by Transport; attenuation follows authored density.",
+          "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5>",
+          "quality": "<FogMSAngularQuality.HIGH96: 1>",
+          "native_mid_density": 0.0,
+          "component_visible": true,
+          "enabled": true,
+          "g": 0.0
+        },
+        "frame_ms": 43.82,
+        "root_ms": 43.81,
+        "solver_ms": 30.028000000000056,
+        "solver_passes": 199,
+        "frame_events": [
+          {
+            "frame": 1525,
+            "ms": 43.801
+          }
+        ]
+      },
+      {
+        "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5> <FogMSAngularQuality.HIGH96: 1>",
+        "event": {
+          "label": "profile",
+          "frame": 501,
+          "engine_frame": 1564,
+          "spatial_status": "Active B3 isotropic transport (96 directions; see convergence diagnostics)",
+          "indirect_status": "Not used by Transport; attenuation follows authored density.",
+          "mode": "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5>",
+          "quality": "<FogMSAngularQuality.HIGH96: 1>",
+          "native_mid_density": 0.0,
+          "component_visible": true,
+          "enabled": true,
+          "g": 0.0
+        },
+        "frame_ms": 43.78,
+        "root_ms": 43.779,
+        "solver_ms": 29.98800000000005,
+        "solver_passes": 199,
+        "frame_events": [
+          {
+            "frame": 1565,
+            "ms": 43.769
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5> <FogMSAngularQuality.BALANCED48: 0>": {
+        "frame_ms": 31.85,
+        "root_ms": 31.846,
+        "solver_ms": 18.18600000000003,
+        "solver_passes": 199
+      },
+      "<FogMSScatteringMode.ANGULAR_TRANSPORT: 5> <FogMSAngularQuality.HIGH96: 1>": {
+        "frame_ms": 43.82,
+        "root_ms": 43.81,
+        "solver_ms": 30.028000000000056,
+        "solver_passes": 199
+      },
+      "<FogMSScatteringMode.TRANSPORT: 4> <FogMSAngularQuality.BALANCED48: 0>": {
+        "frame_ms": 16.64,
+        "root_ms": 16.629,
+        "solver_ms": 2.205999999999995,
+        "solver_passes": 198
+      }
+    }
+  },
+  "terminal_skip": {
+    "status": "PASS",
+    "cases": [
+      {
+        "name": "furnace48-tau4",
+        "bit_equal": true,
+        "max_abs": 0.0,
+        "radiance_rms": 0.0
+      },
+      {
+        "name": "furnace96-tau16",
+        "bit_equal": false,
+        "max_abs": 0.15625,
+        "radiance_rms": 1.5109645801203442e-07
+      },
+      {
+        "name": "uniform48-tau4",
+        "bit_equal": true,
+        "max_abs": 0.0,
+        "radiance_rms": 0.0
+      },
+      {
+        "name": "vacuum48",
+        "bit_equal": true,
+        "max_abs": 0.0,
+        "radiance_rms": 0.0
+      },
+      {
+        "name": "gap48-tau4",
+        "bit_equal": true,
+        "max_abs": 0.0,
+        "radiance_rms": 0.0
+      },
+      {
+        "name": "rgb48-tau4",
+        "bit_equal": true,
+        "max_abs": 0.0,
+        "radiance_rms": 0.0
+      },
+      {
+        "name": "absorption96-tau4",
+        "bit_equal": true,
+        "max_abs": 0.0,
+        "radiance_rms": 0.0
+      },
+      {
+        "name": "no-wall48-center",
+        "bit_equal": true,
+        "max_abs": 0.0,
+        "radiance_rms": 0.0
+      },
+      {
+        "name": "wall48-center",
+        "bit_equal": true,
+        "max_abs": 0.0,
+        "radiance_rms": 0.0
+      }
+    ]
+  },
+  "delivery": {
+    "status": "PASS",
+    "installed_files_verified": 84,
+    "engine_anchors_verified": 6,
+    "guard_unchanged": true
+  },
+  "field": {
+    "status": "READY_FOR_FIELD",
+    "mode": "B3 Angular",
+    "directions": 48,
+    "iterations": 24,
+    "animate_density": false,
+    "velocity_cm_s": {
+      "wind": [
+        80,
+        0,
+        0
+      ],
+      "detail": [
+        0,
+        12,
+        0
+      ],
+      "evolution": [
+        0,
+        0,
+        5
+      ]
+    },
+    "background_throttle": true,
+    "autosave": true,
+    "saved_existing_map": true,
+    "actor_count": 16,
+    "camera_preserved_current": [
+      [
+        4959.239034862581,
+        -3372.9506035817403,
+        1918.8256305460873
+      ],
+      [
+        -8.200000999999986,
+        144.000072,
+        0.0
+      ]
+    ],
+    "frame": 9953,
+    "note": "Static phase retained for B2/B3 comparison. Enable Animate Density for prepared velocity controls. Background throttling can report inactive realtime view until editor focus returns."
+  },
+  "soak": {
+    "status": "COMPLETED",
+    "frames": 1800,
+    "seconds": 93.42200000000594,
+    "errors": []
+  },
+  "limits": [
+    "g=0 isotropic only; first-order spatial upwind32 cubed",
+    "world-field conservation is not full native-scene physical energy proof",
+    "surface-cache gaps and boundary-cell radiance approximation remain",
+    "owner motion/trail/flicker acceptance pending; exact live producer time alignment not recorded",
+    "B3 more expensive; no performance extrapolation",
+    "no new commit/push/merge"
+  ]
+}

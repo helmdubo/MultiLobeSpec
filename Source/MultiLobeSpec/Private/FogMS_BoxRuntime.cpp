@@ -4,6 +4,7 @@
 #include "FogMS_ShadowCache.h"
 #include "FogMS_Spatial.h"
 #include "FogMS_WorldLighting.h"
+#include "FogMS_ScreenScattering.h"
 #include "MultiLobeSpec.h"
 
 #include "Components/BoxComponent.h"
@@ -35,6 +36,10 @@ namespace
 {
 	TAutoConsoleVariable<int32> FogMS_BoxMode(TEXT("r.FogMS.BoxMode"), 0,
 		TEXT("0 global A1, 1 live Box. Initial change requires FogMS.Apply and D3D12 -BindlessAll. Actor edits then update live."));
+	TAutoConsoleVariable<int32> FogMS_ScreenScatteringSun(TEXT("r.FogMS.ScreenScatteringSun"), 1,
+		TEXT("Include the later procedural SkyAtmosphere sun disk in native fog screen-space scattering. Requires native FSSS; 0 restores UE source ordering."), ECVF_RenderThreadSafe);
+	TAutoConsoleVariable<int32> FogMS_ViewIntegration(TEXT("r.FogMS.ViewIntegration"), 0,
+		TEXT("Transport view reconstruction: 0 previous temporal froxel path; 1 rejected mean-coefficient experiment; 2 coherent froxel segments; 3 Box-anchored ray intervals. Diagnostic, not a transport/lighting quality setting."), ECVF_RenderThreadSafe);
 
 	FAutoConsoleCommand FogMS_DumpSpatialCommand(TEXT("FogMS.DumpSpatial"),
 		TEXT("Read back the last spatial HDR atlas for verification. Usage: FogMS.DumpSpatial absolute_path_prefix"),
@@ -53,17 +58,56 @@ namespace
 	struct FBoxPacket
 	{
 		// Rows 0..4: center high/active, center low/feather, three unit axes/extent.
-		// Row 5: history reset, scattering mode, extra octaves, reserved.
+		// Row 5: history reset, scattering mode, extra octaves, density animation active.
 		// Row 6: contribution, occlusion, eccentricity, authored sun shadow.
 		// Rows 7..10: density atlas and shape; row 11: size Z and three detail controls.
 		// Row 12: world frequencies f0/f1/f2, world-aligned mode.
 		// Rows 13..15: world phases 0/1/2, with surface shadow enabled/strength/steps in W.
-		// Row 21: spatial strength/range/steps/directions; row 22: descriptor/grid/valid/mode.
-		// Row 23: validated authored density albedo RGB, reserved.
+		// Row 21: spatial strength/range/steps/directions; B2 uses 1/diagonal/iterations/6.
+		// Row 22: descriptor/grid/valid/mode. Row 23: density albedo RGB, B2 density marker (4).
 		FVector4f Rows[FogMS_BoxPacketRowCount];
 		FBoxPacket() { FMemory::Memzero(Rows, sizeof(Rows)); }
 	};
 	static_assert(sizeof(FBoxPacket) == 384);
+
+	struct FBoxPhases
+	{
+		FVector3f Values[3];
+		FBoxPhases() { FMemory::Memzero(Values, sizeof(Values)); }
+		explicit FBoxPhases(const FBoxPacket& Packet)
+		{
+			for (uint32 Octave = 0; Octave < 3; ++Octave) Values[Octave] = FVector3f(Packet.Rows[13 + Octave]);
+		}
+	};
+
+	struct FBoxPhaseHistory
+	{
+		uint64 Frame = MAX_uint64;
+		FBoxPhases Current;
+		FBoxPhases Previous;
+
+		bool Advance(uint64 NewFrame, const FBoxPhases& Actual)
+		{
+			const bool bContinuous = Frame == NewFrame || (Frame != MAX_uint64 && NewFrame == Frame + 1);
+			if (Frame != NewFrame)
+			{
+				Previous = bContinuous ? Current : Actual;
+				Frame = NewFrame;
+			}
+			// Multiple families may publish in one game frame. Keep its prior-frame
+			// phase fixed, and retain the final actual phase for the following frame.
+			Current = Actual;
+			return bContinuous;
+		}
+	};
+
+	struct FBoxRenderSnapshot
+	{
+		FBoxPacket Packet;
+		FBoxPhases PreviousPhases;
+		bool bProceduralSunForFSSS = false;
+		int32 ViewIntegrationMode = 0;
+	};
 
 	struct FPreviewSetting { const TCHAR* Name; float Value; bool bRequired = true; };
 	const FPreviewSetting PreviewSettings[] =
@@ -115,6 +159,17 @@ namespace
 	{
 		static const IConsoleVariable* const EnableVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Enable"));
 		return FogMS_BoxMode.GetValueOnGameThread() == 1 && EnableVariable && EnableVariable->GetInt() != 0;
+	}
+
+	bool FogMS_IsWorldScatteringMode(EFogMSScatteringMode Mode)
+	{
+		return Mode == EFogMSScatteringMode::WorldSpace || FogMS_IsTransportMode(Mode);
+	}
+
+	bool FogMS_UsesWorldProducer(float Mode)
+	{
+		return Mode == static_cast<float>(EFogMSScatteringMode::WorldSpace)
+			|| FogMS_IsTransportMode(static_cast<EFogMSScatteringMode>(Mode));
 	}
 
 	FString FogMS_IndirectViewProblem(const FSceneViewFamily& Family, float BoxDiagonal)
@@ -175,6 +230,21 @@ namespace
 	{
 		// The zero-initialized MS rows are canonical for Off, zero contribution and invalid controls.
 		if (Actor.ScatteringMode == EFogMSScatteringMode::Off) return;
+		if (FogMS_IsTransportMode(Actor.ScatteringMode))
+		{
+			const float BoxDiagonal = FVector3f(Packet.Rows[2].W, Packet.Rows[3].W, Packet.Rows[4].W).Size() * 2.0f;
+			if ((Actor.AngularQuality != EFogMSAngularQuality::Balanced48 && Actor.AngularQuality != EFogMSAngularQuality::High96)
+				|| Actor.TransportIterations < 4 || Actor.TransportIterations > 64
+				|| !FMath::IsFinite(BoxDiagonal) || BoxDiagonal <= 0.0f)
+			{
+				OutProblem = TEXT("Transport requires valid Angular Quality, Iterations in [4,64] and a finite positive Box diagonal.");
+				return;
+			}
+			Packet.Rows[5].Y = static_cast<float>(Actor.ScatteringMode);
+			Packet.Rows[21] = FVector4f(1.0f, BoxDiagonal, static_cast<float>(Actor.TransportIterations),
+				Actor.ScatteringMode == EFogMSScatteringMode::Transport ? 6.0f : (Actor.AngularQuality == EFogMSAngularQuality::High96 ? 96.0f : 48.0f));
+			return;
+		}
 		if (Actor.ScatteringMode == EFogMSScatteringMode::SpatialPreview || Actor.ScatteringMode == EFogMSScatteringMode::WorldSpace)
 		{
 			if (!FMath::IsFinite(Actor.SpatialStrength) || Actor.SpatialStrength < 0 || Actor.SpatialStrength > 0.5f
@@ -210,7 +280,8 @@ namespace
 
 	struct FBoxGPUState
 	{
-		FBoxPacket RenderPacket;
+		FBoxRenderSnapshot RenderSnapshot;
+		int32 LastViewIntegrationMode = 0;
 		FVector3f DirectionToSun = FVector3f::ZeroVector;
 		uint64 Revision = 0;
 		uint64 DensityAtlasRevision = 0;
@@ -247,17 +318,28 @@ namespace
 			AtlasStatus.FindOrAdd(AtlasRevision) = Problem;
 		}
 
-		void Upload(FRHICommandListBase& RHICmdList, const FBoxPacket& Packet)
+		void Upload(FRHICommandListBase& RHICmdList, const FBoxRenderSnapshot& Snapshot)
 		{
+			// Row y=0 preserves the producer's 24-float4 ABI. Only phase XYZ is
+			// resident in row y=1; no prior atlas descriptor or resource is retained.
+			FBoxPacket TextureRows[2];
+			TextureRows[0] = Snapshot.Packet;
+			// Previously unused second-row texel. No descriptor, allocation or packet
+			// ABI change; this view flag shares the existing resident publication.
+			TextureRows[1].Rows[0].W = Snapshot.bProceduralSunForFSSS ? 1.0f : 0.0f;
+			TextureRows[1].Rows[0].X = static_cast<float>(Snapshot.ViewIntegrationMode);
+			for (uint32 Octave = 0; Octave < 3; ++Octave)
+				TextureRows[1].Rows[13 + Octave] = FVector4f(Snapshot.PreviousPhases.Values[Octave], 0.0f);
 			// The external resident allocation is stable; UpdateTexture2D restores its SRV state.
-			RHICmdList.UpdateTexture2D(Texture, 0, FUpdateTextureRegion2D(0, 0, 0, 0, FogMS_BoxPacketRowCount, 1),
-				sizeof(Packet), reinterpret_cast<const uint8*>(&Packet));
+			RHICmdList.UpdateTexture2D(Texture, 0, FUpdateTextureRegion2D(0, 0, 0, 0, FogMS_BoxPacketRowCount, 2),
+				sizeof(FBoxPacket), reinterpret_cast<const uint8*>(TextureRows));
 		}
 	};
 
 	struct FWorldPacketState
 	{
 		FBoxPacket Last;
+		FBoxPhaseHistory PhaseHistory;
 		FVector3f LastSunDirection = FVector3f::ZeroVector;
 		uint64 Revision = 1;
 		uint64 LastChangedFrame = 0;
@@ -309,9 +391,9 @@ namespace
 						It->IndirectShadowStatus = It->bIndirectShadowing ? TEXT("Waiting for one valid, visible Box") : TEXT("Off");
 						It->SunShadowStatus = It->bAuthoredSunShadow ? TEXT("Bypassed: requires one valid, visible Box") : TEXT("Off");
 						It->SurfaceShadowStatus = It->bCastSunShadow ? TEXT("Bypassed: requires one valid, visible Box") : TEXT("Off");
-						It->SpatialStatus = (It->ScatteringMode == EFogMSScatteringMode::SpatialPreview || It->ScatteringMode == EFogMSScatteringMode::WorldSpace)
+						It->SpatialStatus = (It->ScatteringMode == EFogMSScatteringMode::SpatialPreview || FogMS_IsWorldScatteringMode(It->ScatteringMode))
 							? TEXT("Waiting for valid visible Box") : TEXT("Off");
-						// Density is independent of the actor's A1 switch.
+						// Authored density stays valid independently; enabled B2 suppresses only native voxelization.
 						It->UpdateDensity();
 						DensityRevisions.Add(*It, It->GetDensityRevision());
 					}
@@ -376,7 +458,7 @@ namespace
 					FString DensityProblem;
 					bool bAtlasStatusKnown = false;
 					if (Selected->bAuthoredSunShadow || Selected->bIndirectShadowing || Selected->bCastSunShadow
-						|| Selected->ScatteringMode == EFogMSScatteringMode::SpatialPreview || Selected->ScatteringMode == EFogMSScatteringMode::WorldSpace)
+						|| Selected->ScatteringMode == EFogMSScatteringMode::SpatialPreview || FogMS_IsWorldScatteringMode(Selected->ScatteringMode))
 					{
 						if (!Selected->IsDensitySourceActive())
 						{
@@ -391,7 +473,9 @@ namespace
 							{
 								// The three shadow paths share the same validated authored density.
 								const FVector Scale = Box->GetComponentScale();
-								Packet.Rows[7] = FVector4f(0, static_cast<float>(FMath::Clamp(Selected->IndirectShadowSteps, 1, 64)), 0, Selected->Density * 0.01f);
+								const float DensityRaySteps = FogMS_IsTransportMode(Selected->ScatteringMode)
+									? 16.0f : static_cast<float>(FMath::Clamp(Selected->IndirectShadowSteps, 1, 64));
+								Packet.Rows[7] = FVector4f(0, DensityRaySteps, 0, Selected->Density * 0.01f);
 								Packet.Rows[8] = FVector4f(FVector3f(Selected->bWorldAlignedTexture ? FVector::OneVector : Selected->TileScale), Selected->Threshold);
 								Packet.Rows[9] = FVector4f(Selected->Softness, Selected->DensityEdgeFeather,
 									Scale.X < 0 ? -1.0f : 1.0f, Scale.Y < 0 ? -1.0f : 1.0f);
@@ -401,9 +485,19 @@ namespace
 									Selected->DetailScale, Selected->DetailSecondOctave);
 								FVector3f Phase0, Phase1, Phase2;
 								Selected->GetDensityWorldMapping(Packet.Rows[12], Phase0, Phase1, Phase2);
+								// Current phases are shared with the MID. The animation marker enables
+								// local density-reactive rejection in the native fog history consumer.
+								Packet.Rows[5].W = Selected->IsDensityAnimationActive() ? 1.0f : 0.0f;
 								Packet.Rows[13] = FVector4f(Phase0, 0.0f);
 								Packet.Rows[14] = FVector4f(Phase1, 0.0f);
 								Packet.Rows[15] = FVector4f(Phase2, 0.0f);
+								if (FogMS_IsTransportMode(Selected->ScatteringMode))
+								{
+									// Density injection must survive a lighting-producer fallback:
+									// the native MID is zero while this authored Transport box is enabled.
+									const FLinearColor Albedo = Selected->DensityAlbedo;
+									Packet.Rows[23] = FVector4f(Albedo.R, Albedo.G, Albedo.B, 4.0f);
+								}
 								bAtlasStatusKnown = GPU->GetAtlasStatus(DensityUpload->Revision, DensityProblem);
 							}
 						}
@@ -458,7 +552,14 @@ namespace
 							Problem += TEXT("FogMS surface sun shadow bypassed: ") + SurfaceProblem;
 						}
 					}
-					if (Selected->bIndirectShadowing)
+					if (FogMS_IsTransportMode(Selected->ScatteringMode))
+					{
+						// B2 attenuation follows authored density, without the A1c artistic blend
+						// or its legacy TLV ray overlay. Preserve the actor's saved controls.
+						Packet.Rows[7].X = 0.0f;
+						Selected->IndirectShadowStatus = TEXT("Not used by Transport; attenuation follows authored density.");
+					}
+					else if (Selected->bIndirectShadowing)
 					{
 						FString IndirectProblem = DensityProblem;
 						if (IndirectProblem.IsEmpty() && (!FMath::IsFinite(Selected->IndirectShadowStrength)
@@ -483,9 +584,10 @@ namespace
 					}
 				}
 			}
-			if (Selected && Count == 1 && (Packet.Rows[5].Y == 2.0f || Packet.Rows[5].Y == 3.0f))
+			if (Selected && Count == 1 && (Packet.Rows[5].Y == 2.0f || FogMS_UsesWorldProducer(Packet.Rows[5].Y)))
 			{
-				const bool bWorldLighting = Packet.Rows[5].Y == 3.0f;
+				const bool bTransport = FogMS_IsTransportMode(static_cast<EFogMSScatteringMode>(Packet.Rows[5].Y));
+				const bool bWorldLighting = FogMS_UsesWorldProducer(Packet.Rows[5].Y);
 				FString SpatialProblem;
 				if (!FogMS_IsLocalOverlayEnabled()) SpatialProblem = TEXT("Use Enable Live Box first.");
 				else if (!DensityUpload.IsValid() || !Selected->IsDensitySourceActive())
@@ -513,7 +615,7 @@ namespace
 						SpatialProblem = TEXT("World requires finite Density Albedo RGB in [0,1].");
 					else
 					{
-						Packet.Rows[23] = FVector4f(Albedo.R, Albedo.G, Albedo.B, 0);
+						Packet.Rows[23] = FVector4f(Albedo.R, Albedo.G, Albedo.B, bTransport ? 4.0f : 0.0f);
 						// Public additional streaming origin: keep native Lumen cards
 						// around the medium when the real camera leaves it. Preserve
 						// existing origins; native Lumen admits at most one extra origin.
@@ -526,10 +628,11 @@ namespace
 					if (bWorldLighting) Packet.Rows[5].Y = 0;
 				}
 				Selected->SpatialStatus = SpatialProblem.IsEmpty()
-					? (bWorldLighting ? TEXT("Waiting for current-frame World primary + three scattering orders")
-						: (Packet.Rows[21].X > 0 ? TEXT("Waiting for current spatial field") : TEXT("Off (Spatial Strength=0)"))) : SpatialProblem;
+					? (bTransport ? TEXT("Waiting for current-frame isotropic transport")
+						: (bWorldLighting ? TEXT("Waiting for current-frame World primary + three scattering orders")
+							: (Packet.Rows[21].X > 0 ? TEXT("Waiting for current spatial field") : TEXT("Off (Spatial Strength=0)")))) : SpatialProblem;
 			}
-			else if (Selected && Count == 1 && Selected->ScatteringMode == EFogMSScatteringMode::WorldSpace && !Problem.IsEmpty())
+			else if (Selected && Count == 1 && FogMS_IsWorldScatteringMode(Selected->ScatteringMode) && !Problem.IsEmpty())
 			{
 				Selected->SpatialStatus = Problem;
 			}
@@ -542,12 +645,23 @@ namespace
 				bDensityChanged |= !OldRevision || *OldRevision != Pair.Value;
 			}
 			Previous.DensityRevisions = MoveTemp(DensityRevisions);
-			// Compare all effective controls before injecting the per-frame reset flag.
-			// Previous.Last also retains zero in row 5.x, so reset itself never changes the revision.
-			if (bDensityChanged || !DirectionToSun.Equals(Previous.LastSunDirection, 1.0e-6f)
-				|| FMemory::Memcmp(Packet.Rows, Previous.Last.Rows, sizeof(Packet.Rows)) != 0)
+			// Only continuous animation phases are absent from the global history key.
+			// DensityRevision still covers authored velocity edits, seeks, mode switches,
+			// bounds changes and backwards time. The actual packet retains all phases:
+			// the MID, sun cache and current-frame lighting must see their current values.
+			FBoxPacket HistoryPacket = Packet;
+			if (HistoryPacket.Rows[5].W > 0.5f)
 			{
-				Previous.Last = Packet;
+				for (int32 Row = 13; Row <= 15; ++Row)
+				{
+					HistoryPacket.Rows[Row].X = HistoryPacket.Rows[Row].Y = HistoryPacket.Rows[Row].Z = 0.0f;
+				}
+			}
+			// Previous.Last retains zero in row 5.x, so reset itself cannot change revision.
+			if (bDensityChanged || !DirectionToSun.Equals(Previous.LastSunDirection, 1.0e-6f)
+				|| FMemory::Memcmp(HistoryPacket.Rows, Previous.Last.Rows, sizeof(Packet.Rows)) != 0)
+			{
+				Previous.Last = HistoryPacket;
 				Previous.LastSunDirection = DirectionToSun;
 				++Previous.Revision;
 				Previous.LastChangedFrame = GFrameCounter;
@@ -570,6 +684,18 @@ namespace
 			}
 			Packet.Rows[5].X = (GFrameCounter <= Previous.LastChangedFrame + 1
 				|| Previous.LastViewResetFrame == GFrameCounter) ? 1.0f : 0.0f;
+			// Unlike Last/HistoryPacket, this state keeps the actual animation phases.
+			// They can reconstruct previous density using the current atlas only for
+			// continuous animation; structural edits already reset native history.
+			const bool bContinuousPhase = Previous.PhaseHistory.Advance(GFrameCounter, FBoxPhases(Packet));
+			if (!bContinuousPhase && Packet.Rows[5].W > 0.5f)
+			{
+				Previous.LastViewResetFrame = GFrameCounter;
+				Packet.Rows[5].X = 1.0f; // No reliable previous phase on first use or after a skipped frame.
+			}
+			FBoxRenderSnapshot Snapshot;
+			Snapshot.Packet = Packet;
+			Snapshot.PreviousPhases = Previous.PhaseHistory.Previous;
 			if (Problem != Previous.LastProblem)
 			{
 				if (!Problem.IsEmpty()) UE_LOG(LogMultiLobeSpec, Warning, TEXT("%s"), *Problem);
@@ -585,12 +711,13 @@ namespace
 				if (GPU->FieldStatusRevision == Previous.Revision)
 				{
 					if (Packet.Rows[16].X > 0) Selected->SurfaceShadowStatus = GPU->ShadowFieldStatus;
-					if (Packet.Rows[5].Y == 3 || (Packet.Rows[5].Y == 2 && Packet.Rows[21].X > 0))
+					if (FogMS_UsesWorldProducer(Packet.Rows[5].Y) || (Packet.Rows[5].Y == 2 && Packet.Rows[21].X > 0))
 						Selected->SpatialStatus = GPU->SpatialFieldStatus;
 				}
 			}
-			ENQUEUE_RENDER_COMMAND(FogMS_UpdateBox)([Resource = GPU, Packet, DensityUpload, DirectionToSun, Revision = Previous.Revision](FRHICommandListImmediate& RHICmdList) mutable
+			ENQUEUE_RENDER_COMMAND(FogMS_UpdateBox)([Resource = GPU, Snapshot, DensityUpload, DirectionToSun, Revision = Previous.Revision](FRHICommandListImmediate& RHICmdList) mutable
 			{
+				FBoxPacket& Packet = Snapshot.Packet;
 				// Hidden bindless reads have no RDG dependency. Fence prior async readers
 				// before overwriting the packet or retiring an atlas, including manual CVar changes.
 				RHICmdList.Transition(TArrayView<const FRHITransitionInfo>(), ERHIPipeline::AsyncCompute, ERHIPipeline::Graphics);
@@ -606,13 +733,15 @@ namespace
 						Packet.Rows[13].W = 0.0f;
 						Packet.Rows[7] = FVector4f(0, 0, 0, 0);
 						Packet.Rows[10].Z = Packet.Rows[10].W = Packet.Rows[11].X = 0;
-						if (Packet.Rows[5].Y == 3)
+						if (FogMS_UsesWorldProducer(Packet.Rows[5].Y))
 						{
+							const bool bTransport = FogMS_IsTransportMode(static_cast<EFogMSScatteringMode>(Packet.Rows[5].Y));
 							Packet.Rows[5].Y = 0;
 							Packet.Rows[22] = FVector4f(0, 0, 0, 0);
 							FScopeLock Lock(&Resource->FieldStatusMutex);
 							Resource->FieldStatusRevision = Revision;
-							Resource->SpatialFieldStatus = TEXT("World unavailable: density atlas GPU upload failed.");
+							Resource->SpatialFieldStatus = bTransport ? TEXT("Transport unavailable: density atlas GPU upload failed.")
+								: TEXT("World unavailable: density atlas GPU upload failed.");
 						}
 						Packet.Rows[5].X = 1; // Never retain stale attenuation after a failed resource update.
 						if (AtlasProblem.IsEmpty()) AtlasProblem = TEXT("Atlas descriptor cannot be represented exactly by the packet.");
@@ -624,9 +753,9 @@ namespace
 						Resource->LastAtlasProblem = AtlasProblem;
 					}
 				}
-				Resource->Upload(RHICmdList, Packet);
-				Resource->RenderPacket = Packet;
-				if (Packet.Rows[5].Y != 3) Resource->bWorldFieldPublished = false;
+				Resource->Upload(RHICmdList, Snapshot);
+				Resource->RenderSnapshot = Snapshot;
+				if (!FogMS_UsesWorldProducer(Packet.Rows[5].Y)) Resource->bWorldFieldPublished = false;
 				Resource->DirectionToSun = DirectionToSun;
 				Resource->Revision = Revision;
 				Resource->DensityAtlasRevision = DensityUpload.IsValid() ? DensityUpload->Revision : 0;
@@ -640,9 +769,11 @@ namespace
 
 		virtual void PostTLASBuild_RenderThread(FRDGBuilder& GraphBuilder, FSceneView& View) override
 		{
-			FBoxPacket& Packet = GPU->RenderPacket;
+			FBoxRenderSnapshot& Snapshot = GPU->RenderSnapshot;
+			FBoxPacket& Packet = Snapshot.Packet;
 			Packet.Rows[22] = FVector4f(0, 0, 0, 0);
-			const bool bWorldLighting = Packet.Rows[5].Y == 3;
+			const bool bTransport = FogMS_IsTransportMode(static_cast<EFogMSScatteringMode>(Packet.Rows[5].Y));
+			const bool bWorldLighting = FogMS_UsesWorldProducer(Packet.Rows[5].Y);
 			if (!bWorldLighting || Packet.Rows[0].W < 0.5f) FogMS_InvalidateWorldLighting_RenderThread();
 			if (Packet.Rows[0].W < 0.5f || (!bWorldLighting && (Packet.Rows[5].Y != 2 || Packet.Rows[21].X <= 0))) return;
 			FFogMSSpatialRequest Request;
@@ -652,7 +783,7 @@ namespace
 			Request.Revision = GPU->Revision;
 			Request.RangeCm = Packet.Rows[21].Y;
 			Request.Steps = 12;
-			Request.Directions = 12;
+			Request.Directions = bTransport ? static_cast<int32>(Packet.Rows[21].W) : 12;
 			Request.ResetHistory = Packet.Rows[5].X > 0.5f;
 			Request.PhaseG = 0;
 			FFogMSSpatialResult Result;
@@ -662,6 +793,8 @@ namespace
 				static_cast<FFogMSSpatialRequest&>(WorldRequest) = Request;
 				FMemory::Memcpy(WorldRequest.BoxRows, Packet.Rows, sizeof(Packet.Rows));
 				WorldRequest.Strength = Packet.Rows[21].X;
+				WorldRequest.bTransport = bTransport;
+				if (bTransport) WorldRequest.Iterations = static_cast<int32>(Packet.Rows[21].Z);
 				// Strength=0 still produces current primary indirect lighting. World
 				// applies per-order strength in its atlas; the consumer must not repeat it.
 				Result = FogMS_BuildWorldLighting(GraphBuilder, View, WorldRequest);
@@ -677,32 +810,44 @@ namespace
 				GPU->bWorldFieldPublished = bPublished;
 			}
 			if (bPublished)
-				Packet.Rows[22] = FVector4f(static_cast<float>(Result.DescriptorIndex), static_cast<float>(Result.GridSize), 1, bWorldLighting ? 3.0f : 0.0f);
+				Packet.Rows[22] = FVector4f(static_cast<float>(Result.DescriptorIndex), static_cast<float>(Result.GridSize), 1,
+					bTransport ? 4.0f : (bWorldLighting ? 3.0f : 0.0f));
 			else if (bWorldLighting)
 				Packet.Rows[5].Y = 0; // No replacement GI may consume an invalid World atlas.
 			{
 				FScopeLock Lock(&GPU->FieldStatusMutex);
 				GPU->FieldStatusRevision = GPU->Revision;
 				if (bPublished)
-					GPU->SpatialFieldStatus = bWorldLighting
-						? (Packet.Rows[21].X > 0 ? TEXT("Active World primary + three current-frame scattering orders (no fog history)")
-							: TEXT("Active World primary (Strength=0: extra orders disabled; no fog history)"))
-						: TEXT("Active experimental spatial transfer (history sources, HWRT visibility)");
+					GPU->SpatialFieldStatus = bTransport
+						? FString::Printf(TEXT("Active %s isotropic transport (%d directions; see convergence diagnostics)"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions)
+						: (bWorldLighting
+							? (Packet.Rows[21].X > 0 ? TEXT("Active World primary + three current-frame scattering orders (no fog history)")
+								: TEXT("Active World primary (Strength=0: extra orders disabled; no fog history)"))
+							: TEXT("Active experimental spatial transfer (history sources, HWRT visibility)"));
 				else
 				{
 					const FString Reason = Result.Error.IsEmpty() ? TEXT("Invalid output atlas or descriptor.") : Result.Error;
-					GPU->SpatialFieldStatus = bWorldLighting ? TEXT("World unavailable; native lighting: ") + Reason : Reason;
+					GPU->SpatialFieldStatus = bTransport ? TEXT("Transport unavailable; native lighting with authored density: ") + Reason
+						: (bWorldLighting ? TEXT("World unavailable; native lighting: ") + Reason : Reason);
 				}
 			}
 			// UE 5.8 calls PostTLAS after the base-pass extension, before deferred
 			// lighting and volumetric fog. Publish the new spatial descriptor here.
-			PublishFields(GraphBuilder, Packet);
+			PublishFields(GraphBuilder, Snapshot);
 		}
 
 		virtual void PostRenderBasePassDeferred_RenderThread(FRDGBuilder& GraphBuilder, FSceneView& View,
 			const FRenderTargetBindingSlots& RenderTargets, TRDGUniformBufferRef<FSceneTextureUniformParameters> SceneTextures) override
 		{
-			FBoxPacket Packet = GPU->RenderPacket;
+			FBoxRenderSnapshot Snapshot = GPU->RenderSnapshot;
+			FBoxPacket& Packet = Snapshot.Packet;
+			Snapshot.bProceduralSunForFSSS = FogMS_ScreenScatteringSun.GetValueOnRenderThread() != 0
+				&& View.Family->EngineShowFlags.Atmosphere && View.Family->EngineShowFlags.DeferredAtmospherePass
+				&& !View.bIsSceneCapture && !View.bIsReflectionCapture && !View.bIsPlanarReflection
+				&& View.Family->Views.Num() == 1;
+			Snapshot.ViewIntegrationMode = FMath::Clamp(FogMS_ViewIntegration.GetValueOnRenderThread(), 0, 3);
+			if (GPU->LastViewIntegrationMode != Snapshot.ViewIntegrationMode) Packet.Rows[5].X = 1;
+			GPU->LastViewIntegrationMode = Snapshot.ViewIntegrationMode;
 			Packet.Rows[20] = FVector4f(0, 0, 0, 0);
 			if (Packet.Rows[0].W > 0.5f && Packet.Rows[16].X > 0 && Packet.Rows[7].W > 0)
 			{
@@ -724,23 +869,36 @@ namespace
 			if (View.bIsSceneCapture || View.bIsReflectionCapture || View.Family->Views.Num() != 1)
 			{
 				Packet.Rows[22] = FVector4f(0, 0, 0, 0);
-				if (Packet.Rows[5].Y == 3) Packet.Rows[5].Y = 0;
+				if (FogMS_UsesWorldProducer(Packet.Rows[5].Y)) Packet.Rows[5].Y = 0;
 			}
 			// Retain shadow metadata for the later PostTLAS spatial publication.
-			GPU->RenderPacket = Packet;
-			PublishFields(GraphBuilder, Packet);
+			GPU->RenderSnapshot = Snapshot;
+			PublishFields(GraphBuilder, Snapshot);
+		}
+		virtual void PrePostProcessPass_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View,
+			const FPostProcessingInputs& Inputs) override
+		{
+			const FBoxPacket& Packet = GPU->RenderSnapshot.Packet;
+			if (Packet.Rows[0].W > .5f && Packet.Rows[23].W == 4.f
+				&& Packet.Rows[22].Z >= .5f && Packet.Rows[22].W == 4.f
+				&& !View.bIsSceneCapture && !View.bIsReflectionCapture && !View.bIsPlanarReflection
+				&& View.Family && View.Family->Views.Num() == 1)
+			{
+				FogMS_AddScreenScattering(GraphBuilder, View, Inputs);
+			}
 		}
 	private:
-		void PublishFields(FRDGBuilder& GraphBuilder, const FBoxPacket& Packet) const
+		void PublishFields(FRDGBuilder& GraphBuilder, const FBoxRenderSnapshot& Snapshot) const
 		{
 			// Consumers use a stable resident descriptor. Each publication follows its
-			// producer's external-SRV transition in the graphics graph.
+			// producer's external-SRV transition in the graphics graph. Capture both
+			// rows together: a later family/world must not replace only the prior phase.
 			GraphBuilder.AddPass(RDG_EVENT_NAME("FogMS PublishFields"), ERDGPassFlags::NeverCull,
-				[Resource = GPU, Packet](FRHICommandList& RHICmdList)
+				[Resource = GPU, Snapshot](FRHICommandList& RHICmdList)
 				{
 					// Bindless readers are invisible to RDG, including forced async passes.
 					RHICmdList.Transition(TArrayView<const FRHITransitionInfo>(), ERHIPipeline::AsyncCompute, ERHIPipeline::Graphics);
-					Resource->Upload(RHICmdList, Packet);
+					Resource->Upload(RHICmdList, Snapshot);
 					RHICmdList.Transition(TArrayView<const FRHITransitionInfo>(), ERHIPipeline::Graphics, ERHIPipeline::AsyncCompute);
 				});
 		}
@@ -783,7 +941,8 @@ bool FFogMSBoxRuntime::Prepare(uint32& OutDescriptorIndex, FString& OutError)
 			D3D12_RESOURCE_DESC Desc{};
 			Desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 			Desc.Width = FogMS_BoxPacketRowCount;
-			Desc.Height = Desc.DepthOrArraySize = Desc.MipLevels = Desc.SampleDesc.Count = 1;
+			Desc.Height = 2;
+			Desc.DepthOrArraySize = Desc.MipLevels = Desc.SampleDesc.Count = 1;
 			Desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
 			Desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 			const HRESULT Result = D3D12->RHIGetDevice(0)->CreateCommittedResource(&Heap, D3D12_HEAP_FLAG_NONE, &Desc,
@@ -798,7 +957,7 @@ bool FFogMSBoxRuntime::Prepare(uint32& OutDescriptorIndex, FString& OutError)
 				ETextureCreateFlags::ShaderResource | ETextureCreateFlags::External, FClearValueBinding::None, Resource->NativeTexture);
 			Resource->SRV = RHICmdList.CreateShaderResourceView(Resource->Texture,
 				FRHIViewDesc::CreateTextureSRV().SetDimensionFromTexture(Resource->Texture));
-			Resource->Upload(RHICmdList, FBoxPacket{});
+			Resource->Upload(RHICmdList, FBoxRenderSnapshot{});
 			const FRHIDescriptorHandle Handle = Resource->SRV->GetBindlessHandle();
 			if (Handle.IsValid()) Resource->DescriptorIndex = Handle.GetIndex();
 #endif

@@ -620,10 +620,14 @@ FString FFogMSShaderPatcher::GetIdentity(const FFogMSConfig& Config)
 {
 	if (!Config.bEnabled) return TEXT("FogMS=0");
 	FString SourceIdentity = TEXT("common:") + MLS_HashFileSHA1(FogMS_ShaderPath(TEXT("FogMS_Common.ush")))
-		+ TEXT("|indirect:") + MLS_HashFileSHA1(FogMS_ShaderPath(TEXT("FogMS_Indirect.ush")));
+		+ TEXT("|indirect:") + MLS_HashFileSHA1(FogMS_ShaderPath(TEXT("FogMS_Indirect.ush")))
+		+ TEXT("|reconstruction:") + MLS_HashFileSHA1(FogMS_ShaderPath(TEXT("FogMS_Reconstruction.ush")))
+		+ TEXT("|screenscattering:") + MLS_HashFileSHA1(FogMS_ShaderPath(TEXT("FogMS_ScreenScattering.ush")));
 	const TCHAR* NativeSources[] = {
 		TEXT("Private/DeferredLightPixelShaders.usf"),
 		TEXT("Private/VolumetricFog.usf"),
+		TEXT("Private/HeightFogPixelShader.usf"),
+		TEXT("Private/SkyAtmosphereCommon.ush"),
 		TEXT("Private/Lumen/LumenTranslucencyVolumeLighting.usf"),
 		TEXT("Private/Lumen/LumenTranslucencyVolumeLightingShared.ush"),
 		TEXT("Private/Lumen/LumenTranslucencyVolumeHardwareRayTracing.usf")
@@ -633,7 +637,7 @@ FString FFogMSShaderPatcher::GetIdentity(const FFogMSConfig& Config)
 		SourceIdentity += FString(TEXT("|")) + NativeSource + TEXT(":")
 			+ MLS_HashFileSHA1(FPaths::EngineDir() / TEXT("Shaders") / NativeSource);
 	}
-	return FString::Printf(TEXT("FogMS=1|a1b=1|a1c=1|a1e=1|fields=1|receiver=2|world=1|boxabi=24|steps=%d|march=%.9g|max=%.9g|exclude=%d|scale=%.9g|debug=%d|box=%d|preview=%d|srv=%u|source=%s"),
+	return FString::Printf(TEXT("FogMS=1|a1b=1|a1c=1|a1e=1|fields=1|receiver=5|world=1|transport=3|boxabi=24|steps=%d|march=%.9g|max=%.9g|exclude=%d|scale=%.9g|debug=%d|box=%d|preview=%d|srv=%u|source=%s"),
 		Config.Steps, Config.MarchDistance, Config.MaxDistance, Config.bExcludeGlobalLayer ? 1 : 0,
 		Config.GlobalExtinctionScale, Config.bDebugViews ? 1 : 0, Config.BoxMode, Config.bIndirectPreview ? 1 : 0, Config.BoxDescriptorIndex, *SourceIdentity);
 }
@@ -668,6 +672,32 @@ bool FFogMSShaderPatcher::PatchOverlay(const FString& OverlayDir, const FFogMSCo
 	Source.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
 	if (Config.BoxMode == 1)
 	{
+		const FString CompositionPath = OverlayDir / TEXT("Private/HeightFogPixelShader.usf");
+		FString CompositionSource;
+		if (!FFileHelper::LoadFileToString(CompositionSource, *CompositionPath))
+		{
+			OutError = TEXT("FogMS: native fog composition overlay shader not found.");
+			return false;
+		}
+		const bool bCompositionCRLF = CompositionSource.Contains(TEXT("\r\n"));
+		CompositionSource.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
+		const TCHAR* CompositionInclude = TEXT("#define RENDER_FOG_COMP_TEXTURE_CS 0\n#endif");
+		const TCHAR* CompositionColor = TEXT("\tconst float3 SceneColorToScatter = FogTransmittanceToScene * SceneColorToScatterAmount * Texture2DSampleLevel(InputSceneColorTexture, InputSceneColorTextureSampler, TexCoordSceneTex, 0).rgb;");
+		if (MLS_CountExactOccurrences(CompositionSource, CompositionInclude) != 1 || MLS_CountExactOccurrences(CompositionSource, CompositionColor) != 1)
+		{
+			OutError = TEXT("FogMS: native screen scattering anchors changed; previous overlay retained.");
+			return false;
+		}
+		CompositionSource.ReplaceInline(CompositionInclude,
+			TEXT("#define RENDER_FOG_COMP_TEXTURE_CS 0\n#endif\n#include \"/Engine/Private/FogMS_ScreenScattering.ush\""), ESearchCase::CaseSensitive);
+		CompositionSource.ReplaceInline(CompositionColor,
+			TEXT("\tconst float3 SceneColorToScatter = FogTransmittanceToScene * SceneColorToScatterAmount * (Texture2DSampleLevel(InputSceneColorTexture, InputSceneColorTextureSampler, TexCoordSceneTex, 0).rgb + FogMS_ScreenScatteringMissingSkyDisk(TexCoordSceneTex, DeviceZ));"), ESearchCase::CaseSensitive);
+		if (bCompositionCRLF) CompositionSource.ReplaceInline(TEXT("\n"), TEXT("\r\n"));
+		if (!FFileHelper::SaveStringToFile(CompositionSource, *CompositionPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+		{
+			OutError = TEXT("FogMS: could not save screen scattering overlay.");
+			return false;
+		}
 		const FString SurfacePath = OverlayDir / TEXT("Private/DeferredLightPixelShaders.usf");
 		FString SurfaceSource;
 		if (!FFileHelper::LoadFileToString(SurfaceSource, *SurfacePath))
@@ -724,8 +754,18 @@ bool FFogMSShaderPatcher::PatchOverlay(const FString& OverlayDir, const FFogMSCo
 		Source.ReplaceInline(Anchor, *Replacement, ESearchCase::CaseSensitive);
 		return true;
 	};
-	if (!ReplaceOne(TEXT("#ifdef LightScatteringCS"),
-		TEXT("#include \"/Engine/Private/FogMS_Indirect.ush\" // FogMS_A1\n\n#ifdef LightScatteringCS"))) return false;
+	// Shared FogMS helpers also compile the legacy camera-grid march. Move the
+	// native declaration ahead of the helpers; it remains the same shader binding.
+	if (!ReplaceOne(TEXT("Texture3D<float4> VBufferA;"), TEXT("// VBufferA declared before FogMS helpers."))) return false;
+	if (!ReplaceOne(TEXT("float4 FrameJitterOffsets[16];"), TEXT("// FrameJitterOffsets declared before FogMS helpers."))) return false;
+	if (!ReplaceOne(TEXT("#ifdef MaterialSetupCS"),
+		TEXT("Texture3D<float4> VBufferA;\nfloat4 FrameJitterOffsets[16];\n#include \"/Engine/Private/FogMS_Indirect.ush\" // FogMS_B2\n")
+		TEXT("#include \"/Engine/Private/FogMS_Reconstruction.ush\"\n\n#ifdef MaterialSetupCS"))) return false;
+	if (!ReplaceOne(TEXT("\t\tRWVBufferA[GridCoordinate] = float4(Scattering, Extinction);"),
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n")
+		TEXT("\t\tfloat4 FogMS_BoxMedium = FogMS_BoxFroxelCoefficients(GridCoordinate);\n")
+		TEXT("\t\tScattering += FogMS_BoxMedium.rgb;\n\t\tExtinction += FogMS_BoxMedium.a;\n#endif\n")
+		TEXT("\t\tRWVBufferA[GridCoordinate] = float4(Scattering, Extinction);"))) return false;
 	if (!ReplaceOne(TEXT("\tuint3 GridCoordinate = DispatchThreadId;\n\tfloat3 LightScattering = 0;\n\tuint NumSuperSamples = 1;"),
 		TEXT("\tuint3 GridCoordinate = DispatchThreadId;\n\tfloat3 LightScattering = 0;\n\tuint NumSuperSamples = 1;\n")
 		TEXT("#if FOGMS_ENABLED\n\tfloat4 FogMS_Tau = 0;\n\tfloat FogMS_Weight = 0;\n\tfloat FogMS_Transmittance = 1;\n\tbool FogMS_HasDirectional = false;\n")
@@ -759,7 +799,21 @@ bool FFogMSShaderPatcher::PatchOverlay(const FString& OverlayDir, const FFogMSCo
 	if (!ReplaceOne(TEXT("\tfloat4 PreExposedScatteringAndExtinction = float4(View.PreExposure * (LightScattering * MaterialScatteringAndExtinction.xyz + MaterialEmissive), Extinction);"),
 		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n\tLightScattering += FogMS_SpatialIncident(ComputeCellTranslatedWorldPosition(GridCoordinate, 0.5f));\n#endif\n")
 		TEXT("\tfloat4 PreExposedScatteringAndExtinction = float4(View.PreExposure * (LightScattering * MaterialScatteringAndExtinction.xyz + MaterialEmissive), Extinction);\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n")
+		TEXT("\tfloat3 FogMS_BoxSigma;\n\tfloat3 FogMS_BoxSource;\n")
+		TEXT("\tfloat FogMS_BoxExtinction;\n\tbool FogMS_BoxFootprint;\n")
+		TEXT("\tFogMS_BoxFroxelSource(GridCoordinate, FogMS_BoxSigma, FogMS_BoxSource, FogMS_BoxExtinction, FogMS_BoxFootprint);\n")
+		TEXT("\tif (any(FogMS_BoxSigma > 0))\n\t{\n")
+		TEXT("\t\t// Respect native VBuffer quantization when removing its Box coefficients.\n")
+		TEXT("\t\tFogMS_BoxSource *= min(FogMS_BoxSigma, MaterialScatteringAndExtinction.xyz) / max(FogMS_BoxSigma, 1.e-20f);\n")
+		TEXT("\t\tFogMS_BoxSigma = min(FogMS_BoxSigma, MaterialScatteringAndExtinction.xyz);\n")
+		TEXT("\t\tPreExposedScatteringAndExtinction.rgb = View.PreExposure * (LightScattering * max(MaterialScatteringAndExtinction.xyz - FogMS_BoxSigma, 0) + FogMS_BoxSource + MaterialEmissive);\n\t}\n#endif\n")
 		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE && USE_TEMPORAL_REPROJECTION\n\tif (FogMS_BoxHistoryChanged()) HistoryAlpha = 0;\n#endif"))) return false;
+	if (!ReplaceOne(TEXT("\t\tPreExposedScatteringAndExtinction = lerp(PreExposedScatteringAndExtinction, PreExposedHistoryScatteringAndExtinction, HistoryAlpha);"),
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n")
+		TEXT("\t\tif (!FogMS_BoxUsesCurrentFrameIntegration() && FogMS_BoxTemporalSupport(GridCoordinate, FogMS_BoxExtinction, FogMS_BoxFootprint))\n\t\t{\n")
+		TEXT("\t\t\tHistoryAlpha *= FogMS_BoxHistoryConfidence(GridCoordinate, PreExposedScatteringAndExtinction, PreExposedHistoryScatteringAndExtinction);\n\t\t}\n#endif\n")
+		TEXT("\t\tPreExposedScatteringAndExtinction = lerp(PreExposedScatteringAndExtinction, PreExposedHistoryScatteringAndExtinction, HistoryAlpha);"))) return false;
 	if (!ReplaceOne(TEXT("\t// Visualize history rejection for debugging purposes"),
 		TEXT("#if FOGMS_ENABLED && FOGMS_DEBUG_VIEWS\n")
 		TEXT("\tif (FogMS_DebugMode() != 0)\n\t{\n")
@@ -772,8 +826,27 @@ bool FFogMSShaderPatcher::PatchOverlay(const FString& OverlayDir, const FFogMSCo
 		TEXT("\t\t\tPreExposedScatteringAndExtinction.rgb = FogMS_AuthoredDensity(ComputeCellTranslatedWorldPosition(GridCoordinate, 0.5f)).xxx;\n")
 		TEXT("#else\n\t\t\tPreExposedScatteringAndExtinction.rgb = 0.0f;\n#endif\n\t\t}\n")
 		TEXT("\t}\n#endif\n\t// Visualize history rejection for debugging purposes"))) return false;
+	if (!ReplaceOne(TEXT("\t\tfloat4 PreExposedScatteringAndExtinction = LightScattering[LayerCoordinate];"),
+		TEXT("\t\tfloat4 PreExposedScatteringAndExtinction = LightScattering[LayerCoordinate];\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n")
+		TEXT("\t\tfloat3 FogMS_FinalSigma, FogMS_FinalSource;\n\t\tfloat FogMS_FinalExtinction;\n\t\tbool FogMS_FinalFootprint;\n")
+		TEXT("\t\tFogMS_BoxFroxelSource(LayerCoordinate, FogMS_FinalSigma, FogMS_FinalSource, FogMS_FinalExtinction, FogMS_FinalFootprint);\n")
+		TEXT("\t\t// Combine media before the common analytic segment integral. Box is never written to UE image history.\n")
+		TEXT("\t\tPreExposedScatteringAndExtinction += float4(View.PreExposure * FogMS_FinalSource, FogMS_FinalExtinction);\n#endif"))) return false;
+	if (!ReplaceOne(TEXT("\tfloat AccumulatedTransmittance = 1.0f;"),
+		TEXT("\tfloat AccumulatedTransmittance = 1.0f;\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n")
+		TEXT("\tfloat3 FogMS_RayLighting[4] = { float3(0,0,0), float3(0,0,0), float3(0,0,0), float3(0,0,0) };\n\tfloat4 FogMS_RayTransmittance = float4(1,1,1,1);\n\tbool FogMS_ColumnHasBox = false;\n")
+		TEXT("\tuint4 FogMS_CachedIndices = uint4(0xffffffffu,0xffffffffu,0xffffffffu,0xffffffffu);\n")
+		TEXT("\tfloat4 FogMS_CachedBoxCoeffs[4] = { float4(0,0,0,0), float4(0,0,0,0), float4(0,0,0,0), float4(0,0,0,0) };\n#endif"))) return false;
+	if (!ReplaceOne(TEXT("\t\tfloat FadeInLerpValue = saturate(AccumulatedDepth * VolumetricFogNearFadeInDistanceInv);"),
+		TEXT("\t\tfloat FadeInLerpValue = saturate(AccumulatedDepth * VolumetricFogNearFadeInDistanceInv);\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n")
+		TEXT("\t\tFogMS_IntegrateCoherentLayer(LayerCoordinate, PreExposedScatteringAndExtinction, StepLength, FadeInLerpValue, FogMS_RayLighting, FogMS_RayTransmittance, FogMS_ColumnHasBox, FogMS_CachedIndices, FogMS_CachedBoxCoeffs);\n#endif"))) return false;
 	if (!ReplaceOne(TEXT("\t\tRWIntegratedLightScattering[LayerCoordinate] = float4(AccumulatedLighting, AccumulatedTransmittance);"),
 		TEXT("\t\tRWIntegratedLightScattering[LayerCoordinate] = float4(AccumulatedLighting, AccumulatedTransmittance);\n")
+		TEXT("#if FOGMS_ENABLED && FOGMS_BOX_MODE\n\t\tif (FogMS_ColumnHasBox)\n")
+		TEXT("\t\t\tRWIntegratedLightScattering[LayerCoordinate] = float4((FogMS_RayLighting[0] + FogMS_RayLighting[1] + FogMS_RayLighting[2] + FogMS_RayLighting[3]) * .25f, dot(FogMS_RayTransmittance, .25f));\n#endif\n")
 		TEXT("#if FOGMS_ENABLED && FOGMS_DEBUG_VIEWS\n\t\tif (FogMS_DebugMode() != 0)\n\t\t{\n")
 		TEXT("\t\t\t// Display the local froxel value, not an accumulated camera-ray integral.\n")
 		TEXT("\t\t\tRWIntegratedLightScattering[LayerCoordinate] = float4(View.PreExposure * FogMS_DisplayDiagnostic(PreExposedScatteringAndExtinction.rgb, FogMS_DebugMode()), 0);\n")
@@ -789,13 +862,19 @@ bool FFogMSShaderPatcher::PatchOverlay(const FString& OverlayDir, const FFogMSCo
 		Config.GlobalExtinctionScale, Config.bDebugViews ? 1 : 0, Config.BoxMode, Config.BoxDescriptorIndex);
 	FString CommonSource;
 	FString IndirectSource;
+	FString ReconstructionSource;
+	FString ScreenScatteringSource;
 	if (!FFileHelper::LoadFileToString(CommonSource, *FogMS_ShaderPath(TEXT("FogMS_Common.ush")))
 		|| !FFileHelper::LoadFileToString(IndirectSource, *FogMS_ShaderPath(TEXT("FogMS_Indirect.ush")))
+		|| !FFileHelper::LoadFileToString(ReconstructionSource, *FogMS_ShaderPath(TEXT("FogMS_Reconstruction.ush")))
+		|| !FFileHelper::LoadFileToString(ScreenScatteringSource, *FogMS_ShaderPath(TEXT("FogMS_ScreenScattering.ush")))
 		|| !FFileHelper::SaveStringToFile(CommonSource, *(OverlayDir / TEXT("Private/FogMS_Common.ush")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)
 		|| !FFileHelper::SaveStringToFile(IndirectSource, *(OverlayDir / TEXT("Private/FogMS_Indirect.ush")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)
+		|| !FFileHelper::SaveStringToFile(ReconstructionSource, *(OverlayDir / TEXT("Private/FogMS_Reconstruction.ush")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)
+		|| !FFileHelper::SaveStringToFile(ScreenScatteringSource, *(OverlayDir / TEXT("Private/FogMS_ScreenScattering.ush")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)
 		|| !FFileHelper::SaveStringToFile(Defines, *(OverlayDir / TEXT("Private/FogMS_Config.ush")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
 	{
-		OutError = TEXT("FogMS: failed to stage common/indirect shader/config. Previous overlay remains active.");
+		OutError = TEXT("FogMS: failed to stage common/indirect/reconstruction shader/config. Previous overlay remains active.");
 		return false;
 	}
 	if (bCRLF) Source.ReplaceInline(TEXT("\n"), TEXT("\r\n"));

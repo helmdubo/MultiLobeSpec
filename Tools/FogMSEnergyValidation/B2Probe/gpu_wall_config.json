@@ -1,0 +1,14 @@
+{
+  "action": "run",
+  "id": "wall-repro-001",
+  "iterations": 24,
+  "grid": 32,
+  "wall_actor_label": "FogMS - Pillar 1",
+  "wall_thickness_cm": 5,
+  "warmup_frames": 24,
+  "wait_frames": 4,
+  "dump_timeout_seconds": 45,
+  "max_duration_seconds": 600,
+  "baseline_reference": null,
+  "reconstruction_test": false
+}

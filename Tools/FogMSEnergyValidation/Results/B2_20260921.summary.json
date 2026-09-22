@@ -1,0 +1,1620 @@
+{
+  "schema": "fogms_b2_audit_summary_v1",
+  "date": "2026-09-21",
+  "scope": "Conservative discrete isotropic reference. Not full physical accuracy of rendered clouds.",
+  "raw_evidence_root": "E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_B2_20260921",
+  "raw_evidence_sha256": {
+    "cpu-reference32.json": "4b01533ba55070e8ca3156963488497dc888e8e48300a95a6b0afeba874bb3b1",
+    "gpu_numerical-numerical-03-analysis.json": "9e9286e1c4bb9248e8fb2e331121717096592a9320fcc4a3b492a72566c631e6",
+    "gpu_wall-wall-02-analysis.json": "3f295be825bd67eceff19a8d80ca6a10fe42475f1c6f87b593ae01e33b7c49b0",
+    "gpu_wall-wall-reconstruction-02-reconstruction-analysis.json": "0423425aef919f10810719a41dde05ad0d4fba7f957db3271e528274fd71226e",
+    "scene-02/analysis.json": "51f736b173d8e9ea8fe6423aa2145a20727c8a96ce6605b4e9df7068ffb1346a",
+    "soak-01/receipt.json": "8bda0bdcd78d80a948dd45db550a713421f665c8e4fb1d89008964cc2b46ad85",
+    "profile-summary.json": "ca9ce2121b22959d6d5291e374f199f5e4afe06b2e0bf42279b94dd68a8107ec",
+    "discretization-refinement.json": "5dc88970c1ea841cd49c6c686bcb5c5ca317bb8b8b4e84c323f5e7e62a2e5850",
+    "delivery7-verification.json": "1444be77cc89b1863e84d33528ed3f1b9228e7ac9d40ec591d6050a36139877b"
+  },
+  "packages": {
+    "numeric": 7,
+    "receiver": 7,
+    "wall_scene_soak_profile": 5
+  },
+  "cpu": {
+    "scope": "CPU six-axis conservative discretization oracle; no GPU/native receiver validation",
+    "verdict": "PASS",
+    "checks": 44,
+    "passed": 44,
+    "metrics": {
+      "reciprocity_relative_defect": [
+        4.8484407817561035e-18,
+        4.992037831356738e-18,
+        1.9689871808104118e-17,
+        2.515526547090734e-18
+      ],
+      "furnace": [
+        {
+          "tau": 0.1,
+          "max_relative_error": 4.058087199609872e-12,
+          "iterations": 3,
+          "converged": true,
+          "linear_relative_residual": [
+            5.12411028882052e-11,
+            5.124113325419312e-11,
+            5.12411028882052e-11
+          ],
+          "equation_relative_residual": [
+            3.926511893388051e-12,
+            3.926868750788821e-12,
+            3.926511893388051e-12
+          ],
+          "min_total": 0.6999999999980258,
+          "max_total": 2.0000000000081153,
+          "energy": {
+            "domain_in": [
+              8042477.19318987,
+              5629734.035232913,
+              16084954.38637974
+            ],
+            "domain_out": [
+              8042477.19318987,
+              5629734.035232909,
+              16084954.38637974
+            ],
+            "wall_in": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "wall_out": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "absorbed_diffuse": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "direct_scattering_source": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "balance_defect": [
+              0.0,
+              -3.725290298461914e-09,
+              0.0
+            ],
+            "relative_balance_defect": [
+              0.0,
+              -6.617169257282314e-16,
+              0.0
+            ],
+            "source_closure_defect": [
+              -1.7711832216450083e-11,
+              9.537140424242352e-12,
+              -3.5423664432900166e-11
+            ]
+          }
+        },
+        {
+          "tau": 1.0,
+          "max_relative_error": 1.195199494929966e-11,
+          "iterations": 7,
+          "converged": true,
+          "linear_relative_residual": [
+            2.106532083582727e-11,
+            2.1065291119883978e-11,
+            2.106532083582727e-11
+          ],
+          "equation_relative_residual": [
+            8.990252986399679e-12,
+            8.990030941794759e-12,
+            8.990252986399679e-12
+          ],
+          "min_total": 0.6999999999949982,
+          "max_total": 2.000000000023904,
+          "energy": {
+            "domain_in": [
+              8042477.19318987,
+              5629734.035232913,
+              16084954.38637974
+            ],
+            "domain_out": [
+              8042477.193189871,
+              5629734.035232912,
+              16084954.386379741
+            ],
+            "wall_in": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "wall_out": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "absorbed_diffuse": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "direct_scattering_source": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "balance_defect": [
+              9.313225746154785e-10,
+              -9.313225746154785e-10,
+              1.862645149230957e-09
+            ],
+            "relative_balance_defect": [
+              1.158004620024406e-16,
+              -1.6542923143205785e-16,
+              1.158004620024406e-16
+            ],
+            "source_closure_defect": [
+              -6.921239050735879e-10,
+              -3.787607197056248e-10,
+              -1.3842478101471757e-09
+            ]
+          }
+        },
+        {
+          "tau": 4.0,
+          "max_relative_error": 6.832312493543213e-12,
+          "iterations": 13,
+          "converged": true,
+          "linear_relative_residual": [
+            4.145409505969143e-11,
+            4.145402011310946e-11,
+            4.145409505969143e-11
+          ],
+          "equation_relative_residual": [
+            4.962141808528234e-12,
+            4.96206250688362e-12,
+            4.962141808528234e-12
+          ],
+          "min_total": 0.6999999999966522,
+          "max_total": 2.0000000000136646,
+          "energy": {
+            "domain_in": [
+              8042477.19318987,
+              5629734.035232913,
+              16084954.38637974
+            ],
+            "domain_out": [
+              8042477.193189872,
+              5629734.035232911,
+              16084954.386379745
+            ],
+            "wall_in": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "wall_out": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "absorbed_diffuse": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "direct_scattering_source": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "balance_defect": [
+              2.7939677238464355e-09,
+              -1.862645149230957e-09,
+              5.587935447692871e-09
+            ],
+            "relative_balance_defect": [
+              3.4740138600732176e-16,
+              -3.308584628641157e-16,
+              3.4740138600732176e-16
+            ],
+            "source_closure_defect": [
+              -9.809630150649277e-10,
+              -1.4169465773160066e-09,
+              -1.9619260301298553e-09
+            ]
+          }
+        },
+        {
+          "tau": 8.0,
+          "max_relative_error": 5.115130541355484e-12,
+          "iterations": 17,
+          "converged": true,
+          "linear_relative_residual": [
+            1.8955779649667813e-11,
+            1.895583284593167e-11,
+            1.8955779649667813e-11
+          ],
+          "equation_relative_residual": [
+            3.014477556450904e-12,
+            3.0145727184244425e-12,
+            3.014477556450904e-12
+          ],
+          "min_total": 0.6999999999964194,
+          "max_total": 2.0000000000075113,
+          "energy": {
+            "domain_in": [
+              8042477.19318987,
+              5629734.035232913,
+              16084954.38637974
+            ],
+            "domain_out": [
+              8042477.193189872,
+              5629734.035232909,
+              16084954.386379745
+            ],
+            "wall_in": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "wall_out": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "absorbed_diffuse": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "direct_scattering_source": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "balance_defect": [
+              2.7939677238464355e-09,
+              -3.725290298461914e-09,
+              5.587935447692871e-09
+            ],
+            "relative_balance_defect": [
+              3.4740138600732176e-16,
+              -6.617169257282314e-16,
+              3.4740138600732176e-16
+            ],
+            "source_closure_defect": [
+              5.493392884363595e-09,
+              1.9837252082424092e-09,
+              1.098678576872719e-08
+            ]
+          }
+        },
+        {
+          "tau": 16.0,
+          "max_relative_error": 2.8110846983508964e-11,
+          "iterations": 19,
+          "converged": true,
+          "linear_relative_residual": [
+            7.419151475688834e-11,
+            7.419147398876799e-11,
+            7.419151475688834e-11
+          ],
+          "equation_relative_residual": [
+            1.1268208588116273e-11,
+            1.1268129286471655e-11,
+            1.1268208588116273e-11
+          ],
+          "min_total": 0.6999999999834692,
+          "max_total": 2.000000000056221,
+          "energy": {
+            "domain_in": [
+              8042477.19318987,
+              5629734.035232913,
+              16084954.38637974
+            ],
+            "domain_out": [
+              8042477.193189865,
+              5629734.035232911,
+              16084954.38637973
+            ],
+            "wall_in": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "wall_out": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "absorbed_diffuse": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "direct_scattering_source": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "balance_defect": [
+              -4.6566128730773926e-09,
+              -1.862645149230957e-09,
+              -9.313225746154785e-09
+            ],
+            "relative_balance_defect": [
+              -5.790023100122029e-16,
+              -3.308584628641157e-16,
+              -5.790023100122029e-16
+            ],
+            "source_closure_defect": [
+              -1.3079506867532369e-09,
+              -3.923852060259711e-09,
+              -2.6159013735064738e-09
+            ]
+          }
+        }
+      ],
+      "budget": {
+        "shape": [
+          32,
+          32,
+          32
+        ],
+        "cold_start": "zero u every solve; no history",
+        "24": {
+          "iterations": 22,
+          "converged": true,
+          "linear_relative_residual": [
+            3.30815352214625e-12,
+            2.8718716449609245e-12,
+            6.108992500964027e-12
+          ],
+          "equation_relative_residual": [
+            3.92065694604683e-13,
+            7.693470665152804e-13,
+            1.9205243146127058e-12
+          ],
+          "min_total": 0.26935924185727056,
+          "max_total": 3.528898223760443,
+          "energy": {
+            "domain_in": [
+              51471854.03641439,
+              102943708.07282878,
+              25735927.018207196
+            ],
+            "domain_out": [
+              162441975.97776842,
+              248225411.0251178,
+              52355851.42037506
+            ],
+            "wall_in": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "wall_out": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "absorbed_diffuse": [
+              0.0,
+              51886623.13845873,
+              43646601.89347734
+            ],
+            "direct_scattering_source": [
+              110970121.94134979,
+              197168326.09074122,
+              70266526.29565185
+            ],
+            "balance_defect": [
+              4.231929779052734e-06,
+              6.556510925292969e-06,
+              -6.645917892456055e-06
+            ],
+            "relative_balance_defect": [
+              2.6051947186557374e-14,
+              2.184687776205427e-14,
+              -6.922654227104674e-14
+            ],
+            "source_closure_defect": [
+              3.5019064874888005e-06,
+              3.1278741457606515e-06,
+              -6.640289199548335e-06
+            ]
+          }
+        },
+        "64": {
+          "iterations": 22,
+          "converged": true,
+          "linear_relative_residual": [
+            3.30815352214625e-12,
+            2.8718716449609245e-12,
+            6.108992500964027e-12
+          ],
+          "equation_relative_residual": [
+            3.92065694604683e-13,
+            7.693470665152804e-13,
+            1.9205243146127058e-12
+          ],
+          "min_total": 0.26935924185727056,
+          "max_total": 3.528898223760443,
+          "energy": {
+            "domain_in": [
+              51471854.03641439,
+              102943708.07282878,
+              25735927.018207196
+            ],
+            "domain_out": [
+              162441975.97776842,
+              248225411.0251178,
+              52355851.42037506
+            ],
+            "wall_in": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "wall_out": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "absorbed_diffuse": [
+              0.0,
+              51886623.13845873,
+              43646601.89347734
+            ],
+            "direct_scattering_source": [
+              110970121.94134979,
+              197168326.09074122,
+              70266526.29565185
+            ],
+            "balance_defect": [
+              4.231929779052734e-06,
+              6.556510925292969e-06,
+              -6.645917892456055e-06
+            ],
+            "relative_balance_defect": [
+              2.6051947186557374e-14,
+              2.184687776205427e-14,
+              -6.922654227104674e-14
+            ],
+            "source_closure_defect": [
+              3.5019064874888005e-06,
+              3.1278741457606515e-06,
+              -6.640289199548335e-06
+            ]
+          }
+        },
+        "one": {
+          "iterations": 1,
+          "converged": false,
+          "linear_relative_residual": [
+            0.4395003053648867,
+            0.3133298972372357,
+            0.17610303274224315
+          ],
+          "equation_relative_residual": [
+            0.07679206282404565,
+            0.12396768290601277,
+            0.07865960807170341
+          ],
+          "min_total": 0.26103868473009817,
+          "max_total": 3.814670748778974,
+          "energy": {
+            "domain_in": [
+              51471854.03641439,
+              102943708.07282878,
+              25735927.018207196
+            ],
+            "domain_out": [
+              137785406.39474604,
+              242388589.64666313,
+              52000721.95779587
+            ],
+            "wall_in": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "wall_out": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "absorbed_diffuse": [
+              0.0,
+              47156958.59603357,
+              41396425.434244126
+            ],
+            "direct_scattering_source": [
+              110970121.94134979,
+              197168326.09074122,
+              70266526.29565185
+            ],
+            "balance_defect": [
+              -24656569.583018154,
+              -10566485.920873284,
+              -2605305.921819046
+            ],
+            "relative_balance_defect": [
+              -0.15178693459376078,
+              -0.03520847123082787,
+              -0.02713790983342444
+            ],
+            "source_closure_defect": [
+              -24656569.58301922,
+              -10566485.920876237,
+              -2605305.921818967
+            ]
+          }
+        },
+        "24_vs_64_relative_rms": 0.0,
+        "one_vs_64_relative_rms": 0.149261105365314,
+        "cpu_numpy_seconds_24": 0.47497339999245014,
+        "cpu_numpy_seconds_64": 0.47308880000491627,
+        "timing_scope": "one CPU NumPy solve including diagnostics; not GPU performance"
+      },
+      "angular_error_separate_from_conservation": {
+        "scope": "infinite plane-parallel slab, two unit-radiance boundaries; not a 3D scene",
+        "tau": 4.0,
+        "albedo": 0.9,
+        "cells": 64,
+        "gauss_directions": 64,
+        "six_axes": {
+          "center_J": 0.39120531295681515,
+          "mean_J": 0.4596525889719709,
+          "incoming_over_4pi": 0.3333333333333333,
+          "escaped_fraction": 0.44841689323363504,
+          "absorbed_fraction": 0.551583106766365,
+          "relative_balance_defect": 1.6653345369377348e-16
+        },
+        "gauss_reference": {
+          "center_J": 0.44634298458721733,
+          "mean_J": 0.5454555056678791,
+          "incoming_over_4pi": 0.5,
+          "escaped_fraction": 0.5636355954656966,
+          "absorbed_fraction": 0.4363644045343032,
+          "relative_balance_defect": -2.220446049250313e-16
+        },
+        "six_vs_gauss_relative_rms_J": 0.16587234199600184,
+        "six_axis_isotropic_face_flux_bias": -0.3333333333333333,
+        "angular_accuracy_verdict": "MEASURED APPROXIMATION; no angular-accuracy PASS claimed"
+      }
+    }
+  },
+  "numeric": {
+    "result": "PASS",
+    "count": 11,
+    "max_relative_rms": 0.00012715528699174016,
+    "max_error_relative_to_peak": 0.0003514289516713946,
+    "max_abs_relative_flux_defect": 2.3257353192150315e-06,
+    "cases": [
+      {
+        "name": "uniform-tau-0p1",
+        "case": {
+          "name": "uniform-tau-0p1",
+          "test": 1,
+          "tau": 0.1,
+          "albedo": 1,
+          "boundary": 0,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 8.496408026676822e-14,
+          "max_absolute": 3.1397107136399427e-13,
+          "max_relative_to_reference_peak": 3.1397107136395656e-13,
+          "max_cell_relative": 3.1397107136409287e-13,
+          "actual_min": 1.0,
+          "actual_max": 1.0,
+          "reference_peak": 1.0000000000001201
+        },
+        "relative_flux_defect": 0.0,
+        "max_cell_residual": 3.4846897278839606e-07,
+        "rgba_sha256": "1b13ece7211ded197ab16689b4fa76763e9d4977eec7cd9c3f44c9bff68158ac"
+      },
+      {
+        "name": "uniform-tau-1",
+        "case": {
+          "name": "uniform-tau-1",
+          "test": 1,
+          "tau": 1,
+          "albedo": 1,
+          "boundary": 0,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 1.5616979249745593e-11,
+          "max_absolute": 4.408851062009944e-11,
+          "max_relative_to_reference_peak": 4.408851061833268e-11,
+          "max_cell_relative": 4.408851062204324e-11,
+          "actual_min": 1.0,
+          "actual_max": 1.0,
+          "reference_peak": 1.000000000040073
+        },
+        "relative_flux_defect": 0.0,
+        "max_cell_residual": 4.4078228711441625e-07,
+        "rgba_sha256": "57ade446821dd483dcce9f6df7dc103942aec93392fc5e19cbf73e6ea08ce6ae"
+      },
+      {
+        "name": "uniform-tau-4",
+        "case": {
+          "name": "uniform-tau-4",
+          "test": 1,
+          "tau": 4,
+          "albedo": 1,
+          "boundary": 0,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 4.682848287927835e-07,
+          "max_absolute": 8.344911792690368e-07,
+          "max_relative_to_reference_peak": 8.344911792507751e-07,
+          "max_cell_relative": 8.344911792908607e-07,
+          "actual_min": 1.0000001192092896,
+          "actual_max": 1.0000008344650269,
+          "reference_peak": 1.0000000000218836
+        },
+        "relative_flux_defect": 4.4096301304969555e-07,
+        "max_cell_residual": 5.50977574675926e-07,
+        "rgba_sha256": "6796780cbee498fbe1f86d9796534b2ee909ec48463d28e97a509ff3ba0586a1"
+      },
+      {
+        "name": "uniform-tau-8",
+        "case": {
+          "name": "uniform-tau-8",
+          "test": 1,
+          "tau": 8,
+          "albedo": 1,
+          "boundary": 0,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 8.06452706455198e-07,
+          "max_absolute": 1.4901470057893107e-06,
+          "max_relative_to_reference_peak": 1.4901470057357983e-06,
+          "max_cell_relative": 1.4901470057432855e-06,
+          "actual_min": 0.9999985098838806,
+          "actual_max": 1.0,
+          "reference_peak": 1.0000000000359108
+        },
+        "relative_flux_defect": -6.538870037016337e-07,
+        "max_cell_residual": 3.896006433024013e-07,
+        "rgba_sha256": "1c4d7caab3fd2b664c01031bd8c263eabdd5eec47e4b5cde3149640f7ba0fe7e"
+      },
+      {
+        "name": "uniform-tau-16",
+        "case": {
+          "name": "uniform-tau-16",
+          "test": 1,
+          "tau": 16,
+          "albedo": 1,
+          "boundary": 0,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 0.00012715528699174016,
+          "max_absolute": 0.0003514289516921565,
+          "max_relative_to_reference_peak": 0.0003514289516713946,
+          "max_cell_relative": 0.00035142895170407117,
+          "actual_min": 0.9996485710144043,
+          "actual_max": 1.0003341436386108,
+          "reference_peak": 1.0000000000590785
+        },
+        "relative_flux_defect": 2.3257353192150315e-06,
+        "max_cell_residual": 9.993838466471061e-05,
+        "rgba_sha256": "628182d080ae39789a027d665ddc2549fe6c2492c76ae065d5eab41db0337b94"
+      },
+      {
+        "name": "uniform-tau4-albedo-0",
+        "case": {
+          "name": "uniform-tau4-albedo-0",
+          "test": 1,
+          "tau": 4,
+          "albedo": 0,
+          "boundary": 0,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 1.6321311038965098e-07,
+          "max_absolute": 1.299977029911581e-07,
+          "max_relative_to_reference_peak": 2.865061126793232e-07,
+          "max_cell_relative": 4.1256300205664704e-07,
+          "actual_min": 0.0670180469751358,
+          "actual_max": 0.4537346065044403,
+          "reference_peak": 0.4537344832731727
+        },
+        "relative_flux_defect": 4.558169444234975e-08,
+        "max_cell_residual": 0.0,
+        "rgba_sha256": "29683bfb02fbfbf7d9147f46db9cc0ccafb04d6c497a887ecf316f95f11ea19f"
+      },
+      {
+        "name": "uniform-tau4-albedo-0p9",
+        "case": {
+          "name": "uniform-tau4-albedo-0p9",
+          "test": 1,
+          "tau": 4,
+          "albedo": 0.9,
+          "boundary": 0,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 1.0185402858622273e-07,
+          "max_absolute": 2.4120234498603565e-07,
+          "max_relative_to_reference_peak": 2.795796069043579e-07,
+          "max_cell_relative": 3.389758208341652e-07,
+          "actual_min": 0.5169577598571777,
+          "actual_max": 0.8627323508262634,
+          "reference_peak": 0.8627322559636804
+        },
+        "relative_flux_defect": 4.901400555948066e-08,
+        "max_cell_residual": 4.262531660970126e-07,
+        "rgba_sha256": "b8e6c25b49a0a57588db525985060be00edf8666380ed31f012cb6593a059654"
+      },
+      {
+        "name": "vacuum",
+        "case": {
+          "name": "vacuum",
+          "test": 1,
+          "tau": 0,
+          "albedo": 0,
+          "boundary": 0,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 1.1102230246251565e-16,
+          "max_absolute": 1.1102230246251565e-16,
+          "max_relative_to_reference_peak": 1.1102230246251568e-16,
+          "max_cell_relative": 1.1102230246251568e-16,
+          "actual_min": 1.0,
+          "actual_max": 1.0,
+          "reference_peak": 0.9999999999999999
+        },
+        "relative_flux_defect": 0.0,
+        "max_cell_residual": 0.0,
+        "rgba_sha256": "47b90c7b51f60c0f2397a0167dd17c9f362ba1077399773a9d7e00196a1a0762"
+      },
+      {
+        "name": "gap-tau4-albedo-0",
+        "case": {
+          "name": "gap-tau4-albedo-0",
+          "test": 2,
+          "tau": 4,
+          "albedo": 0,
+          "boundary": 1,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 8.823225328214048e-08,
+          "max_absolute": 1.8961904407754915e-08,
+          "max_relative_to_reference_peak": 1.2103024183454744e-07,
+          "max_cell_relative": 1.6891158149603426e-07,
+          "actual_min": 0.02402624487876892,
+          "actual_max": 0.15667080879211426,
+          "reference_peak": 0.15667079665656208
+        },
+        "relative_flux_defect": 4.2849404919217464e-08,
+        "max_cell_residual": 0.0,
+        "rgba_sha256": "0bf8176ee3369279186eebdc1be38421b5ef69442abf0a4dd636d48a5a2f3133"
+      },
+      {
+        "name": "gap-tau4-albedo-0p9",
+        "case": {
+          "name": "gap-tau4-albedo-0p9",
+          "test": 2,
+          "tau": 4,
+          "albedo": 0.9,
+          "boundary": 1,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 1.1441654506048244e-07,
+          "max_absolute": 1.2039938113161952e-07,
+          "max_relative_to_reference_peak": 2.557040815818054e-07,
+          "max_cell_relative": 4.013458113198839e-07,
+          "actual_min": 0.06638972461223602,
+          "actual_max": 0.4708544611930847,
+          "reference_peak": 0.4708543578452857
+        },
+        "relative_flux_defect": 1.704232261219267e-08,
+        "max_cell_residual": 5.077002356301819e-07,
+        "rgba_sha256": "077954817bad9444c9306439ca658084ae09eeffa950904f5ac936fad27e09cf"
+      },
+      {
+        "name": "gap-tau4-albedo-1",
+        "case": {
+          "name": "gap-tau4-albedo-1",
+          "test": 2,
+          "tau": 4,
+          "albedo": 1,
+          "boundary": 1,
+          "geometry": 0
+        },
+        "result": "PASS",
+        "total_radiance": {
+          "relative_rms": 4.2032061516780993e-07,
+          "max_absolute": 3.4797808279307674e-07,
+          "max_relative_to_reference_peak": 5.66961317556898e-07,
+          "max_cell_relative": 8.415565115750307e-07,
+          "actual_min": 0.08434505760669708,
+          "actual_max": 0.6137601137161255,
+          "reference_peak": 0.6137598316099493
+        },
+        "relative_flux_defect": 3.6299567310137077e-07,
+        "max_cell_residual": 4.7418069470950286e-07,
+        "rgba_sha256": "091e93b75d8216f3729f20ba86a54861aee1eba9af81bdabd435dd671a6c5b86"
+      }
+    ],
+    "limits": [
+      "Same six-direction discrete operator only; this does not establish angular accuracy.",
+      "Capture elapsed time includes stalled readbacks, not GPU pass timing."
+    ]
+  },
+  "wall": {
+    "result": "PASS",
+    "pairs": [
+      {
+        "position": "center",
+        "errors": [],
+        "no_wall_reference_peak": 0.48080262541770935,
+        "no_wall_behind_mean": 0.07077239864543117,
+        "shadow_behind_max_abs": 0.0,
+        "leakage_relative_to_no_wall_peak": 0.0,
+        "behind_cell_count": 16384,
+        "result": "PASS"
+      },
+      {
+        "position": "quarter_cell",
+        "errors": [],
+        "no_wall_reference_peak": 0.48080262541770935,
+        "no_wall_behind_mean": 0.07077239864543117,
+        "shadow_behind_max_abs": 0.0,
+        "leakage_relative_to_no_wall_peak": 0.0,
+        "behind_cell_count": 16384,
+        "result": "PASS"
+      },
+      {
+        "position": "boundary_half_cell",
+        "errors": [],
+        "no_wall_reference_peak": 0.48080262541770935,
+        "no_wall_behind_mean": 0.16171968189712516,
+        "shadow_behind_max_abs": 0.0,
+        "leakage_relative_to_no_wall_peak": 0.0,
+        "behind_cell_count": 32768,
+        "whole_domain_max_abs": 0.0,
+        "negative_x_incoming_flux": 0.0,
+        "result": "PASS"
+      }
+    ],
+    "limits": [
+      "Six-axis discrete transport verification only; not angular-accuracy acceptance.",
+      "Known black wall covers the whole YZ domain; no Lumen surface-card radiance is required.",
+      "Neither capture elapsed time nor stalled readback duration is a GPU performance benchmark."
+    ]
+  },
+  "receiver": {
+    "result": "PASS",
+    "scope": "GPU native receiver reconstruction isolation; not full numerical/flux acceptance",
+    "flux_diagnostics": "UNAVAILABLE: fourth slab is maxReceiverRGB/valid; no flux checks claimed",
+    "sample_offsets_per_axis": [
+      0.02,
+      0.98
+    ],
+    "samples_per_cell": 8,
+    "cases": [
+      {
+        "name": "no-wall-center",
+        "case": {
+          "name": "no-wall-center",
+          "test": 1,
+          "tau": 4,
+          "albedo": 0.9,
+          "boundary": 1,
+          "geometry": 1,
+          "wall_position": "center",
+          "wall_shown": false,
+          "reconstruction": 1
+        },
+        "errors": [],
+        "result": "PASS",
+        "render_frames_after_barrier": 6,
+        "produced_frames_after_barrier": 6,
+        "missing_surface_flag_cells": 0,
+        "geometry": {
+          "expected_closed_x_planes": [],
+          "topology_mismatch_cells": 0,
+          "wall_local_center_x_cm": 0.0,
+          "wall_thickness_cm": 5.0,
+          "expected_inflow_negative_x": 1.0,
+          "actual_masks_match_expected": true
+        },
+        "receiver_min": 0.019206784665584564,
+        "receiver_max": 0.48080262541770935,
+        "receiver_valid_cells": 32768,
+        "source_max_relative_cell_residual": 4.88259161102178e-07,
+        "rgba_sha256": "e4ce46dffdf7f7b7374aeafa35536c8274e1da05faf3b5ffe66549dce68163f6"
+      },
+      {
+        "name": "wall-center",
+        "case": {
+          "name": "wall-center",
+          "test": 1,
+          "tau": 4,
+          "albedo": 0.9,
+          "boundary": 1,
+          "geometry": 1,
+          "wall_position": "center",
+          "wall_shown": true,
+          "reconstruction": 1
+        },
+        "errors": [],
+        "result": "PASS",
+        "render_frames_after_barrier": 6,
+        "produced_frames_after_barrier": 6,
+        "missing_surface_flag_cells": 0,
+        "geometry": {
+          "expected_closed_x_planes": [
+            16
+          ],
+          "topology_mismatch_cells": 0,
+          "wall_local_center_x_cm": 0.0,
+          "wall_thickness_cm": 5.0,
+          "expected_inflow_negative_x": 1.0,
+          "actual_masks_match_expected": true
+        },
+        "receiver_min": 0.0,
+        "receiver_max": 0.47085440158843994,
+        "receiver_valid_cells": 32768,
+        "source_max_relative_cell_residual": 5.077002356301819e-07,
+        "rgba_sha256": "fa6a3777effa29e8415bdb00384ba757aa9c431e6a434164cc4f0fbeff2d8226"
+      },
+      {
+        "name": "no-wall-quarter_cell",
+        "case": {
+          "name": "no-wall-quarter_cell",
+          "test": 1,
+          "tau": 4,
+          "albedo": 0.9,
+          "boundary": 1,
+          "geometry": 1,
+          "wall_position": "quarter_cell",
+          "wall_shown": false,
+          "reconstruction": 1
+        },
+        "errors": [],
+        "result": "PASS",
+        "render_frames_after_barrier": 6,
+        "produced_frames_after_barrier": 6,
+        "missing_surface_flag_cells": 0,
+        "geometry": {
+          "expected_closed_x_planes": [],
+          "topology_mismatch_cells": 0,
+          "wall_local_center_x_cm": 27.34375,
+          "wall_thickness_cm": 5.0,
+          "expected_inflow_negative_x": 1.0,
+          "actual_masks_match_expected": true
+        },
+        "receiver_min": 0.019206784665584564,
+        "receiver_max": 0.48080262541770935,
+        "receiver_valid_cells": 32768,
+        "source_max_relative_cell_residual": 4.88259161102178e-07,
+        "rgba_sha256": "e4ce46dffdf7f7b7374aeafa35536c8274e1da05faf3b5ffe66549dce68163f6"
+      },
+      {
+        "name": "wall-quarter_cell",
+        "case": {
+          "name": "wall-quarter_cell",
+          "test": 1,
+          "tau": 4,
+          "albedo": 0.9,
+          "boundary": 1,
+          "geometry": 1,
+          "wall_position": "quarter_cell",
+          "wall_shown": true,
+          "reconstruction": 1
+        },
+        "errors": [],
+        "result": "PASS",
+        "render_frames_after_barrier": 6,
+        "produced_frames_after_barrier": 6,
+        "missing_surface_flag_cells": 0,
+        "geometry": {
+          "expected_closed_x_planes": [
+            16
+          ],
+          "topology_mismatch_cells": 0,
+          "wall_local_center_x_cm": 27.34375,
+          "wall_thickness_cm": 5.0,
+          "expected_inflow_negative_x": 1.0,
+          "actual_masks_match_expected": true
+        },
+        "receiver_min": 0.0,
+        "receiver_max": 0.47085440158843994,
+        "receiver_valid_cells": 32768,
+        "source_max_relative_cell_residual": 5.077002356301819e-07,
+        "rgba_sha256": "fa6a3777effa29e8415bdb00384ba757aa9c431e6a434164cc4f0fbeff2d8226"
+      },
+      {
+        "name": "no-wall-boundary_half_cell",
+        "case": {
+          "name": "no-wall-boundary_half_cell",
+          "test": 1,
+          "tau": 4,
+          "albedo": 0.9,
+          "boundary": 1,
+          "geometry": 1,
+          "wall_position": "boundary_half_cell",
+          "wall_shown": false,
+          "reconstruction": 1
+        },
+        "errors": [],
+        "result": "PASS",
+        "render_frames_after_barrier": 6,
+        "produced_frames_after_barrier": 6,
+        "missing_surface_flag_cells": 0,
+        "geometry": {
+          "expected_closed_x_planes": [],
+          "topology_mismatch_cells": 0,
+          "wall_local_center_x_cm": -1722.65625,
+          "wall_thickness_cm": 5.0,
+          "expected_inflow_negative_x": 1.0,
+          "actual_masks_match_expected": true
+        },
+        "receiver_min": 0.019206784665584564,
+        "receiver_max": 0.48080262541770935,
+        "receiver_valid_cells": 32768,
+        "source_max_relative_cell_residual": 4.88259161102178e-07,
+        "rgba_sha256": "e4ce46dffdf7f7b7374aeafa35536c8274e1da05faf3b5ffe66549dce68163f6"
+      },
+      {
+        "name": "wall-boundary_half_cell",
+        "case": {
+          "name": "wall-boundary_half_cell",
+          "test": 1,
+          "tau": 4,
+          "albedo": 0.9,
+          "boundary": 1,
+          "geometry": 1,
+          "wall_position": "boundary_half_cell",
+          "wall_shown": true,
+          "reconstruction": 1
+        },
+        "errors": [],
+        "result": "PASS",
+        "render_frames_after_barrier": 6,
+        "produced_frames_after_barrier": 6,
+        "missing_surface_flag_cells": 0,
+        "geometry": {
+          "expected_closed_x_planes": [],
+          "topology_mismatch_cells": 0,
+          "wall_local_center_x_cm": -1722.65625,
+          "wall_thickness_cm": 5.0,
+          "expected_inflow_negative_x": 0.0,
+          "actual_masks_match_expected": true
+        },
+        "receiver_min": 0.0,
+        "receiver_max": 0.0,
+        "receiver_valid_cells": 32768,
+        "source_max_relative_cell_residual": 0.0,
+        "rgba_sha256": "112337059835b0ef53d4961106721ef981f17bab31f2bd88dcf0be74987f54dc"
+      }
+    ],
+    "pairs": [
+      {
+        "position": "center",
+        "errors": [],
+        "shadow_x_index_begin": 16,
+        "shadow_cell_count": 16384,
+        "no_wall_receiver_peak": 0.48080262541770935,
+        "no_wall_receiver_behind_mean": 0.0755273835980006,
+        "receiver_shadow_max_abs": 0.0,
+        "receiver_leakage_relative": 0.0,
+        "source_cell_shadow_max_abs": 0.0,
+        "result": "PASS"
+      },
+      {
+        "position": "quarter_cell",
+        "errors": [],
+        "shadow_x_index_begin": 16,
+        "shadow_cell_count": 16384,
+        "no_wall_receiver_peak": 0.48080262541770935,
+        "no_wall_receiver_behind_mean": 0.0755273835980006,
+        "receiver_shadow_max_abs": 0.0,
+        "receiver_leakage_relative": 0.0,
+        "source_cell_shadow_max_abs": 0.0,
+        "result": "PASS"
+      },
+      {
+        "position": "boundary_half_cell",
+        "errors": [],
+        "shadow_x_index_begin": 0,
+        "shadow_cell_count": 32768,
+        "no_wall_receiver_peak": 0.48080262541770935,
+        "no_wall_receiver_behind_mean": 0.17062303384022925,
+        "receiver_shadow_max_abs": 0.0,
+        "receiver_leakage_relative": 0.0,
+        "source_cell_shadow_max_abs": 0.0,
+        "result": "PASS"
+      }
+    ]
+  },
+  "scene": {
+    "camera": {
+      "full-repeat": {
+        "rms": 0.0005823397138077028,
+        "peak_normalized_max": 0.0009572405771741408,
+        "max_abs": 0.06183624267578125
+      },
+      "full-fov30": {
+        "rms": 0.0005783416510962683,
+        "peak_normalized_max": 0.0008693114458100263,
+        "max_abs": 0.056156158447265625
+      },
+      "full-fov90": {
+        "rms": 0.000522726486135409,
+        "peak_normalized_max": 0.0009963776032396658,
+        "max_abs": 0.06436443328857422
+      },
+      "full-dolly": {
+        "rms": 0.0005758189250942939,
+        "peak_normalized_max": 0.0009547308470982678,
+        "max_abs": 0.06167411804199219
+      },
+      "full-return": {
+        "rms": 0.000572641731879863,
+        "peak_normalized_max": 0.0008107240116564856,
+        "max_abs": 0.05237150192260742
+      },
+      "full-final": {
+        "rms": 0.00041418764546460136,
+        "peak_normalized_max": 0.0006237638841220421,
+        "max_abs": 0.04029417037963867
+      }
+    },
+    "sun_linearity": {
+      "rms": 0.0,
+      "peak_normalized_max": 0.0,
+      "max_abs": 0.0
+    },
+    "point_linearity": {
+      "rms": 0.0,
+      "peak_normalized_max": 0.0,
+      "max_abs": 0.0
+    },
+    "zero_sources_max": 0.0,
+    "iterations64_vs24_with_live_lumen": {
+      "rms": 0.0005892876309381886,
+      "peak_normalized_max": 0.0010203749027455171,
+      "max_abs": 0.06591796875
+    },
+    "cases": {
+      "full": {
+        "maxResidual": 4.82816795e-05,
+        "fluxDefect": 3.216881285790362e-08,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-repeat": {
+        "maxResidual": 4.84273478e-05,
+        "fluxDefect": 3.290190206096653e-08,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-fov30": {
+        "maxResidual": 4.83601943e-05,
+        "fluxDefect": 3.131150617423373e-08,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-fov90": {
+        "maxResidual": 4.83729818e-05,
+        "fluxDefect": 3.363900897174093e-08,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-dolly": {
+        "maxResidual": 4.83901604e-05,
+        "fluxDefect": 3.1249283786587066e-08,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-return": {
+        "maxResidual": 4.82934738e-05,
+        "fluxDefect": 3.333368837529073e-08,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "direct": {
+        "maxResidual": 4.03513804e-05,
+        "fluxDefect": 5.612768586489327e-08,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "direct-double": {
+        "maxResidual": 4.03513804e-05,
+        "fluxDefect": 5.612768586489327e-08,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "direct-zero": {
+        "maxResidual": 0,
+        "fluxDefect": 0,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "point": {
+        "maxResidual": 4.2535441e-05,
+        "fluxDefect": 1.9564020755021689e-07,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "point-double": {
+        "maxResidual": 4.2535441e-05,
+        "fluxDefect": 1.9564020755021689e-07,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "spot": {
+        "maxResidual": 0.0002224169,
+        "fluxDefect": 8.391300810604943e-08,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "spot-double": {
+        "maxResidual": 0.0002224169,
+        "fluxDefect": 8.391300810604943e-08,
+        "missingSurfaces": 0,
+        "min": 0
+      },
+      "full-64": {
+        "maxResidual": 4.84124321e-05,
+        "fluxDefect": 3.0867012967758156e-08,
+        "missingSurfaces": 3028,
+        "min": 0
+      },
+      "full-final": {
+        "maxResidual": 4.83884032e-05,
+        "fluxDefect": 3.338855203836705e-08,
+        "missingSurfaces": 3028,
+        "min": 0
+      }
+    },
+    "restoration": {
+      "light": true,
+      "sun": true,
+      "mode": true,
+      "iterations": true,
+      "camera": true,
+      "fov": true,
+      "indirect": true,
+      "throttle": true,
+      "autosave": true,
+      "actor_count": true,
+      "/Game/FogMS_Test/FogMS_Box.FogMS_Box:PersistentLevel.PointLight_0.LightComponent0": true
+    },
+    "spot_linearity": {
+      "rms": 0.0,
+      "peak_normalized_max": 0.0,
+      "max_abs": 0.0
+    },
+    "source_peaks": {
+      "direct": 17.410600662231445,
+      "point": 858.9168701171875,
+      "spot": 54.010406494140625
+    },
+    "checks": {
+      "camera_rms_under_1pct": true,
+      "sun_linearity": true,
+      "point_linearity": true,
+      "zero_sources": true,
+      "residual_under_1pct": true,
+      "flux_under_1pct": true,
+      "spot_linearity": true,
+      "sources_nonzero": true
+    },
+    "status": "PASS"
+  },
+  "soak": {
+    "status": "COMPLETED",
+    "errors": []
+  },
+  "performance": {
+    "scope": "Whole Graphics pipeline frame and own solver passes at unchanged global preview settings. Not a stock-UE feature-cost comparison; async overlap is not summed. 3 samples per mode, no readbacks.",
+    "medians": {
+      "<FogMSScatteringMode.OFF: 0>": {
+        "frame_ms": 15.18,
+        "root_ms": 15.17,
+        "solver_ms": 0,
+        "solver_passes": 0
+      },
+      "<FogMSScatteringMode.TRANSPORT: 4>": {
+        "frame_ms": 16.31,
+        "root_ms": 16.289,
+        "solver_ms": 2.0429999999999953,
+        "solver_passes": 198
+      },
+      "<FogMSScatteringMode.WORLD_SPACE: 3>": {
+        "frame_ms": 17.39,
+        "root_ms": 17.383,
+        "solver_ms": 1.7129999999999999,
+        "solver_passes": 6
+      }
+    },
+    "samples_per_mode": 3
+  },
+  "cpu_refinement": {
+    "scope": "CPU infinite plane slab only; no GPU spatial or angular convergence claim",
+    "spatial": [
+      {
+        "scope": "infinite plane-parallel slab, two unit-radiance boundaries; not a 3D scene",
+        "tau": 4.0,
+        "albedo": 0.9,
+        "cells": 32,
+        "gauss_directions": 64,
+        "six_axes": {
+          "center_J": 0.391487378577486,
+          "mean_J": 0.45970713389151296,
+          "incoming_over_4pi": 0.3333333333333333,
+          "escaped_fraction": 0.44835143933018473,
+          "absorbed_fraction": 0.5516485606698155,
+          "relative_balance_defect": 1.6653345369377348e-16
+        },
+        "gauss_reference": {
+          "center_J": 0.44716466218760353,
+          "mean_J": 0.545864026893047,
+          "incoming_over_4pi": 0.5,
+          "escaped_fraction": 0.5633087784855617,
+          "absorbed_fraction": 0.4366912215144375,
+          "relative_balance_defect": -7.771561172376096e-16
+        },
+        "six_vs_gauss_relative_rms_J": 0.16617295247349392,
+        "six_axis_isotropic_face_flux_bias": -0.3333333333333333,
+        "angular_accuracy_verdict": "MEASURED APPROXIMATION; no angular-accuracy PASS claimed"
+      },
+      {
+        "scope": "infinite plane-parallel slab, two unit-radiance boundaries; not a 3D scene",
+        "tau": 4.0,
+        "albedo": 0.9,
+        "cells": 64,
+        "gauss_directions": 64,
+        "six_axes": {
+          "center_J": 0.39120531295681515,
+          "mean_J": 0.4596525889719709,
+          "incoming_over_4pi": 0.3333333333333333,
+          "escaped_fraction": 0.44841689323363504,
+          "absorbed_fraction": 0.551583106766365,
+          "relative_balance_defect": 1.6653345369377348e-16
+        },
+        "gauss_reference": {
+          "center_J": 0.44634298458721733,
+          "mean_J": 0.5454555056678791,
+          "incoming_over_4pi": 0.5,
+          "escaped_fraction": 0.5636355954656966,
+          "absorbed_fraction": 0.4363644045343032,
+          "relative_balance_defect": -2.220446049250313e-16
+        },
+        "six_vs_gauss_relative_rms_J": 0.16587234199600184,
+        "six_axis_isotropic_face_flux_bias": -0.3333333333333333,
+        "angular_accuracy_verdict": "MEASURED APPROXIMATION; no angular-accuracy PASS claimed"
+      },
+      {
+        "scope": "infinite plane-parallel slab, two unit-radiance boundaries; not a 3D scene",
+        "tau": 4.0,
+        "albedo": 0.9,
+        "cells": 128,
+        "gauss_directions": 64,
+        "six_axes": {
+          "center_J": 0.39113474571404266,
+          "mean_J": 0.4596389273074575,
+          "incoming_over_4pi": 0.3333333333333333,
+          "escaped_fraction": 0.4484332872310519,
+          "absorbed_fraction": 0.551566712768949,
+          "relative_balance_defect": 8.326672684688674e-16
+        },
+        "gauss_reference": {
+          "center_J": 0.4461334701803574,
+          "mean_J": 0.5453487972192719,
+          "incoming_over_4pi": 0.5,
+          "escaped_fraction": 0.5637209622245825,
+          "absorbed_fraction": 0.4362790377754174,
+          "relative_balance_defect": -2.220446049250313e-16
+        },
+        "six_vs_gauss_relative_rms_J": 0.16579328218514744,
+        "six_axis_isotropic_face_flux_bias": -0.3333333333333333,
+        "angular_accuracy_verdict": "MEASURED APPROXIMATION; no angular-accuracy PASS claimed"
+      }
+    ],
+    "angular": [
+      {
+        "scope": "infinite plane-parallel slab, two unit-radiance boundaries; not a 3D scene",
+        "tau": 4.0,
+        "albedo": 0.9,
+        "cells": 128,
+        "gauss_directions": 32,
+        "six_axes": {
+          "center_J": 0.39113474571404266,
+          "mean_J": 0.4596389273074575,
+          "incoming_over_4pi": 0.3333333333333333,
+          "escaped_fraction": 0.4484332872310519,
+          "absorbed_fraction": 0.551566712768949,
+          "relative_balance_defect": 8.326672684688674e-16
+        },
+        "gauss_reference": {
+          "center_J": 0.44613350272847874,
+          "mean_J": 0.5453488333340939,
+          "incoming_over_4pi": 0.5,
+          "escaped_fraction": 0.5637209333327248,
+          "absorbed_fraction": 0.436279066667275,
+          "relative_balance_defect": -2.220446049250313e-16
+        },
+        "six_vs_gauss_relative_rms_J": 0.16579331568184089,
+        "six_axis_isotropic_face_flux_bias": -0.3333333333333333,
+        "angular_accuracy_verdict": "MEASURED APPROXIMATION; no angular-accuracy PASS claimed"
+      },
+      {
+        "scope": "infinite plane-parallel slab, two unit-radiance boundaries; not a 3D scene",
+        "tau": 4.0,
+        "albedo": 0.9,
+        "cells": 128,
+        "gauss_directions": 64,
+        "six_axes": {
+          "center_J": 0.39113474571404266,
+          "mean_J": 0.4596389273074575,
+          "incoming_over_4pi": 0.3333333333333333,
+          "escaped_fraction": 0.4484332872310519,
+          "absorbed_fraction": 0.551566712768949,
+          "relative_balance_defect": 8.326672684688674e-16
+        },
+        "gauss_reference": {
+          "center_J": 0.4461334701803574,
+          "mean_J": 0.5453487972192719,
+          "incoming_over_4pi": 0.5,
+          "escaped_fraction": 0.5637209622245825,
+          "absorbed_fraction": 0.4362790377754174,
+          "relative_balance_defect": -2.220446049250313e-16
+        },
+        "six_vs_gauss_relative_rms_J": 0.16579328218514744,
+        "six_axis_isotropic_face_flux_bias": -0.3333333333333333,
+        "angular_accuracy_verdict": "MEASURED APPROXIMATION; no angular-accuracy PASS claimed"
+      },
+      {
+        "scope": "infinite plane-parallel slab, two unit-radiance boundaries; not a 3D scene",
+        "tau": 4.0,
+        "albedo": 0.9,
+        "cells": 128,
+        "gauss_directions": 128,
+        "six_axes": {
+          "center_J": 0.39113474571404266,
+          "mean_J": 0.4596389273074575,
+          "incoming_over_4pi": 0.3333333333333333,
+          "escaped_fraction": 0.4484332872310519,
+          "absorbed_fraction": 0.551566712768949,
+          "relative_balance_defect": 8.326672684688674e-16
+        },
+        "gauss_reference": {
+          "center_J": 0.44613346990348046,
+          "mean_J": 0.5453487969134081,
+          "incoming_over_4pi": 0.5,
+          "escaped_fraction": 0.5637209624692741,
+          "absorbed_fraction": 0.4362790375307264,
+          "relative_balance_defect": 4.440892098500626e-16
+        },
+        "six_vs_gauss_relative_rms_J": 0.1657932819023159,
+        "six_axis_isotropic_face_flux_bias": -0.3333333333333333,
+        "angular_accuracy_verdict": "MEASURED APPROXIMATION; no angular-accuracy PASS claimed"
+      }
+    ]
+  },
+  "delivery": {
+    "status": "PASS",
+    "round": 7,
+    "checks": {
+      "package_and_install": true,
+      "runtime_sources": true,
+      "engine_anchors": true,
+      "crash_guard_files": true,
+      "authored_scene_preserved": true,
+      "rendered_active_b2": true,
+      "rendered_same_setup": true,
+      "rendered_same_runtime": true,
+      "rendered_same_camera": true,
+      "final_view_status_known": true,
+      "field_ready": true,
+      "diagnostics_off": true,
+      "crash_guard_live": true,
+      "preferences_restored": true,
+      "map_is_same_path": true
+    },
+    "scene_receipt": "E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_B2_20260921\\scene-inspect-20260921T153438_330363Z-7b39aecb.json",
+    "scene_sha256": "8615abad7ef4df09d0500fe5ac6e0a81c23b8859a5e397ba3a49cea0ed855d4b",
+    "realtime_receipt": "E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_B2_20260921\\scene-inspect-20260921T152920_069060Z-3bd81c2f.json",
+    "realtime_sha256": "3c33a88e65aa793ba54a35bb539f1c7f517bdd2f4e8a6ea5e1024efc9ec1afb5",
+    "final_view_status": "World requires one realtime view.",
+    "allowed_changes": [
+      {
+        "path": "actors[3].properties.IndirectShadowStatus",
+        "before": "Active World ray attenuation (independent of TLV cache)",
+        "after": "Not used by Transport (B2); attenuation follows authored density."
+      },
+      {
+        "path": "actors[3].properties.ScatteringMode",
+        "before": "<FogMSScatteringMode.WORLD_SPACE: 3>",
+        "after": "<FogMSScatteringMode.TRANSPORT: 4>"
+      },
+      {
+        "path": "actors[3].properties.SpatialStatus",
+        "before": "Active World primary + three current-frame scattering orders (no fog history)",
+        "after": "World requires one realtime view."
+      },
+      {
+        "path": "actors[3].properties.SurfaceShadowStatus",
+        "before": "Active filtered light-space transmittance",
+        "after": "Active authored-density surface sun shadow"
+      },
+      {
+        "path": "actors[3].properties.TransportIterations",
+        "before": null,
+        "after": 24
+      },
+      {
+        "path": "cvars.r.FogMS.Transport.Test",
+        "before": null,
+        "after": "0"
+      },
+      {
+        "path": "cvars.r.FogMS.Transport.TestAlbedo",
+        "before": null,
+        "after": "1"
+      },
+      {
+        "path": "cvars.r.FogMS.Transport.TestBoundary",
+        "before": null,
+        "after": "0"
+      },
+      {
+        "path": "cvars.r.FogMS.Transport.TestGeometry",
+        "before": null,
+        "after": "0"
+      },
+      {
+        "path": "cvars.r.FogMS.Transport.TestReconstruction",
+        "before": null,
+        "after": "0"
+      },
+      {
+        "path": "cvars.r.FogMS.Transport.TestTau",
+        "before": null,
+        "after": "4"
+      }
+    ],
+    "map": {
+      "path": "D:\\PersonalProjects\\UE5\\MimirHead_portfolio 5.7 5.8 - 3\\Content\\FogMS_Test\\FogMS_Box.umap",
+      "exists": true,
+      "bytes": 56918,
+      "modified_utc": "2026-09-21T15:29:39.878454+00:00",
+      "sha256": "cb0a22c09164113399d78e111033496e91e4e8a9ed6b7616936afe71413c833a"
+    }
+  },
+  "limits": [
+    "Six-axis angular bias is measured, not corrected by exposure or artistic gain.",
+    "GPU field uses cell-average coefficients; camera point-density reconstruction energy is not proven.",
+    "RT obstacles are quantized to reciprocal grid faces. Small objects between sampled links can be missed.",
+    "Lumen missing surface samples are zero-valued and counted. Other media and surfaces are not fully coupled.",
+    "Package7 native fog receiver uses matched temporal Z sample; world-grid transport remains current-frame."
+  ]
+}

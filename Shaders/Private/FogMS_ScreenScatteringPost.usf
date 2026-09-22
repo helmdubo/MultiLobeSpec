@@ -1,0 +1,190 @@
+// Independent screen-space redistribution, not native FSSS and not transport.
+// Filter the full current-frame pre-exposed HDR image, including in-scattered
+// volumetric light. Fog coverage controls the blend, not the normalization.
+// This is a screen approximation, not a new B3 transport order or anisotropy.
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/Random.ush"
+#include "/Engine/Shared/EnvironmentComponentsFlags.h"
+
+Texture2D<float4> SceneColorTexture;
+Texture2D<float> SceneDepthTexture;
+Texture3D<float4> IntegratedFogTexture;
+SamplerState LinearClampSampler;
+Texture2D<float4> SourceRadianceTexture;
+Texture2D<float4> SourceGuideTexture;
+Texture2D<float4> BlurRadianceA;
+Texture2D<float4> BlurRadianceB;
+Texture2D<float4> BlurGuideA;
+Texture2D<float4> BlurGuideB;
+RWTexture2D<float4> OutRadiance;
+RWTexture2D<float4> OutGuide;
+RWTexture2D<float4> OutComposite;
+int2 ViewRectMin;
+int2 ViewSize;
+int2 InputSize;
+int2 OutputSize;
+int2 MipASize;
+int2 MipBSize;
+float FogStartDistance;
+float FogUpsampleJitter;
+float Amount;
+float LodBlend;
+uint FirstDownsample;
+
+float4 FogSample(float3 UV)
+{
+	return IntegratedFogTexture.SampleLevel(LinearClampSampler, UV, 0);
+}
+
+float4 FilteredFogSample(float3 UV)
+{
+#if FOGMS_SSFS_FOG_FILTER > 0
+	// Match native HeightFogCommon SampleVolumetricFogFiltered (UE5.8), including
+	// its h0.z choice. Matching the visible fog avoids subtraction edge mismatch.
+	float3 P = UV * View.VolumetricFogGridSize + .5f;
+	float3 F = frac(P), R = 1.f - F;
+	float3 W0 = R * R * R / 6.f;
+	float3 W1 = 2.f / 3.f - .5f * F * F * (2.f - F);
+	float3 W2 = 2.f / 3.f - .5f * R * R * (2.f - R);
+	float3 W3 = F * F * F / 6.f;
+	float3 G0 = W0 + W1, G1 = W2 + W3;
+	float3 H0 = View.VolumetricFogInvGridSize * (W1 / G0 - 1.5f + floor(P));
+	float3 H1 = View.VolumetricFogInvGridSize * (W3 / G1 + .5f + floor(P));
+	H1.xy = min(H1.xy, View.VolumetricFogUVMax);
+	H0.z = UV.z;
+	float4 Low = lerp(lerp(FogSample(float3(H1.x, H1.y, H0.z)), FogSample(float3(H0.x, H1.y, H0.z)), G0.x),
+		lerp(FogSample(float3(H1.x, H0.y, H0.z)), FogSample(H0), G0.x), G0.y);
+#if FOGMS_SSFS_FOG_FILTER == 2
+	float4 High = lerp(lerp(FogSample(H1), FogSample(float3(H0.x, H1.y, H1.z)), G0.x),
+		lerp(FogSample(float3(H1.x, H0.y, H1.z)), FogSample(float3(H0.x, H0.y, H1.z)), G0.x), G0.y);
+	return lerp(High, Low, G0.z);
+#else
+	return Low;
+#endif
+#else
+	return FogSample(UV);
+#endif
+}
+
+float4 CubicWeights(float F)
+{
+	float R = 1.f - F;
+	return float4(R * R * R, 4.f - 6.f * F * F + 3.f * F * F * F,
+		1.f + 3.f * F + 3.f * F * F - 3.f * F * F * F, F * F * F) / 6.f;
+}
+
+// Positive cubic B-spline reconstruction has continuous first/second derivatives
+// across coarse texel boundaries: an HDR impulse cannot reveal bilinear hot-cell
+// corners after tonemapping. Inspect all 16 depth supports before mixing colors.
+float4 GuidedSample(Texture2D<float4> Color, Texture2D<float4> Guide, int2 Size, float2 UV, float Depth)
+{
+	float2 P = UV * float2(Size) - .5f;
+	int2 Base = int2(floor(P));
+	float2 F = frac(P);
+	float4 WX = CubicWeights(F.x);
+	float4 WY = CubicWeights(F.y);
+	float4 Sum = 0;
+	UNROLL for (int Y = 0; Y < 4; ++Y)
+		UNROLL for (int X = 0; X < 4; ++X)
+		{
+			int2 C = clamp(Base + int2(X, Y) - 1, int2(0, 0), Size - 1);
+			float2 Range = Guide.Load(int3(C, 0)).xy;
+			float Difference = max(abs(Range.x - Depth), abs(Range.y - Depth));
+			// Fixed relative-depth acceptance (~19%). Sky has its own sentinel depth.
+			// Reject supports with large depth differences to limit silhouette bleed.
+			float DepthWeight = saturate(1.f - Difference / .25f);
+			Sum += Color.Load(int3(C, 0)) * (WX[X] * WY[Y] * DepthWeight);
+		}
+	return Sum;
+}
+
+[numthreads(8, 8, 1)]
+void ScreenScatteringCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	int2 Pixel = int2(DispatchThreadId.xy);
+	if (any(Pixel >= OutputSize)) return;
+#if FOGMS_SSFS_PASS == 0
+	int2 ScenePixel = Pixel + ViewRectMin;
+	float4 SceneColor = SceneColorTexture.Load(int3(ScenePixel, 0));
+	float DeviceZ = SceneDepthTexture.Load(int3(ScenePixel, 0));
+	float SceneDepth = ConvertFromDeviceZ(DeviceZ);
+	float4 Fog = float4(0, 0, 0, 1);
+	if (IsExponentialFogRenderedInMain(View.EnvironmentComponentsFlags) && SceneDepth > FogStartDistance
+		&& !(IsExponentialFogHoldout(View.EnvironmentComponentsFlags) && View.bPrimitiveAlphaHoldoutEnabled))
+	{
+		// Match HeightFogPixelShader's existing upsample location. This adds no
+		// independent temporal sequence or history to the screen-scattering pass.
+		uint3 Rand16Bits = Rand3DPCG16(int3(ScenePixel, View.StateFrameIndexMod8));
+		float2 Offset = FogUpsampleJitter * (float2(Rand16Bits.xy) / 65535.f * 2.f - 1.f);
+		float2 UV = (float2(Pixel) + .5f + Offset) * View.VolumetricFogSVPosToVolumeUV;
+		float Z = log2(max(SceneDepth * View.VolumetricFogGridZParams.x + View.VolumetricFogGridZParams.y, 1.e-8f))
+			* View.VolumetricFogGridZParams.z * View.VolumetricFogInvGridSize.z;
+		float3 VolumeUV = min(float3(UV, Z), float3(View.VolumetricFogUVMax, 1.f));
+		Fog = FilteredFogSample(VolumeUV);
+		if (!all(isfinite(Fog))) Fog = float4(0, 0, 0, 1);
+	}
+	// Radiance alpha is a unit normalization weight, never transmission.
+	// In-scattered fog light must remain present even when T is zero.
+	float3 Radiance = clamp(SceneColor.rgb, 0.f, 65504.f);
+	OutRadiance[Pixel] = float4(Radiance, 1.f);
+	float DepthGuide = DeviceZ == FarDepthValue ? 32.f : log2(clamp(SceneDepth, 1.f, 1.e8f));
+	OutGuide[Pixel] = float4(DepthGuide.xx, saturate(1.f - Fog.a), 0.f);
+#elif FOGMS_SSFS_PASS == 1
+	// Positive normalized binomial downsample [1,3,3,1]^2 / 64. Constant HDR
+	// signals remain constant. Alpha carries reconstruction normalization weight.
+	static const float W[4] = { 1.f, 3.f, 3.f, 1.f };
+	float4 Sum = 0;
+	float WeightSum = 0;
+	float2 Range = float2(1.e30f, -1.e30f);
+	UNROLL for (int Y = 0; Y < 4; ++Y)
+		UNROLL for (int X = 0; X < 4; ++X)
+		{
+			int2 C = clamp(Pixel * 2 + int2(X, Y) - 1, int2(0, 0), InputSize - 1);
+			float4 Sample = SourceRadianceTexture.Load(int3(C, 0));
+			float Weight = W[X] * W[Y] / 64.f;
+			if (FirstDownsample != 0u)
+			{
+				// Karis-style firefly suppression only at the first reduction. Weight
+				// scene-linear radiance, removing native pre-exposure before deciding
+				// influence, so an exposure adaptation cannot change visibility.
+				// This is an explicit screen-space robustness approximation, not B3.
+				float Luminance = dot(Sample.rgb, float3(.2126f, .7152f, .0722f)) * View.OneOverPreExposure;
+				Weight /= 1.f + max(Luminance, 0.f);
+			}
+			// Keep RGB and its normalization weight on exactly the same filter.
+			Sum += Sample * Weight;
+			WeightSum += Weight;
+			float2 D = SourceGuideTexture.Load(int3(C, 0)).xy;
+			Range = float2(min(Range.x, D.x), max(Range.y, D.y));
+		}
+	OutRadiance[Pixel] = Sum / max(WeightSum, 1.e-20f);
+	// Coverage is read only from the full-resolution guide at composition.
+	OutGuide[Pixel] = float4(Range, 0.f, 0.f);
+#else
+	float4 CurrentColor = SceneColorTexture.Load(int3(Pixel + ViewRectMin, 0));
+	float4 Guide = SourceGuideTexture.Load(int3(Pixel, 0));
+	float Coverage = saturate(Guide.z);
+	float Blend = Amount * Coverage;
+	if (Blend <= 0)
+	{
+		OutComposite[Pixel] = CurrentColor;
+		return;
+	}
+	float2 UV = (float2(Pixel) + .5f) / float2(ViewSize);
+	float Depth = Guide.x;
+	float4 Filtered = lerp(GuidedSample(BlurRadianceA, BlurGuideA, MipASize, UV, Depth),
+		GuidedSample(BlurRadianceB, BlurGuideB, MipBSize, UV, Depth), LodBlend);
+	if (!all(isfinite(Filtered)))
+	{
+		OutComposite[Pixel] = CurrentColor;
+		return;
+	}
+	// Fade the effect by accepted support mass rather than normalizing a tiny
+	// surviving support back to full strength. This is the normalized target
+	// with effective Blend *= support mass, written without division, so the
+	// transition to zero valid support is continuous at opaque/sky boundaries.
+	// Kernel weights are positive and sum to <= 1: the blend stays convex.
+	float3 Result = CurrentColor.rgb + Blend * (Filtered.rgb - Filtered.a * CurrentColor.rgb);
+	OutComposite[Pixel] = float4(all(isfinite(Result)) ? clamp(Result, 0.f, 65504.f) : CurrentColor.rgb, CurrentColor.a);
+#endif
+}

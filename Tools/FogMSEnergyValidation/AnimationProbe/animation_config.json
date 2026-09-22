@@ -1,0 +1,17 @@
+{
+  "action": "run",
+  "id": "motion-animation-001",
+  "evidence_root": "E:/GITHUB/MultiLobeSpec/.codex-build/FogMS_Motion_20260921/animation",
+  "scattering_mode": "ANGULAR_TRANSPORT",
+  "wind_cm_s": [
+    80.0,
+    0.0,
+    0.0
+  ],
+  "manual_time_seconds": 20.0,
+  "warmup_frames": 8,
+  "wait_frames": 4,
+  "live_wait_frames": 30,
+  "dump_timeout_seconds": 45,
+  "max_duration_seconds": 600
+}
