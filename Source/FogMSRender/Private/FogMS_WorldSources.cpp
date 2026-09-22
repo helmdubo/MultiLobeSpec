@@ -24,6 +24,8 @@ namespace
 
 	TAutoConsoleVariable<float> CVarWorldSunExcludeDegrees(TEXT("r.FogMS.World.SunExcludeDegrees"), 3.0f,
 		TEXT("Half-angle in degrees of the cone around the atmosphere sun that is removed from the captured sky radiance used as transport/world boundary. Direct sun is accounted separately with shadows; 0 disables."), ECVF_RenderThreadSafe);
+	TAutoConsoleVariable<float> CVarWorldSkyMipBias(TEXT("r.FogMS.World.SkyMipBias"), 0.0f,
+		TEXT("Added to the sector-matched sky cubemap mip used as transport/world boundary radiance. Negative sharpens, positive blurs."), ECVF_RenderThreadSafe);
 
 	bool Finite(const FVector3f& Value)
 	{
@@ -138,6 +140,8 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
 	}
 	const FScene& Scene = *static_cast<const FScene*>(View.Family->Scene);
 	if (!BindSky(GraphBuilder, Scene, View, OutParameters, Error)) return false;
+	const float SkyMipBias = CVarWorldSkyMipBias.GetValueOnRenderThread();
+	OutParameters.FogMSWorldSkyMipBias = FMath::IsFinite(SkyMipBias) ? SkyMipBias : 0.0f;
 
 	static const IConsoleVariable* const BiasCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricFog.InverseSquaredLightDistanceBiasScale"));
 	const float BiasScale = BiasCVar ? BiasCVar->GetFloat() : 1.0f;

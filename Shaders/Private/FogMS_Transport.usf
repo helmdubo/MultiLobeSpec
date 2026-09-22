@@ -113,13 +113,14 @@ bool DirectShadow(float3 P,float3 D,float Limit)
     return Q.CommittedStatus()==COMMITTED_TRIANGLE_HIT;
 }
 #if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
-float3 BoundaryRadiance(float3 P,float3 D,float Limit,out bool Hit,out bool Valid)
+// SectorSolidAngle: solid angle the ray D stands for (4*pi/AngularCount); selects the sky cubemap mip on a miss.
+float3 BoundaryRadiance(float3 P,float3 D,float Limit,float SectorSolidAngle,out bool Hit,out bool Valid)
 {
     FTraceRayInlineContext C=CreateTraceRayInlineContext();
     FTraceRayInlineResult H=TraceRayInline(TLAS,RAY_FLAG_FORCE_OPAQUE,RAY_TRACING_MASK_OPAQUE,Ray(P,D,Limit),C);
     Hit=H.IsHit();
     Valid=true;
-    if(!Hit) return FogMS_WorldSky(D);
+    if(!Hit) return FogMS_WorldSky(D,SectorSolidAngle);
     float3 N=0;
 #if PLATFORM_SUPPORTS_INLINE_RAY_TRACING_TRIANGLE_NORMALS
     N=H.WorldGeometryNormal;
@@ -190,14 +191,14 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
             // Include the boundary half-cell: otherwise a thin wall there is
             // missed by both the exterior ray and every center-to-center edge.
             OuterHalfCellBlocked=Blocked(Interior,Outward,.5f*CellSize[A],RAY_TRACING_MASK_OPAQUE);
-            bool Hit,Valid; float3 Value=BoundaryRadiance(Interior,Outward,SourceTraceDistance+.5f*CellSize[A],Hit,Valid);
+            bool Hit,Valid; float3 Value=BoundaryRadiance(Interior,Outward,SourceTraceDistance+.5f*CellSize[A],4.f*PI/float(AngularCount),Hit,Valid);
             if(Plane==0) {Right=Value;RightValid=Valid;} else {Left=Value;LeftValid=Valid;}
         }
         else
         {
             bool H0,H1;
-            Left=BoundaryRadiance(P-D*(.5f*CellSize[A]),D,CellSize[A],H0,LeftValid);
-            Right=BoundaryRadiance(P+D*(.5f*CellSize[A]),-D,CellSize[A],H1,RightValid);
+            Left=BoundaryRadiance(P-D*(.5f*CellSize[A]),D,CellSize[A],4.f*PI/float(AngularCount),H0,LeftValid);
+            Right=BoundaryRadiance(P+D*(.5f*CellSize[A]),-D,CellSize[A],4.f*PI/float(AngularCount),H1,RightValid);
             Open=!(H0||H1);
             if(Open) {Left=0;Right=0;}
             else {if(!H0) Left=0;if(!H1) Right=0;}
@@ -255,7 +256,7 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
     {
         float3 Look=-(Ordinates[D].x*BoxAxisX.xyz+Ordinates[D].y*BoxAxisY.xyz+Ordinates[D].z*BoxAxisZ.xyz);
         bool Hit,Valid;
-        Value.rgb=BoundaryRadiance(CellPosition(C),Look,SourceTraceDistance+length(CellSize),Hit,Valid);
+        Value.rgb=BoundaryRadiance(CellPosition(C),Look,SourceTraceDistance+length(CellSize),4.f*PI/float(AngularCount),Hit,Valid);
         Value.a=Valid?0.f:-1.f;
     }
     OutDirectionBoundaries[I]=Value;

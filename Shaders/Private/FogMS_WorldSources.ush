@@ -12,6 +12,7 @@ TextureCube FogMSWorldSkyBlendTexture;
 SamplerState FogMSWorldSkyBlendSampler;
 float3 FogMSWorldSkyColor;
 float FogMSWorldSkyBlend;
+float FogMSWorldSkyMipBias;
 float3 FogMSWorldSunDirection;
 float FogMSWorldSunExcludeCos;
 
@@ -84,7 +85,14 @@ void FogMS_WorldLight(uint Index, float3 TranslatedPosition, out float3 Directio
 // Escaped sky rays ONLY: radiance, no phase / sigma / View.PreExposure. Native
 // View.SkyLightColor removes RTC cached exposure; C++ folds sky volumetric
 // intensity exactly once. Do not apply this factor to surface GI or emissive hits.
-float3 FogMS_WorldSky(float3 WorldDirection)
+// SectorSolidAngle > 0: WorldDirection stands for a whole quadrature sector of that
+// solid angle (4*pi/AngularCount). The cubemap is then sampled at the mip whose
+// texel footprint matches the sector cone, so the ordinate sees the sector-average
+// radiance instead of a point sample of a peaky region (the sun aureole). The sky
+// light's processed cubemap mips are GGX-prefiltered (specular convolution by
+// roughness), which is an acceptable approximation of a sector average here.
+// SectorSolidAngle == 0 is the mip-0 point sample (FogMSWorldSkyMipBias not applied).
+float3 FogMS_WorldSky(float3 WorldDirection, float SectorSolidAngle)
 {
 	// The captured cubemap contains the sun disc. Direct sun is already accounted by
 	// FogMS_WorldLight with shadows; a sector-weighted quadrature ordinate hitting the
@@ -110,12 +118,39 @@ float3 FogMS_WorldSky(float3 WorldDirection)
 		float SinA = sqrt(saturate(1.0f - CosA * CosA));
 		SampleDirection = normalize(Sun * CosA + normalize(Perp) * SinA);
 	}
-	float3 Radiance = FogMSWorldSkyTexture.SampleLevel(FogMSWorldSkySampler, SampleDirection, 0).rgb;
+	// Sector-matched mip, computed after the sun-disc substitution above so the
+	// filtered footprint is centred on the substituted (cone boundary) direction.
+	float Mip = 0.0f;
+	float BlendMip = 0.0f;
+	if (SectorSolidAngle > 0.0f)
+	{
+		// Half-angle of the spherical cap with the sector's solid angle: Omega = 2*pi*(1-cos(theta)).
+		// The argument clamp keeps theta in [0, pi/2] (Omega <= 2*pi, a hemisphere).
+		float Theta = acos(clamp(1.0f - SectorSolidAngle / (2.0f * PI), 0.0f, 1.0f));
+		uint Width, Height, Levels;
+		FogMSWorldSkyTexture.GetDimensions(0u, Width, Height, Levels);
+		// One cube face spans 90 degrees, so a mip-0 texel subtends ~(pi/2)/Width.
+		// Mip m has texels 2^m times wider; match the cone diameter 2*theta.
+		float TexelAngle = (0.5f * PI) / max(float(Width), 1.0f);
+		Mip = clamp(log2(max(2.0f * Theta / TexelAngle, 1.0f)) + FogMSWorldSkyMipBias, 0.0f, float(max(Levels, 1u) - 1u));
+		BlendMip = Mip;
+		if (FogMSWorldSkyBlend > 0.0f)
+		{
+			uint BlendWidth, BlendHeight, BlendLevels;
+			FogMSWorldSkyBlendTexture.GetDimensions(0u, BlendWidth, BlendHeight, BlendLevels);
+			float BlendTexelAngle = (0.5f * PI) / max(float(BlendWidth), 1.0f);
+			BlendMip = clamp(log2(max(2.0f * Theta / BlendTexelAngle, 1.0f)) + FogMSWorldSkyMipBias, 0.0f, float(max(BlendLevels, 1u) - 1u));
+		}
+	}
+	float3 Radiance = FogMSWorldSkyTexture.SampleLevel(FogMSWorldSkySampler, SampleDirection, Mip).rgb;
 	if (FogMSWorldSkyBlend > 0.0f)
 	{
-		float3 Destination = FogMSWorldSkyBlendTexture.SampleLevel(FogMSWorldSkyBlendSampler, SampleDirection, 0).rgb;
+		float3 Destination = FogMSWorldSkyBlendTexture.SampleLevel(FogMSWorldSkyBlendSampler, SampleDirection, BlendMip).rgb;
 		Radiance = lerp(Radiance, Destination, FogMSWorldSkyBlend);
 	}
 	Radiance *= FogMSWorldSkyColor;
 	return all(isfinite(Radiance)) ? max(Radiance, 0.0f) : 0.0f;
 }
+
+// Point sample (mip 0); identical to the pre-sector behaviour.
+float3 FogMS_WorldSky(float3 WorldDirection) { return FogMS_WorldSky(WorldDirection, 0.0f); }

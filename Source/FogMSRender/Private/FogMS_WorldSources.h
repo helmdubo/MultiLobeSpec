@@ -21,6 +21,9 @@ BEGIN_SHADER_PARAMETER_STRUCT(FFogMSWorldSourcesParameters, )
 	SHADER_PARAMETER_SAMPLER(SamplerState, FogMSWorldSkyBlendSampler)
 	SHADER_PARAMETER(FVector3f, FogMSWorldSkyColor)
 	SHADER_PARAMETER(float, FogMSWorldSkyBlend)
+	// Added to the sector-matched sky cubemap mip FogMS_WorldSky picks when given a
+	// sector solid angle (r.FogMS.World.SkyMipBias). Not applied to point samples.
+	SHADER_PARAMETER(float, FogMSWorldSkyMipBias)
 	// Unit vector toward the sun (world space, same Direction row FogMS_WorldLight
 	// uses for the directional light); zero when no directional light is gathered.
 	SHADER_PARAMETER(FVector3f, FogMSWorldSunDirection)
