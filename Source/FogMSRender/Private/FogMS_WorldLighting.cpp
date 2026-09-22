@@ -32,6 +32,7 @@
 // Implemented in FogMS_Transport.cpp (transport pass 17). Declared here, not in FogMS_Transport.h,
 // to keep this change within the reviewed file set.
 void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field);
+bool FogMS_TransportAsync(const FRDGBuilder& GraphBuilder);
 
 namespace
 {
@@ -126,6 +127,11 @@ namespace
 		float LastTransportAlbedo = 1;
 		// Previous transport atlas for the PCG warm start; valid only for the geometry in LastRequest.
 		TRefCountPtr<IPooledRenderTarget> PreviousAtlas;
+		// Late publication: Texture holds the solve of LastRequest, copied by the PrePostProcessPass of the graph
+		// that solved it. Cleared by every late build, so a skipped copy is never offered to the next frame.
+		bool bLateAtlasValid = false;
+		// GFrameNumberRenderThread of that copy: a gap (Box off, view not rendered) is never bridged by an old solve.
+		uint32 LateCopyRenderFrame = 0;
 
 		bool EnsureResource(bool bTransport)
 		{
@@ -241,13 +247,36 @@ namespace
 			&& Request.Steps >= 1 && Request.Steps <= 32 && (Request.bTransport ? (Request.Directions == 6 || Request.Directions == 16 || Request.Directions == 24 || Request.Directions == 48 || Request.Directions == 96) : Request.Directions == 12)
 			&& (!Request.bTransport || (Request.Iterations >= 1 && Request.Iterations <= 64 && FMath::IsFinite(Request.Tolerance)));
 	}
+
+	uint64 TransportViewKey(const FSceneView& View)
+	{
+		// Same key as FogMS_BuildWorldLighting (FViewInfo::ViewState is FSceneView::State).
+		return (uint64(View.GetViewKey()) << 1) | 1u;
+	}
 }
+
+// Late Transport publication handed from PostTLASBuild to PrePostProcessPass of the SAME render graph.
+// The RDG blackboard lives exactly as long as its graph, so a later graph never sees these references.
+struct FFogMSLateTransportPublish
+{
+	uint64 Key = 0;
+	FRDGTextureRef Work = nullptr;      // transient atlas written on async compute
+	FRDGTextureRef FieldBack = nullptr; // transient injection field written on async compute (pass 17)
+	FTextureRHIRef Field;               // Box-owned injection volume, copy destination
+};
+RDG_REGISTER_BLACKBOARD_STRUCT(FFogMSLateTransportPublish)
 
 FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSceneView& SceneView, const FFogMSWorldRequest& Request)
 {
 	check(IsInRenderingThread());
 	FFogMSSpatialResult Result;
 	bLastBuildValid = false;
+	const bool bLate = Request.bTransport && Request.bLatePublish;
+	if (bLate)
+	{
+		// Before any early return: this graph's own PrePostProcessPass copy is the only way back to a valid atlas.
+		if (TUniquePtr<FWorldViewState>* Found = WorldViews.Find(TransportViewKey(SceneView))) (*Found)->bLateAtlasValid = false;
+	}
 #if RHI_RAYTRACING
 	if (!GDynamicRHI || GDynamicRHI->GetInterfaceType() != ERHIInterfaceType::D3D12
 		|| GNumExplicitGPUsForRendering != 1 || !GRHISupportsInlineRayTracing || !SupportsWorld(SceneView.GetShaderPlatform()))
@@ -331,6 +360,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	const auto CVarInt = [](const TCHAR* Name) { return IConsoleManager::Get().FindConsoleVariable(Name)->GetInt(); };
 	const auto CVarFloat = [](const TCHAR* Name) { return IConsoleManager::Get().FindConsoleVariable(Name)->GetFloat(); };
 	FRDGTextureRef Work = nullptr;
+	FRDGTextureRef FieldBack = nullptr;
 	if (Request.bTransport)
 	{
 		// Warm start needs the same Box and the same diagnostic inputs; Directions/Iterations/Tolerance may differ (J is direction independent).
@@ -349,7 +379,15 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0, Previous);
 		if (!Work) { Result.Error = TEXT("B2 transport graph unavailable."); return Result; }
 		GraphBuilder.QueueTextureExtraction(Work, &State.PreviousAtlas);
-		if (Request.InjectionTexture.IsValid())
+		if (Request.InjectionTexture.IsValid() && bLate)
+		{
+			// Late (async queue): pass 17 writes a transient field only. Nothing on graphics reads it before the
+			// PrePostProcessPass copy into the Box volume, so the Box volume keeps last frame's J through fog.
+			FieldBack = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(FIntVector(WorldSize), Request.InjectionTexture->GetDesc().Format,
+				FClearValueBinding::None, ETextureCreateFlags::ShaderResource | ETextureCreateFlags::UAV), TEXT("FogMS.TransportFieldBack"));
+			FogMS_PublishTransportField(GraphBuilder, View, Work, FieldBack);
+		}
+		else if (Request.InjectionTexture.IsValid())
 		{
 			// Emissive Injection: slab 0 total J of cell (x,y,z) -> field texel (x,y,z), written in
 			// this graph before native fog voxelization samples it through the Box Volume material.
@@ -424,10 +462,24 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		Dispatch(3, TEXT("FogMS World Publish"), Parameters);
 	}
 	}
-	FRDGTextureRef Output = RegisterExternalTexture(GraphBuilder, State.Texture, TEXT("FogMS.WorldResident"));
-	GraphBuilder.UseInternalAccessMode(Output);
-	AddCopyTexturePass(GraphBuilder, Work, Output);
-	GraphBuilder.UseExternalAccessMode(Output, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
+	FRDGTextureRef Output = nullptr;
+	if (bLate)
+	{
+		// Late: no graphics pass of this hook touches an async output. The resident atlas and the Box volume keep
+		// the previous copy through lights/Lumen/fog; FogMS_PublishWorldLightingLate copies in PrePostProcessPass.
+		FFogMSLateTransportPublish& Late = GraphBuilder.Blackboard.GetOrCreate<FFogMSLateTransportPublish>();
+		Late.Key = Key;
+		Late.Work = Work;
+		Late.FieldBack = FieldBack;
+		Late.Field = FieldBack ? Request.InjectionTexture : FTextureRHIRef();
+	}
+	else
+	{
+		Output = RegisterExternalTexture(GraphBuilder, State.Texture, TEXT("FogMS.WorldResident"));
+		GraphBuilder.UseInternalAccessMode(Output);
+		AddCopyTexturePass(GraphBuilder, Work, Output);
+		GraphBuilder.UseExternalAccessMode(Output, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
+	}
 	State.LastFrameIndex = View.ViewState->GetFrameIndex();
 	State.LastRequest = Request;
 	State.LastRequest.InjectionTexture.SafeRelease(); // Do not extend the Box field's lifetime.
@@ -460,6 +512,66 @@ void FogMS_InvalidateWorldLighting_RenderThread()
 {
 	check(IsInRenderingThread());
 	bLastBuildValid = false;
+}
+
+bool FogMS_TransportPublishesLate(const FRDGBuilder& GraphBuilder)
+{
+	return FogMS_TransportAsync(GraphBuilder);
+}
+
+bool FogMS_GetLateTransportField(const FSceneView& View, const FVector4f* BoxRows, uint32& OutDescriptorIndex, int32& OutGridSize)
+{
+	check(IsInRenderingThread());
+	OutDescriptorIndex = MAX_uint32;
+	OutGridSize = WorldSize;
+	if (!BoxRows || !View.State) return false;
+	// A live state of the CURRENT view key: only a build for another key can retire a state (CollectWorldViews),
+	// so the descriptor stays allocated through this graph. Its atlas is Box-local: offer it only for the bounds
+	// it was solved in (LastRequest; built from rows 0..4 exactly as BoxRuntime does). Otherwise fail closed.
+	const TUniquePtr<FWorldViewState>* Found = WorldViews.Find(TransportViewKey(View));
+	if (!Found || !(*Found)->bLateAtlasValid || !(*Found)->Texture.IsValid() || (*Found)->DescriptorIndex >= (1u << 24)
+		|| GFrameNumberRenderThread - (*Found)->LateCopyRenderFrame > 1u) return false;
+	const FFogMSWorldRequest& Last = (*Found)->LastRequest;
+	if (!Last.bTransport || Last.CenterWS != FVector(BoxRows[0]) + FVector(BoxRows[1])
+		|| Last.AxisX != FVector3f(BoxRows[2]) || Last.AxisY != FVector3f(BoxRows[3]) || Last.AxisZ != FVector3f(BoxRows[4])
+		|| Last.Extent != FVector3f(BoxRows[2].W, BoxRows[3].W, BoxRows[4].W)) return false;
+	OutDescriptorIndex = (*Found)->DescriptorIndex;
+	return true;
+}
+
+bool FogMS_PublishWorldLightingLate(FRDGBuilder& GraphBuilder, const FSceneView& View, bool& bOutInjectionCopied)
+{
+	check(IsInRenderingThread());
+	bOutInjectionCopied = false;
+	FFogMSLateTransportPublish* Late = GraphBuilder.Blackboard.GetMutable<FFogMSLateTransportPublish>();
+	if (!Late || !Late->Work || Late->Key != TransportViewKey(View)) return false;
+	TUniquePtr<FWorldViewState>* Found = WorldViews.Find(Late->Key);
+	const FRDGTextureRef Work = Late->Work, FieldBack = Late->FieldBack;
+	const FTextureRHIRef Field = Late->Field;
+	// Consume once per graph whatever happens below.
+	Late->Work = Late->FieldBack = nullptr;
+	Late->Field.SafeRelease();
+	if (!Found || !(*Found)->Texture.IsValid()) return false;
+	FWorldViewState& State = **Found;
+	// PrePostProcessPass, graphics queue, after ComputeVolumetricFog: these copies are the first graphics consumers
+	// of the async solve, so RDG joins async->graphics here and the solver overlapped lights, Lumen and fog.
+	RDG_EVENT_SCOPE(GraphBuilder, "FogMS transport publish (one frame late)");
+	FRDGTextureRef Output = RegisterExternalTexture(GraphBuilder, State.Texture, TEXT("FogMS.WorldResident"));
+	GraphBuilder.UseInternalAccessMode(Output);
+	AddCopyTexturePass(GraphBuilder, Work, Output);
+	GraphBuilder.UseExternalAccessMode(Output, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
+	if (FieldBack && Field.IsValid())
+	{
+		// The Box Volume material binding is invisible to RDG: hand the volume back in external SRV access.
+		FRDGTextureRef Target = RegisterExternalTexture(GraphBuilder, Field, TEXT("FogMS.TransportField"));
+		GraphBuilder.UseInternalAccessMode(Target);
+		AddCopyTexturePass(GraphBuilder, FieldBack, Target);
+		GraphBuilder.UseExternalAccessMode(Target, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
+		bOutInjectionCopied = true;
+	}
+	State.bLateAtlasValid = true;
+	State.LateCopyRenderFrame = GFrameNumberRenderThread;
+	return true;
 }
 
 void FogMS_ShutdownWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList)

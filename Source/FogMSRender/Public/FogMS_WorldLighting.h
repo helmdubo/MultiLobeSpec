@@ -24,6 +24,11 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	 * the Box Volume material. Null: no field write. An invalid texture fails the request.
 	 */
 	FTextureRHIRef InjectionTexture;
+	/** Render thread only; Transport only. Set when FogMS_TransportPublishesLate(GraphBuilder): the async solver
+	 * writes transient graph textures only, and FogMS_PublishWorldLightingLate copies them into the resident atlas
+	 * and InjectionTexture from PrePostProcessPass of the same graph. Consumers see the field one frame late.
+	 */
+	bool bLatePublish = false;
 	FFogMSWorldRequest() { FMemory::Memzero(BoxRows, sizeof(BoxRows)); }
 };
 
@@ -34,6 +39,20 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
  */
 FOGMSRENDER_API FFogMSSpatialResult FogMS_BuildWorldLighting(
 	FRDGBuilder& GraphBuilder, const FSceneView& View, const FFogMSWorldRequest& Request);
+/** True when this graph runs the Transport solver on async compute (r.FogMS.Transport.AsyncCompute resolved on;
+ * the solver's own predicate). The caller then sets bLatePublish and defers every graphics consumer of the solve.
+ */
+FOGMSRENDER_API bool FogMS_TransportPublishesLate(const FRDGBuilder& GraphBuilder);
+/** Render thread, before this graph's late copy. The resident Transport atlas of this view when the previous
+ * graph completed its late copy (FogMS_PublishWorldLightingLate) for the same Box bounds (BoxRows 0..4).
+ * False otherwise: the caller must publish no field (fail closed).
+ */
+FOGMSRENDER_API bool FogMS_GetLateTransportField(const FSceneView& View, const FVector4f* BoxRows, uint32& OutDescriptorIndex, int32& OutGridSize);
+/** PrePostProcessPass of the graph whose PostTLAS build set bLatePublish. Graphics copies: transient atlas ->
+ * resident atlas and, when requested, transient field -> InjectionTexture, each left in external SRV access.
+ * False when this graph has no pending late publication for this view (nothing is written).
+ */
+FOGMSRENDER_API bool FogMS_PublishWorldLightingLate(FRDGBuilder& GraphBuilder, const FSceneView& View, bool& bOutInjectionCopied);
 FOGMSRENDER_API void FogMS_ShutdownWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList);
 FOGMSRENDER_API void FogMS_InvalidateWorldLighting_RenderThread();
 /** Returns false when there is no current world-mode producer; caller may dump legacy. */

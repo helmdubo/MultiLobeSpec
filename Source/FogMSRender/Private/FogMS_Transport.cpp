@@ -281,7 +281,8 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
     { return GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector4f), Size), Name); };
     // Async solver: every solver input/output below is an RDG resource in the parameter struct, so RDG forks
     // graphics->async after the last graphics producer (pass 2) and joins at the first graphics consumer of an
-    // async output (resident atlas copy / injection access-mode pass) or, at the latest, the graph epilogue.
+    // async output or, at the latest, the graph epilogue. With async on, FogMS_BuildWorldLighting publishes late:
+    // that first consumer is the atlas/field copy in the PrePostProcessPass hook, after ComputeVolumetricFog.
     const ERDGPassFlags SolverFlags = SolverPassFlags(GraphBuilder);
     const TCHAR* const SolverQueue = SolverFlags == ERDGPassFlags::AsyncCompute ? TEXT(" (async)") : TEXT("");
     const auto Dispatch = [&](int32 Pass, const TCHAR* Name, const FTransportParameters& Params, int32 Threads)
@@ -414,9 +415,21 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
 #endif
 }
 
+// Same predicate as the solver passes: true when this graph runs them on the async compute queue.
+// FogMS_BuildWorldLighting then publishes one frame late (graphics copies in PrePostProcessPass).
+bool FogMS_TransportAsync(const FRDGBuilder& GraphBuilder)
+{
+#if RHI_RAYTRACING
+    return SolverPassFlags(GraphBuilder) == ERDGPassFlags::AsyncCompute;
+#else
+    return false;
+#endif
+}
+
 // Emissive Injection (pass 17): copy slab 0 (total incident J, scene-linear, not pre-exposed) of
-// the transport atlas into the Box-owned 32^3 volume field. Texel (x,y,z) = cell (x,y,z), alpha 1.
-// The caller registers Field, puts it in internal access before and external SRV access after.
+// the transport atlas into a 32^3 volume field. Texel (x,y,z) = cell (x,y,z), alpha 1.
+// Same-frame: Field is the Box-owned volume; the caller puts it in internal access before and
+// external SRV access after. Late (async): Field is a transient graph texture copied later.
 void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field)
 {
 #if RHI_RAYTRACING
@@ -430,8 +443,9 @@ void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
     FTransportCS::FPermutationDomain Permutation; Permutation.Set<FTransportCS::FPass>(17);
     TShaderMapRef<FTransportCS> Shader(GetGlobalShaderMap(View.GetShaderPlatform()), Permutation);
     auto* P = GraphBuilder.AllocParameters<FTransportParameters>(); *P = Params;
-    // May run on async compute: the caller's UseExternalAccessMode(Field, SRVMask, Graphics) makes RDG add a
-    // graphics AccessModePass that reads Field, so RDG joins async->graphics before the field leaves the graph.
+    // May run on async compute. BoxRuntime then publishes late: Field is a transient texture whose first graphics
+    // consumer is the PrePostProcessPass copy into the Box volume, where RDG joins async->graphics. A same-frame
+    // caller's UseExternalAccessMode(Field, SRVMask, Graphics) would instead join at its access-mode pass.
     const ERDGPassFlags Flags = SolverPassFlags(GraphBuilder);
     FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS transport field publish (emissive injection)%s",
         Flags == ERDGPassFlags::AsyncCompute ? TEXT(" (async)") : TEXT("")),

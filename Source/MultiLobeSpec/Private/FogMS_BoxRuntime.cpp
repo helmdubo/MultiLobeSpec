@@ -315,6 +315,15 @@ namespace
 		FTextureRHIRef InjectionTexture;
 		// True after a graph wrote a current J into InjectionTexture; a non-publishing frame clears it.
 		bool bInjectionFieldWritten = false;
+		// r.FogMS.Transport.AsyncCompute one-frame-late publication (render thread only). PostTLAS queues the async
+		// solve and records the row 22 it will publish; PrePostProcessPass of the same graph copies and uploads it.
+		FVector4f LateField = FVector4f(0, 0, 0, 0);
+		bool bLatePublishQueued = false;
+		// Last late copy into InjectionTexture: GFrameNumberRenderThread and view. A late PostTLAS more than one frame
+		// later (copy skipped without PrePostProcessPass, or a gap) clears the older J before fog samples it. Only
+		// that view's fallback clears it: a capture/other family between two of its frames would erase valid J.
+		uint32 LateInjectionRenderFrame = 0;
+		uint32 LateInjectionViewKey = 0;
 
 		bool GetAtlasStatus(uint64 AtlasRevision, FString& OutProblem)
 		{
@@ -813,11 +822,25 @@ namespace
 			const bool bWorldLighting = FogMS_UsesWorldProducer(Packet.Rows[5].Y);
 			// Row 23.w == 5: the Box Volume MID reads J from InjectionTexture; the overlay reads nothing.
 			const bool bInjection = bTransport && Packet.Rows[23].W == 5.0f && GPU->InjectionTexture.IsValid();
+			// Async solver (r.FogMS.Transport.AsyncCompute): publish one frame late. Every graphics consumer of the solve
+			// (atlas/field copies, row 22 upload) moves to PrePostProcessPass, after ComputeVolumetricFog, so RDG joins the
+			// async queue there and the solve overlaps lights/Lumen/fog. This frame's fog reads last frame's publication.
+			const bool bLate = bTransport && Packet.Rows[0].W >= 0.5f && FogMS_TransportPublishesLate(GraphBuilder);
+			GPU->bLatePublishQueued = false;
+			// Same-frame: every fallback clears J. Late: only the view that owns the late J (LateInjectionViewKey);
+			// a capture/planar/other family rendered between two of its frames must not erase J before its next fog.
+			const bool bMayClearInjection = !FogMS_TransportPublishesLate(GraphBuilder) || View.GetViewKey() == GPU->LateInjectionViewKey;
 			if (!bWorldLighting || Packet.Rows[0].W < 0.5f) FogMS_InvalidateWorldLighting_RenderThread();
 			if (Packet.Rows[0].W < 0.5f || (!bWorldLighting && (Packet.Rows[5].Y != 2 || Packet.Rows[21].X <= 0)))
 			{
-				ClearInjectionField(GraphBuilder);
+				if (bMayClearInjection) ClearInjectionField(GraphBuilder);
 				return;
+			}
+			if (bLate && GFrameNumberRenderThread - GPU->LateInjectionRenderFrame > 1u)
+			{
+				// No late copy in the previous frame (PrePostProcessPass skipped, or a gap): the volume holds older J.
+				// Clear on graphics before the solver forks and before this frame's fog samples it (fail closed).
+				ClearInjectionField(GraphBuilder);
 			}
 			FFogMSSpatialRequest Request;
 			Request.CenterWS = FVector(Packet.Rows[0]) + FVector(Packet.Rows[1]);
@@ -844,6 +867,25 @@ namespace
 					WorldRequest.Tolerance = Packet.Rows[16].W;
 				}
 				if (bInjection) WorldRequest.InjectionTexture = GPU->InjectionTexture;
+				WorldRequest.bLatePublish = bLate;
+				if (bLate)
+				{
+					// This frame's fog runs before this graph's late copy: upload last frame's pair now, on graphics BEFORE
+					// the solver forks, so this packet rewrite (and its manual fences) never waits on the async solve.
+					// No pair (first late frame, skipped copy, gap, Box moved): the packet of a failed same-frame solve.
+					uint32 LateDescriptor = MAX_uint32;
+					int32 LateGrid = 0;
+					const bool bConsumed = FogMS_GetLateTransportField(View, Packet.Rows, LateDescriptor, LateGrid)
+						&& LateDescriptor < (1u << 24) && LateGrid > 1;
+					// Stays in the snapshot: PrePostProcessPass (SSFS) sees what this frame's fog consumed.
+					Packet.Rows[22] = bConsumed ? FVector4f(static_cast<float>(LateDescriptor), static_cast<float>(LateGrid), 1, 4.0f) : FVector4f(0, 0, 0, 0);
+					FBoxRenderSnapshot Consumer = Snapshot;
+					if (!bConsumed) Consumer.Packet.Rows[5].Y = 0;
+					// Native fog history: reset once when what fog consumes switches (the same-frame rule, moved to the consumer).
+					if (GPU->bWorldFieldPublished != bConsumed) Consumer.Packet.Rows[5].X = 1;
+					GPU->bWorldFieldPublished = bConsumed;
+					PublishFields(GraphBuilder, Consumer);
+				}
 				// Strength=0 still produces current primary indirect lighting. World
 				// applies per-order strength in its atlas; the consumer must not repeat it.
 				Result = FogMS_BuildWorldLighting(GraphBuilder, View, WorldRequest);
@@ -851,21 +893,31 @@ namespace
 			else
 				Result = FogMS_BuildSpatial(GraphBuilder, View, Request);
 			const bool bPublished = Result.Valid && Result.DescriptorIndex < (1u << 24) && Result.GridSize > 1;
-			if (bWorldLighting)
+			if (bWorldLighting && !bLate)
 			{
 				// Native fog still filters the final image temporally. Invalidate it once
 				// when switching between current World lighting and native fallback.
 				if (GPU->bWorldFieldPublished != bPublished) Packet.Rows[5].X = 1;
 				GPU->bWorldFieldPublished = bPublished;
 			}
-			if (bPublished)
+			if (bPublished && bLate)
+			{
+				// Late: row 22 keeps the consumed pair until PrePostProcessPass has added the copy it describes.
+				GPU->LateField = FVector4f(static_cast<float>(Result.DescriptorIndex), static_cast<float>(Result.GridSize), 1, 4.0f);
+				GPU->bLatePublishQueued = true;
+			}
+			else if (bPublished)
 				Packet.Rows[22] = FVector4f(static_cast<float>(Result.DescriptorIndex), static_cast<float>(Result.GridSize), 1,
 					bTransport ? 4.0f : (bWorldLighting ? 3.0f : 0.0f));
 			else if (bWorldLighting)
 				Packet.Rows[5].Y = 0; // No replacement GI may consume an invalid World atlas.
 			// The producer wrote the field in this graph only for a published injection request.
-			if (bInjection && bPublished) GPU->bInjectionFieldWritten = true;
-			else ClearInjectionField(GraphBuilder);
+			if (bInjection && bPublished)
+			{
+				// Late: nothing is written yet; PrePostProcessPass sets it when its copy is actually added.
+				if (!bLate) GPU->bInjectionFieldWritten = true;
+			}
+			else if (bMayClearInjection) ClearInjectionField(GraphBuilder);
 			FString ToleranceText;
 			if (bTransport && bPublished)
 			{
@@ -881,8 +933,8 @@ namespace
 				GPU->FieldStatusRevision = GPU->Revision;
 				if (bPublished)
 					GPU->SpatialFieldStatus = bTransport
-						? FString::Printf(TEXT("Active %s isotropic transport (%d directions, %s%s; see convergence diagnostics)"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
-							*ToleranceText, bInjection ? TEXT("; emissive injection via material") : TEXT(""))
+						? FString::Printf(TEXT("Active %s isotropic transport (%d directions, %s%s%s; see convergence diagnostics)"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
+							*ToleranceText, bInjection ? TEXT("; emissive injection via material") : TEXT(""), bLate ? TEXT("; one frame late") : TEXT(""))
 						: (bWorldLighting
 							? (Packet.Rows[21].X > 0 ? TEXT("Active World primary + three current-frame scattering orders (no fog history)")
 								: TEXT("Active World primary (Strength=0: extra orders disabled; no fog history)"))
@@ -898,7 +950,8 @@ namespace
 			}
 			// UE 5.8 calls PostTLAS after the base-pass extension, before deferred
 			// lighting and volumetric fog. Publish the new spatial descriptor here.
-			PublishFields(GraphBuilder, Snapshot);
+			// Late: already uploaded before the solver; the new pair goes up with its copy in PrePostProcessPass.
+			if (!bLate) PublishFields(GraphBuilder, Snapshot);
 		}
 
 		virtual void PostRenderBasePassDeferred_RenderThread(FRDGBuilder& GraphBuilder, FSceneView& View,
@@ -952,6 +1005,26 @@ namespace
 				&& View.Family && View.Family->Views.Num() == 1)
 			{
 				FogMS_AddScreenScattering(GraphBuilder, View, Inputs);
+			}
+			if (GPU->bLatePublishQueued)
+			{
+				// One-frame-late publication, graphics queue, after ComputeVolumetricFog (and SSFS): the copies are the
+				// first graphics consumers of the async solve, so RDG joins here. Row 22 and the volume change only
+				// together with their copies; the fences in PublishFields bracket the packet rewrite on this list.
+				// The blackboard entry proves the solve belongs to THIS graph; otherwise nothing is written.
+				GPU->bLatePublishQueued = false;
+				bool bInjectionCopied = false;
+				if (FogMS_PublishWorldLightingLate(GraphBuilder, View, bInjectionCopied))
+				{
+					if (bInjectionCopied)
+					{
+						GPU->bInjectionFieldWritten = true;
+						GPU->LateInjectionRenderFrame = GFrameNumberRenderThread;
+						GPU->LateInjectionViewKey = View.GetViewKey();
+					}
+					GPU->RenderSnapshot.Packet.Rows[22] = GPU->LateField;
+					PublishFields(GraphBuilder, GPU->RenderSnapshot);
+				}
 			}
 		}
 	private:
