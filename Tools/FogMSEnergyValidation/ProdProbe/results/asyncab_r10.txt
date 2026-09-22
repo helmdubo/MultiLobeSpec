@@ -1,0 +1,38 @@
+"output": "FROZEN\r\n"
+"output": "INJ 0\r\n"
+== async_i0_a0 | == async_i0_a0: GPU frame 11.29 ms, 532 events | FogMS transport/world (B2/B3)                    2.24 ms | maxres 0.0765002072
+== async_i0_a0: GPU frame 11.29 ms, 532 events
+  -- top 10 events overall:
+       4.039 ms  ComputeVolumetricFog
+"output": "STATUS Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+== async_i0_a1 | == async_i0_a1: GPU frame 11.78 ms, 396 events | FogMS transport/world (B2/B3)                    0.55 ms | maxres 0.0765002072
+== async_i0_a1: GPU frame 11.78 ms, 396 events
+  -- top 10 events overall:
+       4.479 ms  ComputeVolumetricFog
+"output": "STATUS Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+== async_i0_a0 | == async_i0_a0: GPU frame 11.90 ms, 532 events | FogMS transport/world (B2/B3)                    2.23 ms | maxres 0.0510974564
+== async_i0_a0: GPU frame 11.90 ms, 532 events
+  -- top 10 events overall:
+       4.476 ms  ComputeVolumetricFog
+"output": "STATUS Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+--- field check i0 (async 1 vs 0)
+async_i0_a1 vs async_i0_a0: rel L2 0.0001 | weighted mean rel diff 0.0000 | mean lum ratio 1.0000 | bright-half mean |dJ|/J 0.0000
+"output": "INJ 1\r\n"
+== async_i1_a0 | == async_i1_a0: GPU frame 10.71 ms, 534 events | FogMS transport/world (B2/B3)                    2.21 ms | maxres 0.101830058
+== async_i1_a0: GPU frame 10.71 ms, 534 events
+  -- top 10 events overall:
+       3.453 ms  ComputeVolumetricFog
+"output": "STATUS Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; see convergence diagnostics)\r\n"
+== async_i1_a1 | == async_i1_a1: GPU frame 10.70 ms, 397 events | FogMS transport/world (B2/B3)                    0.54 ms | maxres 0.0512004122
+== async_i1_a1: GPU frame 10.70 ms, 397 events
+  -- top 10 events overall:
+       3.445 ms  ComputeVolumetricFog
+"output": "STATUS Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; see convergence diagnostics)\r\n"
+== async_i1_a0 | == async_i1_a0: GPU frame 10.64 ms, 534 events | FogMS transport/world (B2/B3)                    2.21 ms | maxres 0.0538283773
+== async_i1_a0: GPU frame 10.64 ms, 534 events
+  -- top 10 events overall:
+       3.447 ms  ComputeVolumetricFog
+"output": "STATUS Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; see convergence diagnostics)\r\n"
+--- field check i1 (async 1 vs 0)
+async_i1_a1 vs async_i1_a0: rel L2 0.0000 | weighted mean rel diff 0.0000 | mean lum ratio 1.0000 | bright-half mean |dJ|/J 0.0000
+"output": "RESTORED\r\n"
