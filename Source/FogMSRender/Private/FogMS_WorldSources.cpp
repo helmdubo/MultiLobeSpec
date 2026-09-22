@@ -22,6 +22,9 @@ namespace
 	constexpr int32 LightRows = 5;
 	constexpr float SourceGridSize = 32.0f;
 
+	TAutoConsoleVariable<float> CVarWorldSunExcludeDegrees(TEXT("r.FogMS.World.SunExcludeDegrees"), 3.0f,
+		TEXT("Half-angle in degrees of the cone around the atmosphere sun that is removed from the captured sky radiance used as transport/world boundary. Direct sun is accounted separately with shadows; 0 disables."), ECVF_RenderThreadSafe);
+
 	bool Finite(const FVector3f& Value)
 	{
 		return FMath::IsFinite(Value.X) && FMath::IsFinite(Value.Y) && FMath::IsFinite(Value.Z);
@@ -125,6 +128,8 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
 	// Shader parameter structs have an empty generated constructor, not value
 	// initialization of scalar fields (in particular the light count).
 	FMemory::Memzero(&OutParameters, sizeof(OutParameters));
+	// 2 = "never inside the cone" (dot of unit vectors <= 1); zero would exclude a hemisphere.
+	OutParameters.FogMSWorldSunExcludeCos = 2.0f;
 	if (!View.Family || !View.Family->Scene || !View.CachedViewUniformShaderParameters
 		|| BoxCenterWS.ContainsNaN() || !Finite(BoxExtent) || BoxExtent.GetMin() <= 0)
 	{
@@ -160,6 +165,15 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
 	// absent (SceneRendering.cpp:2609; SceneView.cpp:2967). Preserve that exact
 	// exposure for inverse-exposure-blended lights, rather than using PreExposure.
 	const float Exposure = View.FSceneView::GetLastEyeAdaptationExposure();
+	// Sun for the sky exclusion cone. Must be a light that actually enters the list
+	// (pass 2 / FogMS_WorldLight shadows it), otherwise the captured disc is the only
+	// sun term and must stay. Prefer Scene.AtmosphereLights[0]: the render-thread
+	// mirror of bAtmosphereSunLight/AtmosphereSunLightIndex 0, which BoxRuntime uses
+	// for DirectionToSun (the aligned transport ordinate) and whose disc the sky
+	// capture renders. Otherwise the first accepted directional light.
+	const FLightSceneInfo* const AtmosphereSun = Scene.AtmosphereLights[0];
+	FVector3f SunDirection = FVector3f::ZeroVector;
+	bool bSunIsAtmosphereLight = false;
 	for (const FLightSceneInfoCompact& Compact : Scene.Lights)
 	{
 		const FLightSceneInfo* Info = Compact.LightSceneInfo;
@@ -218,8 +232,23 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
 		Rows.Add(FVector4f(Light.SpotAngles.X, Light.SpotAngles.Y, Light.FalloffExponent, bCastShadow ? 1.0f : 0.0f));
 		Rows.Add(FVector4f(Light.Tangent.GetSafeNormal(), Light.SourceLength));
 		++OutParameters.FogMSWorldNumLights;
+		if (bDirectional && !bSunIsAtmosphereLight && (SunDirection.IsZero() || Info == AtmosphereSun))
+		{
+			// Identical value to the Direction row above: toward the sun (engine
+			// DirectionalLightComponent sets LightParameters.Direction = -GetDirection()).
+			SunDirection = Light.Direction.GetSafeNormal();
+			bSunIsAtmosphereLight = Info == AtmosphereSun;
+		}
 	}
 	if (Rows.IsEmpty()) Rows.Add(FVector4f(0, 0, 0, 0));
 	OutParameters.FogMSWorldLights = GraphBuilder.CreateSRV(CreateStructuredBuffer(GraphBuilder, TEXT("FogMS.WorldLights"), Rows));
+
+	OutParameters.FogMSWorldSunDirection = SunDirection;
+	OutParameters.FogMSWorldSunExcludeCos = 2.0f;
+	const float ExcludeDegrees = CVarWorldSunExcludeDegrees.GetValueOnRenderThread();
+	if (!SunDirection.IsZero() && FMath::IsFinite(ExcludeDegrees) && ExcludeDegrees > 0.0f)
+	{
+		OutParameters.FogMSWorldSunExcludeCos = FMath::Cos(FMath::DegreesToRadians(FMath::Min(ExcludeDegrees, 30.0f)));
+	}
 	return true;
 }

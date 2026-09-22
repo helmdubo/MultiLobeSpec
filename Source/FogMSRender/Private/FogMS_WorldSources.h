@@ -21,6 +21,12 @@ BEGIN_SHADER_PARAMETER_STRUCT(FFogMSWorldSourcesParameters, )
 	SHADER_PARAMETER_SAMPLER(SamplerState, FogMSWorldSkyBlendSampler)
 	SHADER_PARAMETER(FVector3f, FogMSWorldSkyColor)
 	SHADER_PARAMETER(float, FogMSWorldSkyBlend)
+	// Unit vector toward the sun (world space, same Direction row FogMS_WorldLight
+	// uses for the directional light); zero when no directional light is gathered.
+	SHADER_PARAMETER(FVector3f, FogMSWorldSunDirection)
+	// cos(half-angle) of the cone removed from the captured sky radiance around the
+	// sun disc (r.FogMS.World.SunExcludeDegrees); 2 = never (no sun or cvar 0).
+	SHADER_PARAMETER(float, FogMSWorldSunExcludeCos)
 END_SHADER_PARAMETER_STRUCT()
 
 // Render thread, after light proxies / View UB have been updated. BoxExtent is

@@ -12,6 +12,8 @@ TextureCube FogMSWorldSkyBlendTexture;
 SamplerState FogMSWorldSkyBlendSampler;
 float3 FogMSWorldSkyColor;
 float FogMSWorldSkyBlend;
+float3 FogMSWorldSunDirection;
+float FogMSWorldSunExcludeCos;
 
 uint FogMS_WorldLightCount()
 {
@@ -84,10 +86,34 @@ void FogMS_WorldLight(uint Index, float3 TranslatedPosition, out float3 Directio
 // intensity exactly once. Do not apply this factor to surface GI or emissive hits.
 float3 FogMS_WorldSky(float3 WorldDirection)
 {
-	float3 Radiance = FogMSWorldSkyTexture.SampleLevel(FogMSWorldSkySampler, WorldDirection, 0).rgb;
+	// The captured cubemap contains the sun disc. Direct sun is already accounted by
+	// FogMS_WorldLight with shadows; a sector-weighted quadrature ordinate hitting the
+	// disc double counts it. Inside the exclusion cone, sample the sky at the cone
+	// boundary instead (same great circle through the sun). ExcludeCos = 2 (no sun,
+	// or r.FogMS.World.SunExcludeDegrees 0) never triggers, so the result is unchanged.
+	float3 SampleDirection = WorldDirection;
+	float CosToSun = dot(WorldDirection, FogMSWorldSunDirection);
+	if (FogMSWorldSunExcludeCos < 1.0f && CosToSun > FogMSWorldSunExcludeCos)
+	{
+		float3 Sun = FogMSWorldSunDirection;
+		float3 Perp = WorldDirection - CosToSun * Sun;
+		if (dot(Perp, Perp) < 1.0e-8f)
+		{
+			// Direction coincides with the sun: any unit vector orthogonal to it,
+			// built from the sun's smallest-magnitude axis so the cross product is nonzero.
+			float3 AbsSun = abs(Sun);
+			float3 Axis = (AbsSun.x <= AbsSun.y && AbsSun.x <= AbsSun.z) ? float3(1, 0, 0)
+				: (AbsSun.y <= AbsSun.z ? float3(0, 1, 0) : float3(0, 0, 1));
+			Perp = cross(Sun, Axis);
+		}
+		float CosA = FogMSWorldSunExcludeCos;
+		float SinA = sqrt(saturate(1.0f - CosA * CosA));
+		SampleDirection = normalize(Sun * CosA + normalize(Perp) * SinA);
+	}
+	float3 Radiance = FogMSWorldSkyTexture.SampleLevel(FogMSWorldSkySampler, SampleDirection, 0).rgb;
 	if (FogMSWorldSkyBlend > 0.0f)
 	{
-		float3 Destination = FogMSWorldSkyBlendTexture.SampleLevel(FogMSWorldSkyBlendSampler, WorldDirection, 0).rgb;
+		float3 Destination = FogMSWorldSkyBlendTexture.SampleLevel(FogMSWorldSkyBlendSampler, SampleDirection, 0).rgb;
 		Radiance = lerp(Radiance, Destination, FogMSWorldSkyBlend);
 	}
 	Radiance *= FogMSWorldSkyColor;
