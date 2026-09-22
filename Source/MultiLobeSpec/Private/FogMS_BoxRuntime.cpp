@@ -233,16 +233,16 @@ namespace
 		if (FogMS_IsTransportMode(Actor.ScatteringMode))
 		{
 			const float BoxDiagonal = FVector3f(Packet.Rows[2].W, Packet.Rows[3].W, Packet.Rows[4].W).Size() * 2.0f;
-			if ((Actor.AngularQuality != EFogMSAngularQuality::Balanced48 && Actor.AngularQuality != EFogMSAngularQuality::High96)
-				|| Actor.TransportIterations < 4 || Actor.TransportIterations > 64
+			if (static_cast<uint8>(Actor.AngularQuality) > static_cast<uint8>(EFogMSAngularQuality::Medium24)
+				|| Actor.TransportIterations < 1 || Actor.TransportIterations > 64
 				|| !FMath::IsFinite(BoxDiagonal) || BoxDiagonal <= 0.0f)
 			{
-				OutProblem = TEXT("Transport requires valid Angular Quality, Iterations in [4,64] and a finite positive Box diagonal.");
+				OutProblem = TEXT("Transport requires valid Angular Quality, Iterations in [1,64] and a finite positive Box diagonal.");
 				return;
 			}
 			Packet.Rows[5].Y = static_cast<float>(Actor.ScatteringMode);
 			Packet.Rows[21] = FVector4f(1.0f, BoxDiagonal, static_cast<float>(Actor.TransportIterations),
-				Actor.ScatteringMode == EFogMSScatteringMode::Transport ? 6.0f : (Actor.AngularQuality == EFogMSAngularQuality::High96 ? 96.0f : 48.0f));
+				Actor.ScatteringMode == EFogMSScatteringMode::Transport ? 6.0f : (Actor.AngularQuality == EFogMSAngularQuality::High96 ? 96.0f : (Actor.AngularQuality == EFogMSAngularQuality::Low16 ? 16.0f : (Actor.AngularQuality == EFogMSAngularQuality::Medium24 ? 24.0f : 48.0f))));
 			return;
 		}
 		if (Actor.ScatteringMode == EFogMSScatteringMode::SpatialPreview || Actor.ScatteringMode == EFogMSScatteringMode::WorldSpace)

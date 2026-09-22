@@ -120,6 +120,8 @@ namespace
 		bool bLastReconstructionTest = false;
 		float LastTransportTau = 0;
 		float LastTransportAlbedo = 1;
+		// Previous transport atlas for the PCG warm start; valid only for the geometry in LastRequest.
+		TRefCountPtr<IPooledRenderTarget> PreviousAtlas;
 
 		bool EnsureResource(bool bTransport)
 		{
@@ -232,8 +234,8 @@ namespace
 			&& FMath::Abs(FVector3f::DotProduct(Request.AxisY, Request.AxisZ)) < 1.0e-3f
 			&& FMath::IsFinite(Request.RangeCm) && Request.RangeCm > 0.0f && (Request.bTransport || Request.RangeCm <= 2000.0f)
 			&& FMath::IsFinite(Request.PhaseG) && FMath::Abs(Request.PhaseG) <= 1.0e-6f
-			&& Request.Steps >= 1 && Request.Steps <= 32 && (Request.bTransport ? (Request.Directions == 6 || Request.Directions == 48 || Request.Directions == 96) : Request.Directions == 12)
-			&& (!Request.bTransport || (Request.Iterations >= 4 && Request.Iterations <= 64));
+			&& Request.Steps >= 1 && Request.Steps <= 32 && (Request.bTransport ? (Request.Directions == 6 || Request.Directions == 16 || Request.Directions == 24 || Request.Directions == 48 || Request.Directions == 96) : Request.Directions == 12)
+			&& (!Request.bTransport || (Request.Iterations >= 1 && Request.Iterations <= 64));
 	}
 }
 
@@ -309,11 +311,27 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	Common.BoxAxisY = FVector4f(Request.AxisY, Request.Extent.Y);
 	Common.BoxAxisZ = FVector4f(Request.AxisZ, Request.Extent.Z);
 	Common.IndirectEnabled = CVarWorldIndirect.GetValueOnRenderThread() != 0 ? 1 : 0;
+	const auto CVarInt = [](const TCHAR* Name) { return IConsoleManager::Get().FindConsoleVariable(Name)->GetInt(); };
+	const auto CVarFloat = [](const TCHAR* Name) { return IConsoleManager::Get().FindConsoleVariable(Name)->GetFloat(); };
 	FRDGTextureRef Work = nullptr;
 	if (Request.bTransport)
 	{
-		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0);
+		// Warm start needs the same Box and the same diagnostic inputs; Directions/Iterations may differ (J is direction independent).
+		const FFogMSWorldRequest& Last = State.LastRequest;
+		const bool bWarmValid = Last.bTransport && !Request.ResetHistory && !State.bLastReconstructionTest
+			&& Last.CenterWS == Request.CenterWS && Last.AxisX == Request.AxisX && Last.AxisY == Request.AxisY
+			&& Last.AxisZ == Request.AxisZ && Last.Extent == Request.Extent
+			&& State.LastTransportTest == CVarInt(TEXT("r.FogMS.Transport.Test"))
+			&& State.LastTransportGeometry == CVarInt(TEXT("r.FogMS.Transport.TestGeometry"))
+			&& State.LastTransportBoundary == CVarInt(TEXT("r.FogMS.Transport.TestBoundary"))
+			&& State.LastTransportTau == CVarFloat(TEXT("r.FogMS.Transport.TestTau"))
+			&& State.LastTransportAlbedo == CVarFloat(TEXT("r.FogMS.Transport.TestAlbedo"));
+		FRDGTextureRef Previous = nullptr;
+		if (!bWarmValid) State.PreviousAtlas.SafeRelease();
+		else if (State.PreviousAtlas.IsValid()) Previous = GraphBuilder.RegisterExternalTexture(State.PreviousAtlas, TEXT("FogMS.Transport.PreviousAtlas"));
+		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0, Previous);
 		if (!Work) { Result.Error = TEXT("B2 transport graph unavailable."); return Result; }
+		GraphBuilder.QueueTextureExtraction(Work, &State.PreviousAtlas);
 	}
 	else
 	{
@@ -388,12 +406,12 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	State.LastIndirectEnabled = Common.IndirectEnabled;
 	if (Request.bTransport)
 	{
-		State.LastTransportTest = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.Test"))->GetInt();
-		State.LastTransportGeometry = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.TestGeometry"))->GetInt();
-		State.LastTransportBoundary = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.TestBoundary"))->GetInt();
-		State.bLastReconstructionTest = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.TestReconstruction"))->GetInt() != 0;
-		State.LastTransportTau = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.TestTau"))->GetFloat();
-		State.LastTransportAlbedo = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Transport.TestAlbedo"))->GetFloat();
+		State.LastTransportTest = CVarInt(TEXT("r.FogMS.Transport.Test"));
+		State.LastTransportGeometry = CVarInt(TEXT("r.FogMS.Transport.TestGeometry"));
+		State.LastTransportBoundary = CVarInt(TEXT("r.FogMS.Transport.TestBoundary"));
+		State.bLastReconstructionTest = CVarInt(TEXT("r.FogMS.Transport.TestReconstruction")) != 0;
+		State.LastTransportTau = CVarFloat(TEXT("r.FogMS.Transport.TestTau"));
+		State.LastTransportAlbedo = CVarFloat(TEXT("r.FogMS.Transport.TestAlbedo"));
 	}
 	Result.Texture = State.Texture;
 	Result.SRV = State.SRV;

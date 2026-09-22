@@ -36,7 +36,9 @@ UENUM(BlueprintType)
 enum class EFogMSAngularQuality : uint8
 {
 	Balanced48 = 0 UMETA(DisplayName="48 Directions"),
-	High96 = 1 UMETA(DisplayName="96 Directions")
+	High96 = 1 UMETA(DisplayName="96 Directions"),
+	Low16 = 2 UMETA(DisplayName="16 Directions"),
+	Medium24 = 3 UMETA(DisplayName="24 Directions")
 };
 
 UENUM(BlueprintType)
@@ -128,10 +130,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::SpatialPreview || ScatteringMode == EFogMSScatteringMode::WorldSpace", ClampMin="10.0", ClampMax="2000.0", Units="cm", ToolTip="Maximum world distance over which neighbouring fog contributes scattered light. Solid geometry stops each transport ray."))
 	float SpatialDistance = 500.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ClampMin="4", ClampMax="64", UIMin="4", UIMax="64", ToolTip="Current-frame iterations of isotropic transport over the full box. Requires Scattering Distribution 0 and hardware ray tracing. More iterations increase GPU cost; inspect convergence diagnostics. Spatial Strength, Spatial Distance and Indirect Shadow Strength do not control this mode."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ClampMin="1", ClampMax="64", UIMin="1", UIMax="64", ToolTip="Iterations per frame of isotropic transport over the full box. With warm start (r.FogMS.Transport.WarmStart) the solution continues across frames; 2-4 is a production budget, 64 fully converges within one frame. Requires Scattering Distribution 0 and hardware ray tracing. Spatial Strength, Spatial Distance and Indirect Shadow Strength do not control this mode."))
 	int32 TransportIterations = 24;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Positive paired angular quadrature for B3. 48 is the default; 96 reduces angular error at higher GPU cost. The spatial grid stays 32 cubed. B2 always uses its original six directions."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Positive paired angular quadrature for B3. 16 and 24 are production budgets (best with warm start), 48 balanced, 96 reference. Fewer directions smear light across the axes; more directions cost linearly."))
 	EFogMSAngularQuality AngularQuality = EFogMSAngularQuality::Balanced48;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS|Scattering")

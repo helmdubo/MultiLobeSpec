@@ -11,6 +11,7 @@
 #include "SceneUniformBuffer.h"
 #include "ShaderParameterStruct.h"
 #include "ShaderPlatformConfig.h"
+#include "SystemTextures.h"
 #if RHI_RAYTRACING
 #include "RayTracing/RayTracingScene.h"
 #endif
@@ -33,6 +34,10 @@ namespace
         TEXT("Diagnostic boundary: 0 unit radiance at all Box faces; 1 only negative X face."), ECVF_RenderThreadSafe);
     TAutoConsoleVariable<int32> TestReconstruction(TEXT("r.FogMS.Transport.TestReconstruction"), 0,
         TEXT("Diagnostic readback: replace flux slab with max RGB of the native receiver sampler at eight subcell corners. No flux diagnostics in this mode. Reset to 0."), ECVF_RenderThreadSafe);
+    TAutoConsoleVariable<int32> CVarWarmStart(TEXT("r.FogMS.Transport.WarmStart"), 1,
+        TEXT("1 continues the PCG solution from the previous frame's atlas (same Box); 0 restarts from zero every frame."), ECVF_RenderThreadSafe);
+    TAutoConsoleVariable<float> CVarTolerance(TEXT("r.FogMS.Transport.Tolerance"), 1.e-14f,
+        TEXT("Relative rho threshold (against the cold-start rho) below which remaining PCG matrix passes are skipped."), ECVF_RenderThreadSafe);
 
 #if RHI_RAYTRACING
     BEGIN_SHADER_PARAMETER_STRUCT(FTransportParameters, )
@@ -53,6 +58,7 @@ namespace
         SHADER_PARAMETER(int32, GridSize)
         SHADER_PARAMETER(int32, AngularCount)
         SHADER_PARAMETER(int32, SkipConverged)
+        SHADER_PARAMETER(float, ConvergenceTolerance)
         SHADER_PARAMETER_ARRAY(FVector4f, Ordinates, [96])
         SHADER_PARAMETER(int32, IndirectEnabled)
         SHADER_PARAMETER(int32, SweepKind)
@@ -66,6 +72,7 @@ namespace
         SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, Coefficients)
         SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, DirectField)
         SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, ReconstructionAtlas)
+        SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, PreviousAtlas)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Faces)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, DirectionBoundaries)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Angular)
@@ -113,7 +120,7 @@ namespace
         SHADER_USE_PARAMETER_STRUCT(FTransportCS, FGlobalShader);
     public:
         using FParameters = FTransportParameters;
-        class FPass : SHADER_PERMUTATION_INT("FOGMS_TRANSPORT_PASS", 15);
+        class FPass : SHADER_PERMUTATION_INT("FOGMS_TRANSPORT_PASS", 17);
         using FPermutationDomain = TShaderPermutationDomain<FPass>;
         static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& P)
         {
@@ -163,12 +170,14 @@ namespace
 
 FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo& View,
     const FFogMSWorldRequest& Request, const FFogMSLumenSourceParameters& Lumen,
-    const FFogMSWorldSourcesParameters& Lights, bool bIndirect)
+    const FFogMSWorldSourcesParameters& Lights, bool bIndirect, FRDGTextureRef PreviousAtlas)
 {
 #if RHI_RAYTRACING
     if (!View.LumenHardwareRayTracingHitDataBuffer) return nullptr;
+    const bool bWarm = PreviousAtlas != nullptr && CVarWarmStart.GetValueOnRenderThread() != 0;
     FTransportParameters Common;
     FMemory::Memzero(&Common, sizeof(Common));
+    Common.PreviousAtlas = PreviousAtlas ? PreviousAtlas : GSystemTextures.GetBlackDummy(GraphBuilder);
     Common.View = View.ViewUniformBuffer;
     Common.Scene = GetSceneUniformBufferRef(GraphBuilder, View);
     Common.LumenSource = Lumen; Common.LightSources = Lights;
@@ -188,12 +197,13 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
     Common.GridSize = TransportGridSize; Common.IndirectEnabled = bIndirect ? 1 : 0;
     Common.AngularCount = Request.Directions;
     Common.SkipConverged = SkipConverged.GetValueOnRenderThread() != 0;
+    Common.ConvergenceTolerance = FMath::Clamp(CVarTolerance.GetValueOnRenderThread(), 0.0f, 1.0f);
     if (Common.AngularCount != 6)
     {
         // Half-range Gauss-Legendre polar rule, midpoint periodic azimuth.
         // Positive paired weights sum to one; no brightness renormalization.
         const int32 Polar = Common.AngularCount == 96 ? 3 : 2;
-        const int32 Azimuth = Common.AngularCount == 96 ? 16 : 12;
+        const int32 Azimuth = Common.AngularCount / (2 * Polar); // 16->4, 24->6, 48->12, 96->16
         const double Root = FMath::Sqrt(Polar == 3 ? 3.0 / 5.0 : 1.0 / 3.0);
         for (int32 Hemisphere = 0; Hemisphere < 2; ++Hemisphere)
         for (int32 P = 0; P < Polar; ++P)
@@ -292,6 +302,18 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
         Dispatch(4, TEXT("FogMS B2 initialize PCG"), P, Cells);
     }
     Reduce(R, Pcg, 0);
+    if (bWarm)
+    {
+        // Krylov continuation: u0 = sqrt(S)*J_prev, r0 = b - A u0. Scalars[3] keeps the cold rho.
+        FRDGBufferRef U0 = Buffer(TEXT("FogMS.Transport.WarmSeed"));
+        FRDGBufferRef WarmU = Buffer(TEXT("FogMS.Transport.WarmU")), WarmR = Buffer(TEXT("FogMS.Transport.WarmR")), WarmZ = Buffer(TEXT("FogMS.Transport.WarmZ"));
+        { auto P = Common; P.OutA = GraphBuilder.CreateUAV(U0); Dispatch(15, TEXT("FogMS transport warm seed"), P, Cells); }
+        { auto P = Common; P.Angular = GraphBuilder.CreateSRV(Sweep(U0, 1)); P.InputA = GraphBuilder.CreateSRV(U0); P.InputB = GraphBuilder.CreateSRV(R);
+          P.OutA = GraphBuilder.CreateUAV(WarmU); P.OutB = GraphBuilder.CreateUAV(WarmR); P.OutC = GraphBuilder.CreateUAV(WarmZ);
+          Dispatch(16, TEXT("FogMS transport warm residual"), P, Cells); }
+        U = WarmU; R = WarmR; Pcg = WarmZ;
+        Reduce(R, Pcg, 3);
+    }
     for (int32 Iteration = 0; Iteration < Request.Iterations; ++Iteration)
     {
         FRDGBufferRef Ap = Buffer(TEXT("FogMS.B2.Ap"));

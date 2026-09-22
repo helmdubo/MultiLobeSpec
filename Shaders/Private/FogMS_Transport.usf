@@ -1,4 +1,4 @@
-// B2: conservative six-ordinate, cell-average formal transport. No frame history.
+// B2: conservative six-ordinate, cell-average formal transport. Optional PCG warm start from the previous atlas (no temporal blend).
 #include "/Engine/Private/Common.ush"
 #include "/Engine/Shared/RayTracingDefinitions.h"
 float4 BoxRows[24];
@@ -24,6 +24,7 @@ float SourceTraceDistance;
 int GridSize;
 int AngularCount;
 int SkipConverged;
+float ConvergenceTolerance;
 float4 Ordinates[96];
 int IndirectEnabled;
 int SweepKind;
@@ -37,6 +38,7 @@ float TestAlbedo;
 Texture3D<float4> Coefficients;
 Texture3D<float4> DirectField;
 Texture2D<float4> ReconstructionAtlas;
+Texture2D<float4> PreviousAtlas;
 StructuredBuffer<float4> Faces;
 StructuredBuffer<float4> DirectionBoundaries;
 StructuredBuffer<float4> Angular;
@@ -281,15 +283,27 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
             OutFlux[Dir*N+Index]=float4(InClosed?Luminance(Incoming)*Area*(4.f*PI/6.f):0,OutClosed?Luminance(Outgoing)*Area*(4.f*PI/6.f):0,0,0);
         Incoming=Outgoing;
     }
-#elif FOGMS_TRANSPORT_PASS == 4 || FOGMS_TRANSPORT_PASS == 10
+#elif FOGMS_TRANSPORT_PASS == 15
+    if(I>=N) return;
+    uint3 C=Cell(I); float4 S=Coefficients.Load(int4(C,0));
+    float3 J=max(PreviousAtlas.Load(int3(C.x,C.y+C.z*GridSize,0)).rgb,0.f);
+    if(!all(isfinite(J))) J=0;
+    OutA[I]=float4(sqrt(S.rgb)*J,0);
+#elif FOGMS_TRANSPORT_PASS == 4 || FOGMS_TRANSPORT_PASS == 10 || FOGMS_TRANSPORT_PASS == 16
     if(I>=N) return;
     // Match the existing per-channel PCG stop exactly. No approximate new
     // tolerance: once all channels are inactive, alpha is already zero.
-    if(FOGMS_TRANSPORT_PASS==10 && AngularCount>6 && SkipConverged!=0)
+    if(FOGMS_TRANSPORT_PASS!=4 && AngularCount>6 && SkipConverged!=0)
     {
         float3 Rho=Scalars[0].rgb,InitialRho=Scalars[3].rgb;
         if(all(isfinite(Rho))&&all(isfinite(InitialRho))&&all(Rho>=0)&&all(InitialRho>=0)
-            &&all(Rho<=InitialRho*1.e-14f)) {OutA[I]=0;return;}
+            &&all(Rho<=InitialRho*ConvergenceTolerance))
+        {
+            if(FOGMS_TRANSPORT_PASS==10) {OutA[I]=0;return;}
+            // The warm sweep was skipped by this same predicate (b is zero): keep the exact cold state.
+            float3 R=InputB[I].rgb; uint3 K=Cell(I);
+            OutA[I]=0;OutB[I]=float4(R,0);OutC[I]=float4(R*InverseDiagonal(Coefficients.Load(int4(K,0)),K),0);return;
+        }
     }
     uint3 C=Cell(I); float4 S=Coefficients.Load(int4(C,0)); float3 Mean=0;
     LOOP for(uint D=0;D<uint(AngularCount);++D) Mean+=Angular[D*N+I].rgb*(AngularCount==6?1.f/6.f:Ordinates[D].w);
@@ -321,6 +335,11 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
             Mask|=Missing<<12; // <=288, exact integer in float32 together with low face flags.
         }
         OutPrimary[I]=float4(Base,float(Mask));
+    }
+    else if(FOGMS_TRANSPORT_PASS==16)
+    {
+        float3 U0=InputA[I].rgb,R=InputB[I].rgb-(U0-sqrt(S.rgb)*Mean);
+        OutA[I]=float4(U0,0);OutB[I]=float4(R,0);OutC[I]=float4(R*InverseDiagonal(S,C),0);
     }
     else OutA[I]=float4(InputA[I].rgb-sqrt(S.rgb)*Mean,0);
 #elif FOGMS_TRANSPORT_PASS == 7
@@ -373,7 +392,7 @@ void AngularSweepCS(uint3 Group:SV_GroupID,uint Thread:SV_GroupIndex)
         // Angular on this path. No group has entered its barriers yet.
         float3 Rho=Scalars[0].rgb,InitialRho=Scalars[3].rgb;
         if(all(isfinite(Rho))&&all(isfinite(InitialRho))&&all(Rho>=0)&&all(InitialRho>=0)
-            &&all(Rho<=InitialRho*1.e-14f)) return;
+            &&all(Rho<=InitialRho*ConvergenceTolerance)) return;
     }
     uint D=Group.x,N=Count(),Size=uint(GridSize),PlaneCells=Size*Size;
     float3 Omega=Ordinates[D].xyz,Rate=abs(Omega)/CellSize;
@@ -449,6 +468,7 @@ void ReduceCS(uint3 Group:SV_GroupID,uint Thread:SV_GroupIndex,uint3 Dispatch:SV
 #else
         float3 Sum=Sums[0];
         if(ReductionKind==0) {Scalars[0]=float4(Sum,0);Scalars[1]=0;Scalars[2]=0;Scalars[3]=float4(Sum,0);}
+        else if(ReductionKind==3) Scalars[0]=float4(Sum,0); // warm rho; Scalars[3] keeps the cold rho
         else if(ReductionKind==1)
         {
             float3 Rho=Scalars[0].rgb;float3 Alpha=0;

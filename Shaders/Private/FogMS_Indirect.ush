@@ -128,19 +128,31 @@ float FogMS_IndirectLocalDensity(float3 LocalPosition, FogMS_IndirectData Data)
 	float3 WorldOffset = Data.AxisX * LocalPosition.x + Data.AxisY * LocalPosition.y + Data.AxisZ * LocalPosition.z;
 	if (Data.WorldAligned) UVW = WorldOffset * Data.WorldFrequencies.x + Data.WorldPhase0;
 	float Noise = FogMS_IndirectSampleNoise(UVW, Data);
+	float HalfSoftness = 0.5f * max(Data.Softness, 0.0f);
+	float Lo = Data.Threshold - HalfSoftness, Hi = Data.Threshold + HalfSoftness;
+	float Mask;
+	// |detail delta| <= DetailStrength: outside this band the mask is provably 0 or 1, skip the detail loads.
 	BRANCH
-	if (Data.DetailStrength > 0.0f)
+	if (Noise < Lo - Data.DetailStrength - 1.e-6f) return 0.0f;
+	BRANCH
+	if (Noise >= Hi + Data.DetailStrength + 1.e-6f) Mask = 1.0f;
+	else
 	{
-		float3 UV0 = Data.WorldAligned ? WorldOffset * Data.WorldFrequencies.y + Data.WorldPhase1 : UVW * Data.DetailScale;
-		float3 UV1 = Data.WorldAligned ? WorldOffset * Data.WorldFrequencies.z + Data.WorldPhase2 : UVW * Data.DetailScale * 2.0f;
-		float Detail0 = FogMS_IndirectSampleNoise(UV0 + float3(0.173f, 0.379f, 0.613f), Data);
-		float Detail1 = FogMS_IndirectSampleNoise(UV1 + float3(0.731f, 0.217f, 0.419f), Data);
-		float Weight = 0.5f * Data.DetailSecondOctave;
-		Noise += Data.DetailStrength * ((2.0f * Detail0 - 1.0f) + Weight * (2.0f * Detail1 - 1.0f)) / (1.0f + Weight);
+		BRANCH
+		if (Data.DetailStrength > 0.0f)
+		{
+			float3 UV0 = Data.WorldAligned ? WorldOffset * Data.WorldFrequencies.y + Data.WorldPhase1 : UVW * Data.DetailScale;
+			float3 UV1 = Data.WorldAligned ? WorldOffset * Data.WorldFrequencies.z + Data.WorldPhase2 : UVW * Data.DetailScale * 2.0f;
+			float Weight = 0.5f * Data.DetailSecondOctave;
+			float Detail0 = FogMS_IndirectSampleNoise(UV0 + float3(0.173f, 0.379f, 0.613f), Data);
+			// Weight 0 contributes exactly 0 whatever Detail1 is.
+			float Detail1 = 0.5f;
+			BRANCH
+			if (Weight > 0.0f) Detail1 = FogMS_IndirectSampleNoise(UV1 + float3(0.731f, 0.217f, 0.419f), Data);
+			Noise += Data.DetailStrength * ((2.0f * Detail0 - 1.0f) + Weight * (2.0f * Detail1 - 1.0f)) / (1.0f + Weight);
+		}
+		Mask = Data.Softness > 0.0f ? smoothstep(Lo, Hi, Noise) : step(Data.Threshold, Noise);
 	}
-	float Mask = Data.Softness > 0.0f
-		? smoothstep(Data.Threshold - 0.5f * Data.Softness, Data.Threshold + 0.5f * Data.Softness, Noise)
-		: step(Data.Threshold, Noise);
 	float Fade = Data.DensityFeather > 0.0f ? smoothstep(0.0f, Data.DensityFeather, Inside) : 1.0f;
 	return Data.DensityPerCm * Mask * Fade;
 }
