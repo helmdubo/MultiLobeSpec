@@ -42,6 +42,16 @@ enum class EFogMSAngularQuality : uint8
 	Medium24 = 3 UMETA(DisplayName="24 Directions")
 };
 
+/** Transport quality tier: writes Angular Quality, Transport Iterations and Transport Tolerance. */
+UENUM(BlueprintType)
+enum class EFogMSTransportPreset : uint8
+{
+	Production = 0 UMETA(DisplayName="Production", ToolTip="16 directions, up to 16 iterations, tolerance 1e-6."),
+	High = 1 UMETA(DisplayName="High", ToolTip="48 directions, up to 16 iterations, tolerance 1e-8."),
+	Cinematic = 2 UMETA(DisplayName="Cinematic", ToolTip="96 directions, 64 iterations, tolerance 1e-14."),
+	Custom = 3 UMETA(DisplayName="Custom", ToolTip="Angular Quality, Transport Iterations and Transport Tolerance are edited directly.")
+};
+
 UENUM(BlueprintType)
 enum class EFogMSDensityMotionMode : uint8
 {
@@ -132,11 +142,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::SpatialPreview || ScatteringMode == EFogMSScatteringMode::WorldSpace", ClampMin="10.0", ClampMax="2000.0", Units="cm", ToolTip="Maximum world distance over which neighbouring fog contributes scattered light. Solid geometry stops each transport ray."))
 	float SpatialDistance = 500.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ClampMin="1", ClampMax="64", UIMin="1", UIMax="64", ToolTip="Iterations per frame of isotropic transport over the full box. With warm start (r.FogMS.Transport.WarmStart) the solution continues across frames; 2-4 is a production budget, 64 fully converges within one frame. Requires Scattering Distribution 0 and hardware ray tracing. Spatial Strength, Spatial Distance and Indirect Shadow Strength do not control this mode."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Transport quality tier (frozen-scene measurements, warm start on). Production: 16 directions, up to 16 iterations, tolerance 1e-6 (about 2.3-3.5 ms). High: 48 directions, up to 16 iterations, tolerance 1e-8. Cinematic: 96 directions, 64 iterations, tolerance 1e-14. A preset writes Angular Quality, Transport Iterations and Transport Tolerance; Custom edits them directly. Editing one of them (for example from Python) switches to Custom. B2 ignores the direction count."))
+	EFogMSTransportPreset TransportPreset = EFogMSTransportPreset::Production;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="(ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport) && TransportPreset == EFogMSTransportPreset::Custom", ClampMin="1", ClampMax="64", UIMin="1", UIMax="64", ToolTip="Iterations per frame of isotropic transport over the full box. With warm start (r.FogMS.Transport.WarmStart) the solution continues across frames; 2-4 is a production budget, 64 fully converges within one frame. Requires Scattering Distribution 0 and hardware ray tracing. Spatial Strength, Spatial Distance and Indirect Shadow Strength do not control this mode."))
 	int32 TransportIterations = 24;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Positive paired angular quadrature for B3. 16 and 24 are production budgets (best with warm start), 48 balanced, 96 reference. Fewer directions smear light across the axes; more directions cost linearly."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::AngularTransport && TransportPreset == EFogMSTransportPreset::Custom", ToolTip="Positive paired angular quadrature for B3. 16 and 24 are production budgets (best with warm start), 48 balanced, 96 reference. Fewer directions smear light across the axes; more directions cost linearly."))
 	EFogMSAngularQuality AngularQuality = EFogMSAngularQuality::Balanced48;
+
+	/** Negative (default -1) keeps r.FogMS.Transport.Tolerance, so actors saved before this property render unchanged. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS|Scattering", meta=(EditCondition="(ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport) && TransportPreset == EFogMSTransportPreset::Custom", ClampMin="-1.0", ClampMax="1.0", UIMin="-1.0", UIMax="0.001", ToolTip="b-relative convergence tolerance of the transport solver (PCG rho against the cold-start rho): the frame's remaining matrix passes are skipped below it. 0 runs all iterations. Negative (-1) uses the global r.FogMS.Transport.Tolerance; a value in [0,1] overrides it for this Box. Changing it keeps the warm start."))
+	float TransportTolerance = -1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Experimental: deliver the transport field to the native volumetric fog through this Box's Volume material (Emissive = sigma_s * J) instead of the bindless overlay. Native voxelization then owns density, jitter and history for this Box; the overlay skips its density/source injection. Requires the material to read FogMS_TransportField / FogMS_InjectionMode."))
 	bool bEmissiveInjection = false;
@@ -384,6 +401,9 @@ private:
 	bool bHasMaterialState = false;
 	bool bUpdatingDensity = false;
 	FString LastDensityProblem;
+
+	/** Writes AngularQuality/TransportIterations/TransportTolerance from TransportPreset unless it is Custom. */
+	void ApplyTransportPreset();
 
 	/** Lazily creates TransportField; returns true when it has a render resource. */
 	bool EnsureTransportField();

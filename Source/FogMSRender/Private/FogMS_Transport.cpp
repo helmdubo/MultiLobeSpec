@@ -200,7 +200,9 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
     Common.GridSize = TransportGridSize; Common.IndirectEnabled = bIndirect ? 1 : 0;
     Common.AngularCount = Request.Directions;
     Common.SkipConverged = SkipConverged.GetValueOnRenderThread() != 0;
-    Common.ConvergenceTolerance = FMath::Clamp(CVarTolerance.GetValueOnRenderThread(), 0.0f, 1.0f);
+    // Per-Box tolerance (AFogMSBoxVolume::TransportTolerance -> packet row 16.w -> Request.Tolerance);
+    // negative keeps the global cvar. ValidRequest has already rejected a non-finite value.
+    Common.ConvergenceTolerance = FMath::Clamp(Request.Tolerance >= 0.0f ? Request.Tolerance : CVarTolerance.GetValueOnRenderThread(), 0.0f, 1.0f);
     if (Common.AngularCount != 6)
     {
         // Half-range Gauss-Legendre polar rule, midpoint periodic azimuth.

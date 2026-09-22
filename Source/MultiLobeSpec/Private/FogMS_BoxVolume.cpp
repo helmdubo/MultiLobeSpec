@@ -30,6 +30,30 @@ namespace
 	// FogMS_WorldLighting.cpp); the producer rejects any other field size.
 	constexpr int32 FogMS_TransportFieldSize = 32;
 
+	struct FFogMSTransportTier
+	{
+		EFogMSAngularQuality AngularQuality;
+		int32 Iterations;
+		float Tolerance;
+
+		bool Matches(EFogMSAngularQuality Quality, int32 InIterations, float InTolerance) const
+		{
+			return AngularQuality == Quality && Iterations == InIterations && Tolerance == InTolerance;
+		}
+	};
+
+	/** Measured production tiers (frozen scene, warm start). False for Custom. */
+	bool FogMS_GetTransportTier(EFogMSTransportPreset Preset, FFogMSTransportTier& OutTier)
+	{
+		switch (Preset)
+		{
+		case EFogMSTransportPreset::Production: OutTier = { EFogMSAngularQuality::Low16, 16, 1.0e-6f }; return true;
+		case EFogMSTransportPreset::High: OutTier = { EFogMSAngularQuality::Balanced48, 16, 1.0e-8f }; return true;
+		case EFogMSTransportPreset::Cinematic: OutTier = { EFogMSAngularQuality::High96, 64, 1.0e-14f }; return true;
+		default: return false;
+		}
+	}
+
 	bool FogMS_IsFinitePositiveVector(const FVector& Value)
 	{
 		return !Value.ContainsNaN() && Value.GetMin() > 0.0;
@@ -219,6 +243,13 @@ void AFogMSBoxVolume::Serialize(FArchive& Ar)
 void AFogMSBoxVolume::PostLoad()
 {
 	Super::PostLoad();
+	// A preset never silently changes a loaded look. Actors saved before TransportPreset existed
+	// load the default Production with their own saved fields (and TransportTolerance -1 = cvar,
+	// which no preset uses): whenever the saved tuple differs from the preset's, keep the fields
+	// and switch to Custom. A matching tuple (saved by a preset) keeps its preset.
+	FFogMSTransportTier Tier;
+	if (FogMS_GetTransportTier(TransportPreset, Tier) && !Tier.Matches(AngularQuality, TransportIterations, TransportTolerance))
+		TransportPreset = EFogMSTransportPreset::Custom;
 	UpdateDensity();
 }
 
@@ -275,9 +306,29 @@ void AFogMSBoxVolume::ReleaseTransportField()
 	// thread holds its own FTextureRHIRef until the next Box packet replaces it.
 }
 
+void AFogMSBoxVolume::ApplyTransportPreset()
+{
+	// BoxRuntime packs these three fields; a non-Custom preset owns them. Idempotent.
+	FFogMSTransportTier Tier;
+	if (!FogMS_GetTransportTier(TransportPreset, Tier)) return;
+	AngularQuality = Tier.AngularQuality;
+	TransportIterations = Tier.Iterations;
+	TransportTolerance = Tier.Tolerance;
+}
+
 #if WITH_EDITOR
 void AFogMSBoxVolume::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
+	// Before Super: its construction rerun reaches UpdateDensity, which would overwrite a direct
+	// edit (Details, Python set_editor_property) of a preset-owned field with the preset's value.
+	const FName Name = PropertyChangedEvent.GetPropertyName();
+	if (TransportPreset != EFogMSTransportPreset::Custom
+		&& (Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, AngularQuality)
+			|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, TransportIterations)
+			|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, TransportTolerance)))
+		TransportPreset = EFogMSTransportPreset::Custom;
+	// Also here, not only in UpdateDensity: Blueprint defaults (archetypes) skip UpdateDensity.
+	ApplyTransportPreset();
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	UpdateDensity();
 }
@@ -409,6 +460,10 @@ void AFogMSBoxVolume::UpdateDensity()
 {
 	if (bUpdatingDensity || HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || IsActorBeingDestroyed()) return;
 	TGuardValue<bool> UpdateGuard(bUpdatingDensity, true);
+	// OnConstruction, PostLoad, PostEditChangeProperty, Tick and BoxRuntime (right before it
+	// packs the transport controls) all pass here: the packet always sees the preset's values,
+	// also after a Blueprint/runtime write that bypassed PostEditChangeProperty.
+	ApplyTransportPreset();
 	// Mode or switch change away from Emissive Injection: drop the field and its MID binding.
 	if (TransportField && !UsesEmissiveInjection()) ReleaseTransportField();
 	if (WindDirectionComponent) WindDirectionComponent->SetVisibility(DensityMotionMode == EFogMSDensityMotionMode::Directional);

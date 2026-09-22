@@ -11,6 +11,10 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	float Strength = 0.35f;
 	bool bTransport = false;
 	int32 Iterations = 24;
+	/** Transport convergence tolerance of this Box (AFogMSBoxVolume::TransportTolerance), clamped to [0,1]
+	 * by the solver. Negative: use r.FogMS.Transport.Tolerance. Must be finite. Does not affect warm start.
+	 */
+	float Tolerance = -1.f;
 	/** World-space unit vector toward the atmosphere sun light; zero when there is none.
 	 * B3 transport rotates its angular quadrature so one ordinate points exactly at the sun.
 	 */

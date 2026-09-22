@@ -66,6 +66,9 @@ namespace
 		// Rows 7..10: density atlas and shape; row 11: size Z and three detail controls.
 		// Row 12: world frequencies f0/f1/f2, world-aligned mode.
 		// Rows 13..15: world phases 0/1/2, with surface shadow enabled/strength/steps in W.
+		// Row 16: filtered sun shadow enabled/sigma/inside volume; W = Transport convergence
+		// tolerance (CPU only: no shader reads it, and it is excluded from the history key;
+		// negative = r.FogMS.Transport.Tolerance). Rows 17..20: filtered shadow cache axes/extent, descriptor/grid.
 		// Row 21: spatial strength/range/steps/directions; B2 uses 1/diagonal/iterations/6.
 		// Row 22: descriptor/grid/valid/mode. Row 23: density albedo RGB, B2 density marker:
 		// 4 = overlay injects density + source; 5 = Emissive Injection (native Volume MID owns
@@ -240,12 +243,14 @@ namespace
 			const float BoxDiagonal = FVector3f(Packet.Rows[2].W, Packet.Rows[3].W, Packet.Rows[4].W).Size() * 2.0f;
 			if (static_cast<uint8>(Actor.AngularQuality) > static_cast<uint8>(EFogMSAngularQuality::Medium24)
 				|| Actor.TransportIterations < 1 || Actor.TransportIterations > 64
+				|| !FMath::IsFinite(Actor.TransportTolerance) || Actor.TransportTolerance < -1.0f || Actor.TransportTolerance > 1.0f
 				|| !FMath::IsFinite(BoxDiagonal) || BoxDiagonal <= 0.0f)
 			{
-				OutProblem = TEXT("Transport requires valid Angular Quality, Iterations in [1,64] and a finite positive Box diagonal.");
+				OutProblem = TEXT("Transport requires valid Angular Quality, Iterations in [1,64], finite Tolerance in [-1,1] and a finite positive Box diagonal.");
 				return;
 			}
 			Packet.Rows[5].Y = static_cast<float>(Actor.ScatteringMode);
+			Packet.Rows[16].W = Actor.TransportTolerance;
 			Packet.Rows[21] = FVector4f(1.0f, BoxDiagonal, static_cast<float>(Actor.TransportIterations),
 				Actor.ScatteringMode == EFogMSScatteringMode::Transport ? 6.0f : (Actor.AngularQuality == EFogMSAngularQuality::High96 ? 96.0f : (Actor.AngularQuality == EFogMSAngularQuality::Low16 ? 16.0f : (Actor.AngularQuality == EFogMSAngularQuality::Medium24 ? 24.0f : 48.0f))));
 			return;
@@ -551,7 +556,8 @@ namespace
 							Packet.Rows[15].W = static_cast<float>(Selected->SurfaceShadowSteps);
 							if (Selected->bFilteredSunShadow && FMath::IsFinite(Selected->ShadowFilterSigma)
 								&& Selected->ShadowFilterSigma >= 0 && Selected->ShadowFilterSigma <= 1000 && !DirectionToSun.IsNearlyZero())
-								Packet.Rows[16] = FVector4f(1, Selected->ShadowFilterSigma, Selected->bFilterSunInsideVolume ? 1.0f : 0.0f, 0);
+								Packet.Rows[16] = FVector4f(1, Selected->ShadowFilterSigma, Selected->bFilterSunInsideVolume ? 1.0f : 0.0f,
+									Packet.Rows[16].W); // W: Transport tolerance, written with the scattering controls.
 							Selected->SurfaceShadowStatus = !bAtlasStatusKnown ? TEXT("Waiting for density atlas GPU upload")
 								: (Selected->SurfaceShadowStrength > 0.0f ? TEXT("Active authored-density surface sun shadow")
 									: TEXT("Ready (Strength=0: native surface sunlight)"));
@@ -669,6 +675,9 @@ namespace
 					HistoryPacket.Rows[Row].X = HistoryPacket.Rows[Row].Y = HistoryPacket.Rows[Row].Z = 0.0f;
 				}
 			}
+			// The transport tolerance only stops the per-frame solve earlier or later; the warm-start
+			// continuation and native fog history stay valid, so it must not bump the revision.
+			HistoryPacket.Rows[16].W = 0.0f;
 			// Previous.Last retains zero in row 5.x, so reset itself cannot change revision.
 			if (bDensityChanged || !DirectionToSun.Equals(Previous.LastSunDirection, 1.0e-6f)
 				|| FMemory::Memcmp(HistoryPacket.Rows, Previous.Last.Rows, sizeof(Packet.Rows)) != 0)
@@ -829,7 +838,11 @@ namespace
 				WorldRequest.Strength = Packet.Rows[21].X;
 				WorldRequest.bTransport = bTransport;
 				WorldRequest.DirectionToSun = GPU->DirectionToSun;
-				if (bTransport) WorldRequest.Iterations = static_cast<int32>(Packet.Rows[21].Z);
+				if (bTransport)
+				{
+					WorldRequest.Iterations = static_cast<int32>(Packet.Rows[21].Z);
+					WorldRequest.Tolerance = Packet.Rows[16].W;
+				}
 				if (bInjection) WorldRequest.InjectionTexture = GPU->InjectionTexture;
 				// Strength=0 still produces current primary indirect lighting. World
 				// applies per-order strength in its atlas; the consumer must not repeat it.
@@ -853,13 +866,23 @@ namespace
 			// The producer wrote the field in this graph only for a published injection request.
 			if (bInjection && bPublished) GPU->bInjectionFieldWritten = true;
 			else ClearInjectionField(GraphBuilder);
+			FString ToleranceText;
+			if (bTransport && bPublished)
+			{
+				// Report what the solver ran, resolved as in FogMS_RenderTransport: row 16.w >= 0 is the
+				// Box tolerance, negative falls back to r.FogMS.Transport.Tolerance; both clamped to [0,1].
+				static TConsoleVariableData<float>* const ToleranceCVar = IConsoleManager::Get().FindTConsoleVariableDataFloat(TEXT("r.FogMS.Transport.Tolerance"));
+				if (Packet.Rows[16].W >= 0.0f) ToleranceText = FString::Printf(TEXT("tol %.2e"), FMath::Clamp(Packet.Rows[16].W, 0.0f, 1.0f));
+				else if (ToleranceCVar) ToleranceText = FString::Printf(TEXT("tol %.2e from cvar"), FMath::Clamp(ToleranceCVar->GetValueOnRenderThread(), 0.0f, 1.0f));
+				else ToleranceText = TEXT("tol from cvar");
+			}
 			{
 				FScopeLock Lock(&GPU->FieldStatusMutex);
 				GPU->FieldStatusRevision = GPU->Revision;
 				if (bPublished)
 					GPU->SpatialFieldStatus = bTransport
-						? FString::Printf(TEXT("Active %s isotropic transport (%d directions%s; see convergence diagnostics)"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
-							bInjection ? TEXT("; emissive injection via material") : TEXT(""))
+						? FString::Printf(TEXT("Active %s isotropic transport (%d directions, %s%s; see convergence diagnostics)"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
+							*ToleranceText, bInjection ? TEXT("; emissive injection via material") : TEXT(""))
 						: (bWorldLighting
 							? (Packet.Rows[21].X > 0 ? TEXT("Active World primary + three current-frame scattering orders (no fog history)")
 								: TEXT("Active World primary (Strength=0: extra orders disabled; no fog history)"))

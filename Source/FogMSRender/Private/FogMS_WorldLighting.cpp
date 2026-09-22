@@ -239,7 +239,7 @@ namespace
 			&& FMath::IsFinite(Request.RangeCm) && Request.RangeCm > 0.0f && (Request.bTransport || Request.RangeCm <= 2000.0f)
 			&& FMath::IsFinite(Request.PhaseG) && FMath::Abs(Request.PhaseG) <= 1.0e-6f
 			&& Request.Steps >= 1 && Request.Steps <= 32 && (Request.bTransport ? (Request.Directions == 6 || Request.Directions == 16 || Request.Directions == 24 || Request.Directions == 48 || Request.Directions == 96) : Request.Directions == 12)
-			&& (!Request.bTransport || (Request.Iterations >= 1 && Request.Iterations <= 64));
+			&& (!Request.bTransport || (Request.Iterations >= 1 && Request.Iterations <= 64 && FMath::IsFinite(Request.Tolerance)));
 	}
 }
 
@@ -333,7 +333,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	FRDGTextureRef Work = nullptr;
 	if (Request.bTransport)
 	{
-		// Warm start needs the same Box and the same diagnostic inputs; Directions/Iterations may differ (J is direction independent).
+		// Warm start needs the same Box and the same diagnostic inputs; Directions/Iterations/Tolerance may differ (J is direction independent).
 		const FFogMSWorldRequest& Last = State.LastRequest;
 		const bool bWarmValid = Last.bTransport && !Request.ResetHistory && !State.bLastReconstructionTest
 			&& Last.CenterWS == Request.CenterWS && Last.AxisX == Request.AxisX && Last.AxisY == Request.AxisY
