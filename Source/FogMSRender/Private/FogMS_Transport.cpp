@@ -42,8 +42,20 @@ namespace
         TEXT("B3 ordinate wavefront sweep: threads per direction group (256, 512 or 1024). One group owns one direction, so few directions leave the GPU sparsely occupied; more threads shorten each front's loop. Same result; measured 16 directions: 256 -> 2.35 ms, 1024 -> 2.20 ms transport."), ECVF_RenderThreadSafe);
     TAutoConsoleVariable<int32> CVarSunAligned(TEXT("r.FogMS.Transport.SunAligned"), 1,
         TEXT("B3: 1 rotates the whole angular quadrature each frame so one ordinate points exactly toward the sun (weights and positive pairing unchanged); 0 keeps the Box-axis-aligned set. Requires the sector-prefiltered sky boundary (default) to be beneficial."), ECVF_RenderThreadSafe);
+    TAutoConsoleVariable<int32> CVarAsyncCompute(TEXT("r.FogMS.Transport.AsyncCompute"), 0,
+        TEXT("1 moves the transport solver passes (sweeps, PCG, reductions, warm start, publish, injection field) to the async compute queue when RDG async compute is available ")
+        TEXT("(r.RDG.AsyncCompute>0 and an efficient async-compute RHI); otherwise they silently stay on graphics. Ray-traced passes and the density average always stay on graphics. Same result."),
+        ECVF_RenderThreadSafe);
 
 #if RHI_RAYTRACING
+    // RDG's own predicate (IsAsyncComputeSupported: r.RDG.AsyncCompute > 0, GSupportsEfficientAsyncCompute,
+    // no immediate mode / render-pass merging), so an unsupported configuration falls back to Compute.
+    ERDGPassFlags SolverPassFlags(const FRDGBuilder& GraphBuilder)
+    {
+        return CVarAsyncCompute.GetValueOnRenderThread() != 0 && GraphBuilder.IsAsyncComputeEnabled()
+            ? ERDGPassFlags::AsyncCompute : ERDGPassFlags::Compute;
+    }
+
     BEGIN_SHADER_PARAMETER_STRUCT(FTransportParameters, )
         SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
         SHADER_PARAMETER_RDG_UNIFORM_BUFFER(FSceneUniformParameters, Scene)
@@ -267,13 +279,21 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
     FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.GetShaderPlatform());
     const auto Buffer = [&](const TCHAR* Name, int32 Size = Cells)
     { return GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector4f), Size), Name); };
+    // Async solver: every solver input/output below is an RDG resource in the parameter struct, so RDG forks
+    // graphics->async after the last graphics producer (pass 2) and joins at the first graphics consumer of an
+    // async output (resident atlas copy / injection access-mode pass) or, at the latest, the graph epilogue.
+    const ERDGPassFlags SolverFlags = SolverPassFlags(GraphBuilder);
+    const TCHAR* const SolverQueue = SolverFlags == ERDGPassFlags::AsyncCompute ? TEXT(" (async)") : TEXT("");
     const auto Dispatch = [&](int32 Pass, const TCHAR* Name, const FTransportParameters& Params, int32 Threads)
     {
+        // Graphics only: 1/2/14 trace inline rays (TLAS, RT geometry through bindless metadata, Lumen cache);
+        // 0 reads the bindless density atlas. Hidden reads stay on the queue the BoxRuntime fences assume.
+        const bool bGraphics = Pass == 0 || Pass == 1 || Pass == 2 || Pass == 14;
         FTransportCS::FPermutationDomain Permutation; Permutation.Set<FTransportCS::FPass>(Pass);
         TShaderMapRef<FTransportCS> Shader(ShaderMap, Permutation);
         auto* P = GraphBuilder.AllocParameters<FTransportParameters>(); *P = Params;
-        FComputeShaderUtils::AddPass(GraphBuilder, FRDGEventName(TEXT("%s"), Name), ERDGPassFlags::Compute,
-            Shader, P, FIntVector(FMath::DivideAndRoundUp(Threads, 64), 1, 1));
+        FComputeShaderUtils::AddPass(GraphBuilder, FRDGEventName(TEXT("%s%s"), Name, bGraphics ? TEXT("") : SolverQueue),
+            bGraphics ? ERDGPassFlags::Compute : SolverFlags, Shader, P, FIntVector(FMath::DivideAndRoundUp(Threads, 64), 1, 1));
     };
     FRDGBufferRef State = Buffer(TEXT("FogMS.B2.PCGScalars"), 4);
     Common.Scalars = GraphBuilder.CreateUAV(State);
@@ -288,7 +308,7 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
             TShaderMapRef<FTransportReduceCS> Shader(ShaderMap, Permutation);
             auto* Parameters = GraphBuilder.AllocParameters<FTransportParameters>(); *Parameters = P;
             if (Final) Parameters->Partial = GraphBuilder.CreateSRV(Part);
-            FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS B2 PCG reduce"), ERDGPassFlags::Compute,
+            FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS B2 PCG reduce%s", SolverQueue), SolverFlags,
                 Shader, Parameters, FIntVector(Final ? 1 : FMath::DivideAndRoundUp(Cells, 256), 1, 1));
         }
     };
@@ -332,8 +352,8 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
             Permutation.Set<FAngularSweepCS::FThreads>(SweepThreads >= 1024 ? 1024 : (SweepThreads >= 512 ? 512 : 256));
             TShaderMapRef<FAngularSweepCS> Shader(ShaderMap, Permutation);
             auto* Parameters = GraphBuilder.AllocParameters<FTransportParameters>(); *Parameters = P;
-            FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS B3 %d ordinate wavefronts", Common.AngularCount),
-                ERDGPassFlags::Compute, Shader, Parameters, FIntVector(Common.AngularCount, 1, 1));
+            FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS B3 %d ordinate wavefronts%s", Common.AngularCount, SolverQueue),
+                SolverFlags, Shader, Parameters, FIntVector(Common.AngularCount, 1, 1));
         }
         return Angular;
     };
@@ -410,7 +430,11 @@ void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
     FTransportCS::FPermutationDomain Permutation; Permutation.Set<FTransportCS::FPass>(17);
     TShaderMapRef<FTransportCS> Shader(GetGlobalShaderMap(View.GetShaderPlatform()), Permutation);
     auto* P = GraphBuilder.AllocParameters<FTransportParameters>(); *P = Params;
-    FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS transport field publish (emissive injection)"),
-        ERDGPassFlags::Compute, Shader, P, FIntVector(FMath::DivideAndRoundUp(Cells, 64), 1, 1));
+    // May run on async compute: the caller's UseExternalAccessMode(Field, SRVMask, Graphics) makes RDG add a
+    // graphics AccessModePass that reads Field, so RDG joins async->graphics before the field leaves the graph.
+    const ERDGPassFlags Flags = SolverPassFlags(GraphBuilder);
+    FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS transport field publish (emissive injection)%s",
+        Flags == ERDGPassFlags::AsyncCompute ? TEXT(" (async)") : TEXT("")),
+        Flags, Shader, P, FIntVector(FMath::DivideAndRoundUp(Cells, 64), 1, 1));
 #endif
 }
