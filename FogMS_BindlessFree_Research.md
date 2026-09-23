@@ -123,3 +123,47 @@ Per-froxel density-dependent terms in LightScatteringCS (A1 march); FinalIntegra
 
 ## Bottom line
 The multiple-scattering injection has an exact, fully supported bindless-free home: Volume material with `BaseColor = 0`, `Emissive = σs[1/m]·J`, `SubsurfaceColor.r = σt`, J delivered through a `UTextureRenderTargetVolume` written by the existing RDG pass. What is lost is control (temporal history, per-froxel jitter), not the quantity. Two extra flags: `FogMS_TransportIncident` / `FogMS_TransportCoefficients` are dead code; removing bindless does not make the plugin marketplace-clean by itself (private renderer headers remain).
+
+
+---
+
+## Дополнение 2026-09-23: что на самом деле требует `-BindlessAll` при доставке через Emissive Injection
+
+Read-only аудит кода плагина и движка (worker, Opus 5.5; ссылки VERIFIED файл:строка, кроме помеченных ASSUMED). Поправка к тексту выше («все проходы продюсера биндят ресурсы обычно»): **продюсер читает атлас плотности через `GetSRVFromHeap`** (`FogMS_Indirect.ush:85,106`, индекс из ряда 7.z, пишется в `FogMS_BoxRuntime.cpp:773-776`).
+
+### Главный вывод
+Inline ray tracing продюсера не требует `-BindlessAll`. Дефолт UE 5.8 для PCD3D_SM6 — `BindlessConfiguration=RayTracing` (`Engine/Config/Windows/BaseWindowsEngine.ini:54-55`); любой шейдер с `CFLAG_InlineRayTracing` компилируется bindless при любой конфигурации, кроме Disabled (`ShaderCore.cpp:808-819`). Все пермутации Transport/World ставят этот флаг (`FogMS_Transport.cpp:126`, `FogMS_WorldLighting.cpp:97`). `GRHISupportsInlineRayTracing` требует лишь «не Disabled» (`D3D12Adapter.cpp:1317-1318`); bindless-кучи существуют при любой конфигурации, кроме Disabled (`D3D12BindlessDescriptors.cpp:131-176`); bindless compute-шейдер при конфигурации RayTracing получает явную кучу (`D3D12StateCache.cpp:484-499`, `D3D12DescriptorCache.cpp:835`) — тем же путём ходит inline HWRT Lumen (`LumenHardwareRayTracingCommon.cpp:369`).
+
+Что меняет `-BindlessAll` (`RHI.cpp:1130-1166`, парсится **только под `WITH_EDITOR`**, :1132): все шейдеры (engine globals и материалы) компилируются bindless (`ShaderCore.cpp:826-827`); descriptor cache D3D12 отказывается от view heap (`D3D12DescriptorCache.cpp:53,56,67`); принудительно D3D12+SM6 (`WindowsDynamicRHI.cpp:1075-1082,1136-1140`). Следствие: **в упакованной игре `-BindlessAll` не действует** — сегодняшнему Box для запуска потребовался бы ini-override. Cvar `r.D3D12.Bindless.RayTracing` в 5.8 не существует (NOT FOUND; есть только размеры куч и GC-latency, `D3D12BindlessDescriptors.cpp:13-36`).
+
+### Карта зависимостей
+| # | Где | Данные / проход | Продюсер или overlay | Обычный RDG-параметр? |
+|---|---|---|---|---|
+| P1 | `FogMS_Indirect.ush:85,106` | **Атлас плотности** (BGRA8): Transport pass 0 (`FogMS_Transport.usf:162-170`), World pass 0 (`FogMS_WorldLighting.usf:136-138`), ShadowCache (`FogMS_ShadowCache.usf:18,32`) | продюсер и overlay | Да: `Texture2D<float4>` под `FOGMS_PRODUCER`; текстура уже есть как FRHITexture (`FogMS_DensityAtlas.cpp:271-276`) |
+| P2 | `FogMS_DensityAtlas.cpp:279-291` | загрузка только при валидном `GetBindlessHandle()` | продюсер | не нужно после P1 |
+| P3 | `FogMS_Common.ush:25-27` `#error` | любой шейдер с `FOGMS_BOX_MODE` без bindless | оба | ограничить `!FOGMS_PRODUCER` |
+| P4 | `FogMS_WorldLighting.cpp:136-180` (:170), копия :477-482 | резидентный атлас с bindless-индексом в ряд 22 | **только overlay** (инъекция пишет поле напрямую, :390-399) | пропускать для injection-запросов; `FogMS_BoxRuntime.cpp:895` не должен требовать `DescriptorIndex` |
+| O1 | `FogMS_BoxRuntime.cpp:1088-1117` | текстура пакета Box (`RHICreateTexture2DFromResource`, `GetBindlessHandle`) | overlay | не нужна |
+| O2 | `FogMS_BoxRuntime.cpp:344-359`, `:1046-1058`, фенсы :768/:808 | покадровая загрузка пакета | overlay (фенсы также покрывают P1) | не нужна |
+| O3 | `FogMS_Common.ush:33,43`; `FogMS_Indirect.ush:213,295`; `FogMS_Reconstruction.ush:13,136,269`; `FogMS_ScreenScattering.ush:35` | пакет, кэш теней солнца (20.x), атлас (22.x) в патченных шейдерах движка | overlay | невозможно без патча |
+| O4 | ShadowCache: `FogMSRender.cpp:30-34,197-199`; потребители `FogMS_Indirect.ush:299,350,372` | кэш теней солнца | **только overlay** (продюсер `FogMS_CachedSunTransmittance` не вызывает) | выключить в injection-only |
+| O5 | `FogMS_RHICompatibility.cpp` | crash guard | только при All (:39) | — |
+
+Lumen/world-источники — обычные параметры (`FogMS_LumenSource.cpp:127-160`, `FogMS_WorldSources.ush:6-17`); TLAS, binding data, `ShadowHitData` — RDG SRV (`FogMS_Transport.cpp:64-66,205-207`); проход 17 — RDG UAV. `BoxRows` продюсера — loose globals `float4 BoxRows[24]` (`FogMS_Transport.usf:4`, `SHADER_PARAMETER_ARRAY` `FogMS_Transport.cpp:67`); `FogMS_BoxRow` под `FOGMS_PRODUCER` читает массив (`FogMS_Common.ush:30-31`), heap-чтение (:33) — только ветка потребителя.
+
+### Crash guard
+Обходит: при All `bUsingViewHeap=false`, `CurrentViewHeap` null (`D3D12DescriptorCache.cpp:56,67`); после native RT dispatch `UnsetExplicitDescriptorCache` (`D3D12RayTracing.cpp:6224` → `D3D12DescriptorCache.cpp:873-884`) на свежем параллельном контексте восстанавливает bindful-кучи и разыменовывает null (:90-94). Привязан к `-BindlessAll`, не к RT-bindless; для injection-only Box не нужен, сам отключается.
+
+### Минимальный список изменений для запуска с `-d3d12 -sm6` (инъекция)
+1. `FogMS_Transport.cpp:117-122`, `FogMS_WorldLighting.cpp:46-52`: `== All` → «bindless для RT или выше»; runtime-гейт `FogMS_WorldLighting.cpp:281-285` и текст ошибки.
+2. `FogMS_WorldLighting.cpp`: для injection-запросов пропустить `EnsureResource` и резидентную копию (P4); `FogMS_BoxRuntime.cpp:895` — «поле записано» считается публикацией без дескриптора.
+3. `FogMS_BoxRuntime.cpp`: `Prepare` (:1073-1130) — injection-only путь без гейта All (:1074-1082) и без текстуры пакета (O1); гейт продюсера :618 (`FogMS_IsLocalOverlayEnabled`, :166-170) принимает injection-only; в этом режиме принудительно выключить A1d/A1e/shadow cache (ряды 6.W, 13.W, 14.W, 16.X → `BuildShadow` :970-986 пропускается); `PublishFields`/`Upload` — no-op без текстуры; триггер SSFS (:1002-1009) — по флагу публикации, не по ряду 22 (сам SSFS bindless не требует, `FogMS_ScreenScattering.cpp:32-62`).
+4. `FogMS_BoxVolume.cpp:151-164` (`FogMS_ApplyBoxMode`): injection-only не ставит `r.FogMS.BoxMode=1` (иначе патченные шейдеры движка упрутся в `#error` `FogMS_Common.ush:25`); глобальный A1 overlay (BoxMode 0) bindless-free и может сосуществовать.
+5. Атлас плотности: **минимально** — оставить P1 (должно работать: продюсер bindless, SRV получает handle при «не Disabled», `D3D12View.cpp:235`; ASSUMED); **чисто** — биндить атлас параметром в `FTransportParameters`/World-параметрах, передать через `FFogMSWorldRequest`, использовать в `FogMS_Indirect.ush:98-121` под `FOGMS_PRODUCER`; `#error` только для потребителей; снять требование handle в `FogMS_DensityAtlas.cpp:279-291`. Убирает скрытые чтения и их фенсы у продюсера.
+6. Без изменений: `FogMS_RHICompatibility.cpp`, `MultiLobeShaderPatcher.cpp` (пока injection-only не включает BoxMode 1), SSFS, материал.
+
+Остаются «Advanced, requires BindlessAll»: всё O3 (ViewIntegration 1–3, history rejection, октавы, A1d в Box), A1e surface shadow, SSFS sky disk, debug views, ShadowCache, режимы 4 (overlay transport) и Spatial.
+
+«Приватные заголовки рендерера» — блокер чистоты для FAB, а не bindless, и одинаков для обоих режимов: `FogMSRender.Build.cs:12` (`Renderer/Private`), `FViewInfo::LumenHardwareRayTracingHitDataBuffer` (`SceneRendering.h:1710`, публичного аксессора не найдено; бит 29 CastShadow в `FogMS_Transport.usf:100-116`), `View.ViewLumenSceneData`/`FLumenSceneData` (`FogMS_LumenSource.cpp:5,39`), `FScene::SkyLight` через `ScenePrivate.h` (`FogMS_WorldSources.cpp:12,40-52`). TLAS и binding data имеют публичную замену (`FXRenderingUtils.h:88-91`).
+
+Проверить запуском: редактор с `-d3d12 -sm6` — компиляция продюсеров при конфигурации RayTracing, явная куча для compute-проходов плагина, разрешение индекса атласа (если минимальный вариант), совпадение поля с результатом под `-BindlessAll`.
