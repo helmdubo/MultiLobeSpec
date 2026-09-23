@@ -17,21 +17,18 @@
 
 IMPLEMENT_GLOBAL_SHADER_PARAMETER_STRUCT(FFogMSLumenCardScene, "FogMSLumenCardScene");
 
+#if FOGMS_LUMEN_SOURCE_VERIFIED && PLATFORM_WINDOWS
 namespace
 {
-	// The only renderer-private view access of the producer path. PostTLASBuild of the deferred renderer passes an
-	// actual FViewInfo, which marks itself with FSceneView::bIsViewInfo (FViewInfo constructor).
+	// The only renderer-private view access of the producer path, used by the Lumen surface-cache source only.
+	// PostTLASBuild of the deferred renderer passes an actual FViewInfo, which marks itself with
+	// FSceneView::bIsViewInfo (FViewInfo constructor). Same guard as its one caller (no unused-function warning).
 	const FViewInfo* FogMS_AsViewInfo(const FSceneView& View)
 	{
 		return View.bIsViewInfo ? static_cast<const FViewInfo*>(&View) : nullptr;
 	}
 }
-
-FRDGBufferRef FogMS_GetPrivateLumenHitDataBuffer(const FSceneView& SceneView)
-{
-	const FViewInfo* View = FogMS_AsViewInfo(SceneView);
-	return View ? View->LumenHardwareRayTracingHitDataBuffer : nullptr;
-}
+#endif
 
 bool FogMS_GetLumenSource(FRDGBuilder& GraphBuilder, const FSceneView& SceneView,
 	FFogMSLumenSourceParameters& OutParameters, FString& OutError)

@@ -74,7 +74,3 @@ bool FogMS_GetLumenSource(FRDGBuilder& GraphBuilder, const FSceneView& View,
  * valid resources. Reads no renderer-private state. Leaves FogMSLumenBounce and FogMSFallbackAlbedo zero.
  */
 void FogMS_GetFallbackLumenSource(FRDGBuilder& GraphBuilder, FFogMSLumenSourceParameters& OutParameters);
-
-/** r.FogMS.Transport.PublicHitFlags 0 fallback (P5, A/B only): the renderer-private
- * FViewInfo::LumenHardwareRayTracingHitDataBuffer of View, or null (none this frame, or not an FViewInfo). */
-FRDGBufferRef FogMS_GetPrivateLumenHitDataBuffer(const FSceneView& View);

@@ -1,9 +1,9 @@
 #!/bin/bash
-# A/B of r.FogMS.World.SkySource against the private renderer path (1) on frozen density, Production tier, overlay delivery
+# A/B of r.FogMS.World.SkySource against the auto choice (0) on frozen density (the private path was removed in round 27), Production tier, overlay delivery
 # (resident atlas dump). Two SkyLight configurations: Real Time Capture ON (auto = Sky View LUT) and OFF (auto = processed
-# capture). For each: private (1), auto (0), forced LUT (2), forced capture (3), forced SH (4); fielddiff vs private, PSNR
+# capture). For each: auto (0), forced LUT (2), forced capture (3), forced SH (4), auto again (0b = noise floor); fielddiff vs auto, PSNR
 # inside the Box, status text. r.SkyLight.RealTimeReflectionCapture is left ON during the RTC runs (the LUT path needs the
-# live atmosphere; noise floor is reported as 1 vs 1b). Restores SkyLight RTC flag and the actor from snapshots.
+# live atmosphere; noise floor is reported as 0 vs 0b). Restores SkyLight RTC flag and the actor from snapshots.
 S="$(cd "$(dirname "$0")" && pwd)"; M="$S/measure"
 U() { python "$S/uemcp.py" "$@" >/dev/null; }
 PY() { python "$S/uemcp.py" py "$1" | grep -o '"output": "[^"]*"' | head -1; }
@@ -28,22 +28,22 @@ for RTC in True False; do
 $SKY
 c.set_editor_property('real_time_capture', $RTC); print('RTC set', c.get_editor_property('real_time_capture'))"
   sleep 6
-  for R in 1 0 2 3 4 1b; do
+  for R in 0 2 3 4 0b; do
     SRC=${R%b}
     U cmd "r.FogMS.World.SkySource $SRC"; sleep 4
     MEAS sky_rtc${RTC}_s$R quality=LOW16 iterations=16 settle=8; STATUS "RTC=$RTC SRC=$R"
   done
-  echo "--- fields vs private, RTC=$RTC"
-  for R in 1b 0 2 3 4; do printf "%-4s " "$R"; python "$S/fielddiff.py" "$M/sky_rtc${RTC}_s$R/dump.rgba32f" "$M/sky_rtc${RTC}_s1/dump.rgba32f"; done
+  echo "--- fields vs auto (0), RTC=$RTC"
+  for R in 0b 2 3 4; do printf "%-4s " "$R"; python "$S/fielddiff.py" "$M/sky_rtc${RTC}_s$R/dump.rgba32f" "$M/sky_rtc${RTC}_s0/dump.rgba32f"; done
   M="$M" RTC="$RTC" python - <<'PYEOF'
 from PIL import Image; import numpy as np, os
 M = os.environ["M"]; RTC = os.environ["RTC"]
 def load(t): return np.asarray(Image.open(os.path.join(M, t, "shot.png")).convert('RGB'), dtype=np.float64)[140:700, 430:1340]
 try:
-    R = load("sky_rtc%s_s1" % RTC)
-    for t in ("1b", "0", "2", "3", "4"):
+    R = load("sky_rtc%s_s0" % RTC)
+    for t in ("0b", "2", "3", "4"):
         A = load("sky_rtc%s_s%s" % (RTC, t)); mse = ((A - R) ** 2).mean()
-        print("screenshot RTC=%s source %-2s vs private: PSNR %5.1f dB | mean ratio %.4f" % (RTC, t, 10 * np.log10(255 ** 2 / max(mse, 1e-9)), A.mean() / R.mean()))
+        print("screenshot RTC=%s source %-2s vs auto: PSNR %5.1f dB | mean ratio %.4f" % (RTC, t, 10 * np.log10(255 ** 2 / max(mse, 1e-9)), A.mean() / R.mean()))
 except Exception as e:
     print("compare ERR", e)
 PYEOF

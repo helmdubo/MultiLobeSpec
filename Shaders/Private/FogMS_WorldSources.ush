@@ -12,13 +12,12 @@ float FogMSWorldDistanceBiasSqr;
 StructuredBuffer<float4> FogMSWorldLights;
 TextureCube FogMSWorldSkyTexture;
 SamplerState FogMSWorldSkySampler;
-TextureCube FogMSWorldSkyBlendTexture;
-SamplerState FogMSWorldSkyBlendSampler;
 // Sky volumetric scattering intensity; FogMS_WorldSky multiplies it by View.SkyLightColor (View UB).
 float FogMSWorldSkyIntensity;
-float FogMSWorldSkyBlend;
+// FFogMSWorldSourcesParameters::FogMSWorldSkyBlend / BlendTexture / BlendSampler are no longer read: only the removed
+// private sky path set a blend (the public capture has none).
 float FogMSWorldSkyMipBias;
-// 0 none, 1 cubemap (private RTC/processed or public processed capture), 2 Sky View LUT, 3 sky SH (r.FogMS.World.SkySource).
+// 0 none, 1 cubemap (public processed capture), 2 Sky View LUT, 3 sky SH (chosen by r.FogMS.World.SkySource; not its values).
 uint FogMSWorldSkySource;
 // 1: multiply by View.RealTimeReflectionCapturePreExposure (sky light RTC on, source not RTC-exposed; see FogMS_WorldSources.cpp).
 float FogMSWorldSkyUndoRTCExposure;
@@ -255,7 +254,6 @@ float3 FogMS_WorldSkyCubemap(float3 WorldDirection, float SectorSolidAngle)
 	// Sector-matched mip, computed after the sun-disc substitution above so the
 	// filtered footprint is centred on the substituted (cone boundary) direction.
 	float Mip = 0.0f;
-	float BlendMip = 0.0f;
 	if (SectorSolidAngle > 0.0f)
 	{
 		// Half-angle of the spherical cap with the sector's solid angle: Omega = 2*pi*(1-cos(theta)).
@@ -267,22 +265,8 @@ float3 FogMS_WorldSkyCubemap(float3 WorldDirection, float SectorSolidAngle)
 		// Mip m has texels 2^m times wider; match the cone diameter 2*theta.
 		float TexelAngle = (0.5f * PI) / max(float(Width), 1.0f);
 		Mip = clamp(log2(max(2.0f * Theta / TexelAngle, 1.0f)) + FogMSWorldSkyMipBias, 0.0f, float(max(Levels, 1u) - 1u));
-		BlendMip = Mip;
-		if (FogMSWorldSkyBlend > 0.0f)
-		{
-			uint BlendWidth, BlendHeight, BlendLevels;
-			FogMSWorldSkyBlendTexture.GetDimensions(0u, BlendWidth, BlendHeight, BlendLevels);
-			float BlendTexelAngle = (0.5f * PI) / max(float(BlendWidth), 1.0f);
-			BlendMip = clamp(log2(max(2.0f * Theta / BlendTexelAngle, 1.0f)) + FogMSWorldSkyMipBias, 0.0f, float(max(BlendLevels, 1u) - 1u));
-		}
 	}
-	float3 Radiance = FogMSWorldSkyTexture.SampleLevel(FogMSWorldSkySampler, SampleDirection, Mip).rgb;
-	if (FogMSWorldSkyBlend > 0.0f)
-	{
-		float3 Destination = FogMSWorldSkyBlendTexture.SampleLevel(FogMSWorldSkyBlendSampler, SampleDirection, BlendMip).rgb;
-		Radiance = lerp(Radiance, Destination, FogMSWorldSkyBlend);
-	}
-	return Radiance;
+	return FogMSWorldSkyTexture.SampleLevel(FogMSWorldSkySampler, SampleDirection, Mip).rgb;
 }
 
 // Escaped sky rays ONLY: radiance, no phase / sigma / View.PreExposure. Native
@@ -312,7 +296,7 @@ float3 FogMS_WorldSky(float3 WorldDirection, float SectorSolidAngle)
 	if (FogMSWorldSkySource == 1u) Radiance = FogMS_WorldSkyCubemap(WorldDirection, SectorSolidAngle);
 	else if (bViewLut) Radiance = FogMS_WorldSkyViewLutSector(WorldDirection, SectorSolidAngle);
 	else Radiance = FogMS_WorldSkySH(WorldDirection, SectorSolidAngle);
-	// Never set for the private path or the SH (both carry the exposure View.SkyLightColor removes).
+	// Never set for the SH (it carries the exposure View.SkyLightColor removes).
 	if (FogMSWorldSkyUndoRTCExposure > 0.5f && (FogMSWorldSkySource == 1u || bViewLut))
 		Radiance *= View.RealTimeReflectionCapturePreExposure;
 	// Same product as the former CPU FogMSWorldSkyColor = SkyLightColor.rgb * intensity (per channel, fp32).

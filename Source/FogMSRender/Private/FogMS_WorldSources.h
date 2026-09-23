@@ -25,7 +25,7 @@ BEGIN_SHADER_PARAMETER_STRUCT(FFogMSWorldSourcesParameters, )
 	SHADER_PARAMETER(float, FogMSWorldSkyIntensity)
 	SHADER_PARAMETER(float, FogMSWorldSkyBlend)
 	// Active sky boundary source, chosen by FogMS_GetWorldSources (r.FogMS.World.SkySource): 0 none (black), 1 cubemap
-	// (private RTC/processed capture, or the public processed capture; sector mip + sun-exclusion cone), 2 Sky View LUT
+	// (public processed capture, or the public processed capture; sector mip + sun-exclusion cone), 2 Sky View LUT
 	// (View UB), 3 sky SH (View UB SkyIrradianceEnvironmentMap, Lambert band weights removed).
 	SHADER_PARAMETER(uint32, FogMSWorldSkySource)
 	// 1 when the sky light has Real Time Capture on but the bound source is NOT the RTC cubemap/SH (LUT or static

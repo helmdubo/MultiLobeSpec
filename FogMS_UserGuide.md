@@ -174,8 +174,6 @@ SSFS sky disk, отладочные виды, `r.FogMS.BoxMode 1`. Box в это
 |---|---|
 | `FogMS.DumpSpatial <путь>` | Выгружает атлас поля. Без `-BindlessAll` поле **не** выгружается: резидентного атласа нет |
 | `FogMS.Status` | Печатает состояние overlay и запрошенные настройки. Работает только в редакторе; что он показывает для инъекции, (не проверено) |
-| `r.FogMS.Transport.HitFlagsDebug` 0/1/2, `…HitFlagsDebugInterval` 120 | Сравнивает публичный и приватный буферы флагов теней, результат пишется в лог |
-| `r.FogMS.Transport.PublicHitFlags` | 1 (по умолчанию) берёт публичный путь, 0 — приватный буфер для A/B |
 | `r.FogMS.Transport.Test*` | Синтетические тестовые входы. После проверки верните 0 |
 | `r.FogMS.ViewIntegration`, `r.FogMS.SSFS*`, `r.FogMS.BoxMode`, `r.FogMS.ScreenScatteringSun` | Advanced-режимы, требуют `-BindlessAll`/overlay |
 

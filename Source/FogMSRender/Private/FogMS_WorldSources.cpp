@@ -12,14 +12,15 @@
 #include "RHIStaticStates.h"
 #include "SceneInterface.h"
 #include "SceneManagement.h"
-// Renderer/Private: P11 light list (Scene.Lights, AtmosphereLights, VolumetricCloud) and the private sky path (P9,
-// r.FogMS.World.SkySource 1: FScene::SkyLight / ConvolvedSkyRenderTarget). The public sky sources do not use it.
+// Renderer/Private, P11 light list only (the sky sources are public): ScenePrivate.h for FScene (the static_cast of
+// View.Family->Scene, FScene::Lights, FScene::AtmosphereLights, FScene::VolumetricCloud); LightSceneInfo.h (above) for
+// FLightSceneInfoCompact::LightSceneInfo and FLightSceneInfo::bVisible / ::Proxy.
 #include "ScenePrivate.h"
-// Private sky path ONLY (FSkyLightSceneProxy); delete together with the BEGIN/END private sky block below.
-#include "SceneProxies/SkyLightSceneProxy.h"
 #include "SceneView.h"
 #include "SystemTextures.h"
 #include "TextureResource.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogFogMSWorldSources, Log, All);
 
 namespace
 {
@@ -34,8 +35,9 @@ namespace
 	TAutoConsoleVariable<int32> CVarWorldSkySource(TEXT("r.FogMS.World.SkySource"), 0,
 		TEXT("Sky boundary radiance of the transport/world solve. 0 auto: Real Time Capture + rendered SkyAtmosphere -> Sky View LUT; ")
 		TEXT("static capture -> processed cubemap (public USkyLightComponent API); otherwise the sky SH (View UB). ")
-		TEXT("1 private renderer path (FScene::SkyLight RTC / processed cubemap; A/B reference). 2 force Sky View LUT, 3 force processed ")
-		TEXT("capture, 4 force SH. An unavailable forced source falls back to SH; the Box status names the source in use."), ECVF_RenderThreadSafe);
+		TEXT("2 force Sky View LUT, 3 force processed capture, 4 force SH. An unavailable forced source falls back to SH; the Box ")
+		TEXT("status names the source in use. 1 (the removed private renderer path) acts as 0 with a one-time log warning; other values act as 0."),
+		ECVF_RenderThreadSafe);
 	TAutoConsoleVariable<int32> CVarWorldSkyLutSamples(TEXT("r.FogMS.World.SkyLutSamples"), 5,
 		TEXT("Sky View LUT sky source only: LUT taps averaged (equal weights) over each quadrature sector cone, clamped to [1,13]: ")
 		TEXT("centre, up to 8 on the cone rim, the rest (up to 4) at half the cone angle. Deterministic per ordinate. 1 = point sample."),
@@ -72,97 +74,6 @@ namespace
 		Parameters.FogMSWorldSkyLutSamples = 1;
 	}
 
-	// ===== BEGIN private sky path (P9, r.FogMS.World.SkySource 1). Delete this block, the SkyLightSceneProxy.h include,
-	// the SkySource == 1 branch in FogMS_GetWorldSources and value 1 of the cvar help when the A/B is done. =====
-	// Parameters arrive reset by ResetSky (black cube, intensity 0, source none).
-	bool BindSkyPrivate(FRDGBuilder& GraphBuilder, const FScene& Scene, const FSceneView& View,
-		FFogMSWorldSourcesParameters& Parameters, FString& OutSkySource, FString& Error)
-	{
-		OutSkySource = TEXT("private: none");
-		if (!Scene.SkyLight || !View.Family->EngineShowFlags.Lighting || !View.Family->EngineShowFlags.SkyLighting)
-			return true;
-
-		const FSkyLightSceneProxy& Sky = *Scene.SkyLight;
-		const float Intensity = Sky.VolumetricScatteringIntensity;
-		// The colour scale itself is View.SkyLightColor, read in the shader from the bound View UB (FogMS_WorldSky).
-		// It is SkyLighting ? GetEffectiveLightColor() * SkyPreExposureInv * SkylightScale : Black (SceneRendering.cpp:2101;
-		// SkyLighting is checked above). SkyPreExposureInv is 1 or 1/GetCachedLightingPreExposure() (> 0), so this public
-		// gate colour is zero / non-finite / negative exactly when View.SkyLightColor is (ASSUMED finite pre-exposure).
-		// It only gates; the multiplied value is the native View.SkyLightColor as before.
-		const FVector3f GateColor(Sky.GetEffectiveLightColor() * View.SkylightScale);
-		if (!FMath::IsFinite(Intensity) || Intensity < 0 || !Nonnegative(GateColor))
-		{
-			Error = TEXT("B1 sky has invalid color or volumetric intensity");
-			return false;
-		}
-		if (Intensity == 0 || GateColor.IsZero()) return true;
-		if (!Nonnegative(GateColor * Intensity))
-		{
-			Error = TEXT("B1 sky color overflows after volumetric intensity");
-			return false;
-		}
-		Parameters.FogMSWorldSkyIntensity = Intensity;
-		// Every successful return below binds a cubemap; the error returns fail the whole request.
-		Parameters.FogMSWorldSkySource = SkySourceCubemap;
-
-		// Narrow equivalent of IndirectLightRendering.cpp:660-731. Calling its
-		// private SetupReflectionUniformParameters would require a Renderer export.
-		// SceneRendering.cpp:2091-2101 already removes RTC cached pre-exposure from
-		// View.SkyLightColor; do not multiply or divide by View.PreExposure here.
-		const int32 ReadyIndex = Scene.ConvolvedSkyRenderTargetReadyIndex;
-		if (Sky.bRealTimeCaptureEnabled && ReadyIndex >= 0)
-		{
-			if (ReadyIndex > 1 || !Scene.ConvolvedSkyRenderTarget[ReadyIndex].IsValid())
-			{
-				Error = TEXT("B1 realtime sky capture has no valid ready cubemap");
-				return false;
-			}
-			Parameters.FogMSWorldSkyTexture = GraphBuilder.RegisterExternalTexture(
-				Scene.ConvolvedSkyRenderTarget[ReadyIndex], TEXT("FogMS.WorldSkyRTC"));
-			OutSkySource = TEXT("private RTC cubemap");
-			return true;
-		}
-
-		if (!Sky.ProcessedTexture || !Sky.ProcessedTexture->TextureRHI.IsValid()
-			|| !Sky.ProcessedTexture->SamplerStateRHI.IsValid())
-		{
-			Error = TEXT("B1 sky capture/cubemap is not ready");
-			return false;
-		}
-		if (!FMath::IsFinite(Sky.BlendFraction) || Sky.BlendFraction < 0 || Sky.BlendFraction > 1)
-		{
-			Error = TEXT("B1 sky cubemap blend fraction is invalid");
-			return false;
-		}
-		FTexture* Source = Sky.ProcessedTexture;
-		if (Sky.BlendFraction > 0)
-		{
-			FTexture* Destination = Sky.BlendDestinationProcessedTexture;
-			if (!Destination || !Destination->TextureRHI.IsValid() || !Destination->SamplerStateRHI.IsValid())
-			{
-				Error = TEXT("B1 sky cubemap blend destination is not ready");
-				return false;
-			}
-			if (Sky.BlendFraction == 1)
-			{
-				Source = Destination;
-			}
-			else
-			{
-				Parameters.FogMSWorldSkyBlendTexture = RegisterExternalTexture(GraphBuilder,
-					Destination->TextureRHI, TEXT("FogMS.WorldSkyBlend"), ERDGTextureFlags::SkipTracking);
-				Parameters.FogMSWorldSkyBlendSampler = Destination->SamplerStateRHI;
-				Parameters.FogMSWorldSkyBlend = Sky.BlendFraction;
-			}
-		}
-		Parameters.FogMSWorldSkyTexture = RegisterExternalTexture(GraphBuilder,
-			Source->TextureRHI, TEXT("FogMS.WorldSkyCapture"), ERDGTextureFlags::SkipTracking);
-		Parameters.FogMSWorldSkySampler = Source->SamplerStateRHI;
-		OutSkySource = Parameters.FogMSWorldSkyBlend > 0 ? TEXT("private processed cubemap (blend)") : TEXT("private processed cubemap");
-		return true;
-	}
-	// ===== END private sky path =====
-
 	// Public mirror of ShouldRenderSkyAtmosphere (SkyAtmosphereRendering.cpp:488-499), which gates both the Sky View LUT
 	// render (DeferredShadingRenderer.cpp:2430-2438 / 2845-2850) and View.SkyAtmospherePresentInScene (SceneRendering.cpp:1564-1566):
 	// FSceneInterface::GetSkyAtmosphereSceneInfo() (SceneInterface.h:436; compared with null only, the type stays opaque),
@@ -177,7 +88,7 @@ namespace
 	}
 
 	// Public sky sources (r.FogMS.World.SkySource 0 / 2 / 3 / 4): FFogMSWorldRequest::Sky (game thread) and the View UB only.
-	// Output contract identical to the private path: FogMS_WorldSky returns SourceRadiance * View.SkyLightColor *
+	// Output contract (unchanged from the removed private renderer path): FogMS_WorldSky returns SourceRadiance * View.SkyLightColor *
 	// FogMSWorldSkyIntensity with SourceRadiance in "processed sky texture" units, i.e. what the engine itself multiplies
 	// by View.SkyLightColor (ReflectionEnvironmentShared.ush:49 cubemap, VolumetricFog.usf:1035 SH).
 	bool BindSkyPublic(FRDGBuilder& GraphBuilder, const FSceneView& View, const FFogMSWorldSky& Sky, int32 Mode,
@@ -189,7 +100,7 @@ namespace
 			OutSkySource = Sky.bValid ? TEXT("none (sky lighting show flag off)") : TEXT("none (no visible sky light)");
 			return true;
 		}
-		// Same gates as the private path, from the game-thread values the proxy is built from: proxy LightColor =
+		// Same gates as the removed private path (render-thread sky proxy), from the game-thread values the proxy is built from: proxy LightColor =
 		// FLinearColor(LightColor) * Intensity (SkyLightComponent.cpp:274) = ULightComponentBase::GetLightColor(), and
 		// VolumetricScatteringIntensity (SkyLightComponent.cpp:251, 493-500). GSkylightIntensityMultiplier and the protected
 		// SpecifiedCubemapColorScale are not visible here; they only scale View.SkyLightColor, which stays the multiplier.
@@ -267,7 +178,7 @@ namespace
 		}
 		else if (Source == SkySourceCubemap)
 		{
-			// Public counterpart of the private processed-capture branch: RHI refs of the component's ProcessedSkyTexture
+			// Public counterpart of the removed private processed-capture branch: RHI refs of the component's ProcessedSkyTexture
 			// (USkyLightComponent::GetProcessedSkyTexture, SkyLightComponent.h:308), the resource the proxy's ProcessedTexture
 			// points at. No blend: BlendFraction / BlendDestinationProcessedSkyTexture are protected (SkyLightComponent.h:333-338).
 			Parameters.FogMSWorldSkyTexture = RegisterExternalTexture(GraphBuilder,
@@ -310,11 +221,17 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	ResetSky(GraphBuilder, OutParameters);
 	OutSkySource.Empty();
 	const int32 SkySource = CVarWorldSkySource.GetValueOnRenderThread();
-	if (SkySource == 1) // Private sky path (P9): delete this branch with the BEGIN/END private sky block.
+	if (SkySource == 1)
 	{
-		if (!BindSkyPrivate(GraphBuilder, Scene, View, OutParameters, OutSkySource, Error)) return false;
+		// Value 1 was the private renderer sky path (P9), removed after the round 25 A/B; it now runs as 0 (auto).
+		static bool bLoggedRetiredSkySource = false; // render thread only
+		if (!bLoggedRetiredSkySource)
+		{
+			bLoggedRetiredSkySource = true;
+			UE_LOG(LogFogMSWorldSources, Warning, TEXT("r.FogMS.World.SkySource 1 (private renderer sky path) was removed; using 0 (auto)."));
+		}
 	}
-	else if (!BindSkyPublic(GraphBuilder, View, Sky, SkySource >= 2 && SkySource <= 4 ? SkySource : 0, OutParameters, OutSkySource, Error))
+	if (!BindSkyPublic(GraphBuilder, View, Sky, SkySource >= 2 && SkySource <= 4 ? SkySource : 0, OutParameters, OutSkySource, Error))
 		return false;
 	const float SkyMipBias = CVarWorldSkyMipBias.GetValueOnRenderThread();
 	OutParameters.FogMSWorldSkyMipBias = FMath::IsFinite(SkyMipBias) ? SkyMipBias : 0.0f;

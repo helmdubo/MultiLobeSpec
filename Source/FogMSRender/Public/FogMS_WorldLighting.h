@@ -46,7 +46,7 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	 * B3 transport rotates its angular quadrature so one ordinate points exactly at the sun.
 	 */
 	FVector3f DirectionToSun = FVector3f::ZeroVector;
-	/** Sky light snapshot for the public sky-boundary sources; unused by r.FogMS.World.SkySource 1 (private path). */
+	/** Sky light snapshot for the public sky-boundary sources; unused by the Sky View LUT and SH paths. */
 	FFogMSWorldSky Sky;
 	/** Render thread only. Transport + Emissive Injection: 32^3 UAV-capable Texture3D (FloatRGBA or
 	 * RGBA32F) that receives total incident J per Box cell (alpha 1), then is left in SRV state for

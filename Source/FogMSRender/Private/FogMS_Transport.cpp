@@ -7,7 +7,6 @@
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "RenderUtils.h"
-#include "RHIGPUReadback.h"
 #include "SceneInterface.h"
 #include "SceneRendererInterface.h"
 #include "SceneUniformBuffer.h"
@@ -54,26 +53,15 @@ namespace
         TEXT("1 moves the transport solver passes (sweeps, PCG, reductions, warm start, publish, injection field) to the async compute queue when RDG async compute is available ")
         TEXT("(r.RDG.AsyncCompute>0 and an efficient async-compute RHI); otherwise they silently stay on graphics. Ray-traced passes and the density average always stay on graphics. Same result."),
         ECVF_RenderThreadSafe);
-    TAutoConsoleVariable<int32> CVarPublicHitFlags(TEXT("r.FogMS.Transport.PublicHitFlags"), 1,
-        TEXT("Per-segment CastShadow flags of the direct-light shadow rays. 1 builds them each frame from the public ray tracing bindings ")
-        TEXT("(FXRenderingUtils visible shader bindings + mesh commands, same bit and index as the engine). 0 uses the renderer-private Lumen ")
-        TEXT("hit-data buffer (A/B fallback, to be removed). Same field expected."), ECVF_RenderThreadSafe);
-    TAutoConsoleVariable<int32> CVarHitFlagsDebug(TEXT("r.FogMS.Transport.HitFlagsDebug"), 0,
-        TEXT("Diagnostic of the PublicHitFlags A/B (log lines 'HitFlagsDebug'). 1 builds both CastShadow buffers (public rebuild and the renderer-private ")
-        TEXT("Lumen hit data) in the same frame, reads both back and logs the per-entry comparison. 2 additionally checks every shadow-ray candidate of ")
-        TEXT("pass 2 against both buffers on the GPU and logs the mismatch count and the first 32 records. The A/B-selected buffer still shadows. 0 off."),
-        ECVF_RenderThreadSafe);
     TAutoConsoleVariable<int32> CVarDirectSkipEmpty(TEXT("r.FogMS.Transport.DirectSkipEmpty"), 0,
         TEXT("Pass 2 (uncollided direct light): 1 traces no shadow rays / medium marches for a cell whose averaged sigma_t is exactly 0 and writes Direct 0 ")
         TEXT("(hybrid: Direct_sun 0, T_sun 1). The solve is unchanged (an empty cell has sigma_s 0, so its Direct never enters b), but the published ")
         TEXT("J (slab 0) and uncollided slab 1 of empty cells lose their direct part, and both are interpolated into neighbouring fog by the ")
         TEXT("reconstruction and the injection field. 0 (default) computes every cell."), ECVF_RenderThreadSafe);
     TAutoConsoleVariable<int32> CVarDirectSamples(TEXT("r.FogMS.Transport.DirectSamples"), 4,
-        TEXT("Pass 2 subcell points per cell for the direct light (and hybrid T_sun). 8 (default) all corners of the half-cell lattice; 4 one ")
+        TEXT("Pass 2 subcell points per cell for the direct light (and hybrid T_sun). 8; default 4 all corners of the half-cell lattice; 4 one ")
         TEXT("tetrahedron of them, alternating with the complementary tetrahedron on every solve (half the shadow rays; the direct term then ")
         TEXT("changes between successive solves where the two disagree). Other values: 8."), ECVF_RenderThreadSafe);
-    TAutoConsoleVariable<int32> CVarHitFlagsDebugInterval(TEXT("r.FogMS.Transport.HitFlagsDebugInterval"), 120,
-        TEXT("HitFlagsDebug: minimum frames between two logged comparisons (one readback set in flight at a time)."), ECVF_RenderThreadSafe);
 
 #if RHI_RAYTRACING
     // Bit 29 of the engine's Lumen hit-group user data (CalculateLumenHardwareRayTracingUserData,
@@ -98,12 +86,6 @@ namespace
         SHADER_PARAMETER_RDG_BUFFER_SRV(RaytracingAccelerationStructure, TLAS)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<FRayTracingSceneMetadataRecord>, RayTracingSceneMetadata)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, ShadowHitData)
-        // r.FogMS.Transport.HitFlagsDebug 2, pass 2 only (null in every other pass): HitFlagsDebug 2 compares each shadow candidate
-        // against ShadowHitDataAlt (the other A/B path's buffer) and writes HitFlagsDebugOut. Debug off: HitFlagsDebug 0,
-        // ShadowHitDataAlt = ShadowHitData's SRV and a one-element dummy UAV (the runtime branch keeps both bindings live).
-        SHADER_PARAMETER(int32, HitFlagsDebug)
-        SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, ShadowHitDataAlt)
-        SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<uint>, HitFlagsDebugOut)
         SHADER_PARAMETER_ARRAY(FVector4f, BoxRows, [24])
         SHADER_PARAMETER(FVector3f, BoxCenterTranslated)
         SHADER_PARAMETER(FVector4f, BoxAxisX)
@@ -247,11 +229,6 @@ namespace
 #endif
 }
 
-bool FogMS_UsePublicShadowHitFlags()
-{
-    return CVarPublicHitFlags.GetValueOnRenderThread() != 0;
-}
-
 FRDGBufferRef FogMS_BuildShadowHitFlags(FRDGBuilder& GraphBuilder, const FSceneView& View)
 {
 #if RHI_RAYTRACING
@@ -273,7 +250,7 @@ FRDGBufferRef FogMS_BuildShadowHitFlags(FRDGBuilder& GraphBuilder, const FSceneV
     FRDGUploadData<uint32> HitFlags(GraphBuilder, NumEntries);
     // Segments without a binding in this list (unwritten engine entries are uninitialized, AllocPODArray; parallel
     // dynamic segments above) cast shadows, the same rule as an out-of-range index: only a dynamic segment with
-    // bCastRayTracedShadows == false can differ from the private buffer (it shadows here).
+    // bCastRayTracedShadows == false can differ from the engine's Lumen buffer (it shadows here).
     for (uint32& Flags : HitFlags) Flags = CastShadowBit;
     const uint32 NumBindings = uint32(Bindings.Num());
     if (NumBindings > 0)
@@ -307,230 +284,10 @@ FRDGBufferRef FogMS_BuildShadowHitFlags(FRDGBuilder& GraphBuilder, const FSceneV
 #endif
 }
 
-int32 FogMS_HitFlagsDebugMode()
-{
-    return FMath::Clamp(CVarHitFlagsDebug.GetValueOnRenderThread(), 0, 2);
-}
-
-#if RHI_RAYTRACING
-DEFINE_LOG_CATEGORY_STATIC(LogFogMSTransport, Log, All);
-
-namespace
-{
-    // r.FogMS.Transport.HitFlagsDebug. Render thread only. Per public-buffer entry (SBTRecordIndex / RAY_TRACING_NUM_SHADER_SLOTS),
-    // recorded from the same visible bindings FogMS_BuildShadowHitFlags walks.
-    enum EHitFlagsEntry : uint8
-    {
-        HitEntryWritten = 1, HitEntryDynamic = 2, HitEntryCasts = 4, HitEntryHidden = 8, HitEntryDuplicate = 16, HitEntryConflict = 32
-    };
-    // GPU record layout (FogMS_Transport.usf DirectShadow): [0] = disagreeing candidate count, then 32 records of
-    // {Index, CandidateInstanceID, CandidateGeometryIndex, raw ShadowHitData, raw ShadowHitDataAlt}; 0xFFFFFFFF = past the end.
-    constexpr uint32 HitFlagsDebugRecords = 32;
-    constexpr uint32 HitFlagsDebugUints = 1 + 5 * HitFlagsDebugRecords;
-    constexpr uint32 HitFlagsPastTheEnd = 0xFFFFFFFFu;
-
-    struct FHitFlagsDebugState
-    {
-        // Allocated on first use and never freed: an RDG readback pass keeps the raw pointer until the graph executes, and
-        // a static destructor running after RHI shutdown must not release the fences. One readback set in flight at a time.
-        FRHIGPUBufferReadback* PublicReadback = nullptr;
-        FRHIGPUBufferReadback* PrivateReadback = nullptr;
-        FRHIGPUBufferReadback* GpuReadback = nullptr;
-        bool bPending = false;
-        bool bPrivateQueued = false;
-        bool bGpuQueued = false;
-        bool bPublicSelected = false;
-        bool bHasLogged = false;
-        uint64 QueuedFrame = 0;
-        uint64 GpuWantedFrame = ~0ull;
-        uint64 LastLogFrame = 0;
-        uint32 PublicBytes = 0;
-        uint32 PrivateBytes = 0;
-        // CPU snapshot of the public build at queue time.
-        uint32 NumBindings = 0, HighestIndex = 0, NumNoShadow = 0, NumDynamic = 0, NumDynamicNoShadow = 0;
-        uint32 NumHidden = 0, NumDuplicate = 0, NumConflict = 0;
-        TArray<uint8> Entries;
-    };
-    FHitFlagsDebugState& GetHitFlagsDebugState()
-    {
-        static FHitFlagsDebugState State;
-        return State;
-    }
-
-    TArray<uint32> ReadHitFlagsBack(FRHIGPUBufferReadback* Readback, uint32 Bytes)
-    {
-        TArray<uint32> Values;
-        if (!Readback || Bytes < sizeof(uint32)) return Values;
-        Bytes -= Bytes % sizeof(uint32);
-        if (const void* Data = Readback->Lock(Bytes))
-        {
-            Values.SetNumUninitialized(Bytes / sizeof(uint32));
-            FMemory::Memcpy(Values.GetData(), Data, Bytes);
-            Readback->Unlock();
-        }
-        return Values;
-    }
-
-    FString HitFlagsRaw(const TArray<uint32>& Values, uint32 Index)
-    {
-        return Index < uint32(Values.Num()) ? FString::Printf(TEXT("0x%08X"), Values[Index]) : FString(TEXT("past-end"));
-    }
-
-    // Logs the readback set once all queued copies are ready (at least two frames after queueing, so the copy
-    // passes of that graph have been recorded and a previous fence signal is not mistaken for this one).
-    void PollHitFlagsDebug(FHitFlagsDebugState& S)
-    {
-        const uint64 Frame = GFrameCounterRenderThread;
-        if (!S.bPending || Frame < S.QueuedFrame + 2) return;
-        if (!S.PublicReadback->IsReady() || (S.bPrivateQueued && !S.PrivateReadback->IsReady())
-            || (S.bGpuQueued && !S.GpuReadback->IsReady())) return;
-        const TArray<uint32> Public = ReadHitFlagsBack(S.PublicReadback, S.PublicBytes);
-        const TArray<uint32> Private = S.bPrivateQueued ? ReadHitFlagsBack(S.PrivateReadback, S.PrivateBytes) : TArray<uint32>();
-        const TArray<uint32> Gpu = S.bGpuQueued ? ReadHitFlagsBack(S.GpuReadback, HitFlagsDebugUints * sizeof(uint32)) : TArray<uint32>();
-        S.bPending = false;
-        S.bHasLogged = true;
-        S.LastLogFrame = Frame;
-
-        const FString PrivateSize = S.bPrivateQueued ? FString::Printf(TEXT("%d entries (%u bytes)"), Private.Num(), S.PrivateBytes)
-            : FString(TEXT("unavailable (no Lumen hit-data buffer this frame)"));
-        UE_LOG(LogFogMSTransport, Log, TEXT("HitFlagsDebug frame %llu (queued %llu), shadowing with %s: public %d entries (%u bytes), private %s"),
-            Frame, S.QueuedFrame, S.bPublicSelected ? TEXT("public (PublicHitFlags 1)") : TEXT("private (PublicHitFlags 0)"),
-            Public.Num(), S.PublicBytes, *PrivateSize);
-        UE_LOG(LogFogMSTransport, Log, TEXT("HitFlagsDebug bindings walked %u, highest index %u, bCastRayTracedShadows=false %u, dynamic %u (no shadow %u), hidden %u, index written twice %u (conflicting CastShadow %u)"),
-            S.NumBindings, S.HighestIndex, S.NumNoShadow, S.NumDynamic, S.NumDynamicNoShadow, S.NumHidden, S.NumDuplicate, S.NumConflict);
-
-        if (S.bPrivateQueued && Public.Num() > 0 && Private.Num() > 0)
-        {
-            const uint32 NumPublic = uint32(Public.Num()), NumPrivate = uint32(Private.Num());
-            const uint32 NumEntries = uint32(S.Entries.Num());
-            uint32 Written = 0, PublicClear = 0, PrivateClear = 0, ExpectedClear = 0, UploadMismatch = 0, WrittenPastPrivate = 0, DynamicBitMismatch = 0;
-            uint32 DiffWritten = 0, DiffElsewhere = 0, ElsewherePrivateClear = 0;
-            TArray<uint32, TInlineAllocator<16>> FirstDiffs;
-            for (uint32 Index = 0; Index < FMath::Max(NumPublic, NumPrivate); ++Index)
-            {
-                const uint8 Entry = Index < NumEntries ? S.Entries[Index] : 0;
-                const bool bWritten = (Entry & HitEntryWritten) != 0;
-                // Past the end casts (shader rule), as does bit 29.
-                const bool bPublicCasts = Index >= NumPublic || (Public[Index] & CastShadowBit) != 0;
-                const bool bPrivateCasts = Index >= NumPrivate || (Private[Index] & CastShadowBit) != 0;
-                if (bWritten)
-                {
-                    ++Written;
-                    PublicClear += !bPublicCasts;
-                    PrivateClear += !bPrivateCasts;
-                    ExpectedClear += (Entry & HitEntryCasts) == 0;
-                    UploadMismatch += bPublicCasts != ((Entry & HitEntryCasts) != 0);
-                    WrittenPastPrivate += Index >= NumPrivate;
-                    // Bit 27 of the engine user data = bDynamicRayTracingGeometry of the binding that wrote the entry:
-                    // a mismatch means the private entry was written by a different binding (index mapping differs).
-                    if (Index < NumPrivate) DynamicBitMismatch += ((Private[Index] >> 27) & 1u) != ((Entry & HitEntryDynamic) != 0 ? 1u : 0u);
-                }
-                else if (!bPrivateCasts) ++ElsewherePrivateClear;
-                if (bPublicCasts != bPrivateCasts)
-                {
-                    ++(bWritten ? DiffWritten : DiffElsewhere);
-                    if (FirstDiffs.Num() < 16) FirstDiffs.Add(Index);
-                }
-            }
-            UE_LOG(LogFogMSTransport, Log, TEXT("HitFlagsDebug written indices %u: bit29 clear public %u / private %u (CPU expected %u, public upload mismatches %u); written past the private end %u; private bit27(dynamic) != binding %u"),
-                Written, PublicClear, PrivateClear, ExpectedClear, UploadMismatch, WrittenPastPrivate, DynamicBitMismatch);
-            UE_LOG(LogFogMSTransport, Log, TEXT("HitFlagsDebug CastShadow differs at %u written indices and %u elsewhere (unwritten indices with private bit29 clear: %u)"),
-                DiffWritten, DiffElsewhere, ElsewherePrivateClear);
-            for (int32 Diff = 0; Diff < FirstDiffs.Num(); ++Diff)
-            {
-                const uint32 Index = FirstDiffs[Diff];
-                const uint8 Entry = Index < NumEntries ? S.Entries[Index] : 0;
-                const auto Has = [Entry](uint8 Flag) { return int32((Entry & Flag) != 0); };
-                UE_LOG(LogFogMSTransport, Log, TEXT("HitFlagsDebug   diff %2d index %u: private %s public %s | written %d dynamic %d castshadow %d hidden %d twice %d"),
-                    Diff, Index, *HitFlagsRaw(Private, Index), *HitFlagsRaw(Public, Index), Has(HitEntryWritten),
-                    Has(HitEntryDynamic), Has(HitEntryCasts), Has(HitEntryHidden), Has(HitEntryDuplicate));
-            }
-        }
-
-        if (S.bGpuQueued && Gpu.Num() >= int32(HitFlagsDebugUints))
-        {
-            const uint32 Count = Gpu[0];
-            UE_LOG(LogFogMSTransport, Log, TEXT("HitFlagsDebug GPU pass 2: %u shadow-ray candidate evaluations disagree on bit 29 (private vs public)"), Count);
-            // Records hold (selected ShadowHitData, ShadowHitDataAlt); map to (private, public) by the A/B selection at queue time.
-            const auto Raw = [](uint32 Value) { return Value == HitFlagsPastTheEnd ? FString(TEXT("past-end/0xFFFFFFFF")) : FString::Printf(TEXT("0x%08X"), Value); };
-            TMap<uint32, uint32> PerIndex;
-            for (uint32 Record = 0; Record < FMath::Min(Count, HitFlagsDebugRecords); ++Record)
-            {
-                const uint32* R = &Gpu[1 + 5 * Record];
-                const uint32 PrivateRaw = S.bPublicSelected ? R[4] : R[3];
-                const uint32 PublicRaw = S.bPublicSelected ? R[3] : R[4];
-                ++PerIndex.FindOrAdd(R[0]);
-                UE_LOG(LogFogMSTransport, Log, TEXT("HitFlagsDebug   gpu %2u index %u instance %u geometry %u: private %s public %s"),
-                    Record, R[0], R[1], R[2], *Raw(PrivateRaw), *Raw(PublicRaw));
-            }
-            FString Unique;
-            for (const TPair<uint32, uint32>& Pair : PerIndex) Unique += FString::Printf(TEXT(" %u(x%u)"), Pair.Key, Pair.Value);
-            if (!Unique.IsEmpty()) UE_LOG(LogFogMSTransport, Log, TEXT("HitFlagsDebug GPU record indices:%s"), *Unique);
-        }
-        else if (S.bGpuQueued) UE_LOG(LogFogMSTransport, Log, TEXT("HitFlagsDebug GPU readback unavailable"));
-    }
-}
-#endif
-
-void FogMS_QueueHitFlagsCompare(FRDGBuilder& GraphBuilder, const FSceneView& View, FRDGBufferRef PublicHitData, FRDGBufferRef PrivateHitData)
-{
-#if RHI_RAYTRACING
-    check(IsInRenderingThread());
-    FHitFlagsDebugState& S = GetHitFlagsDebugState();
-    PollHitFlagsDebug(S);
-    const uint64 Frame = GFrameCounterRenderThread;
-    if (S.bPending || !PublicHitData || !View.Family || !View.Family->Scene) return;
-    if (S.bHasLogged && Frame < S.LastLogFrame + uint64(FMath::Max(CVarHitFlagsDebugInterval.GetValueOnRenderThread(), 1))) return;
-    const FRayTracingMeshCommandStorage* MeshCommands = UE::FXRenderingUtils::RayTracing::GetRayTracingMeshCommands(View.Family->Scene);
-    if (!MeshCommands) return;
-    // Same list and index as FogMS_BuildShadowHitFlags (read-only; its setup tasks read the same records concurrently).
-    const TConstArrayView<FRayTracingShaderBindingData> Bindings = UE::FXRenderingUtils::RayTracing::GetVisibleRayTracingShaderBindings(View);
-    S.NumBindings = uint32(Bindings.Num());
-    S.HighestIndex = 0; S.NumNoShadow = 0; S.NumDynamic = 0; S.NumDynamicNoShadow = 0; S.NumHidden = 0; S.NumDuplicate = 0; S.NumConflict = 0;
-    for (const FRayTracingShaderBindingData& Binding : Bindings)
-        S.HighestIndex = FMath::Max(S.HighestIndex, Binding.SBTRecordIndex / RAY_TRACING_NUM_SHADER_SLOTS);
-    S.Entries.Reset();
-    S.Entries.SetNumZeroed(Bindings.Num() > 0 ? int32(S.HighestIndex) + 1 : 0);
-    for (const FRayTracingShaderBindingData& Binding : Bindings)
-    {
-        const FRayTracingMeshCommand& MeshCommand = Binding.GetRayTracingMeshCommand(*MeshCommands);
-        const bool bCasts = MeshCommand.bCastRayTracedShadows != 0;
-        const bool bDynamic = Binding.bDynamicRayTracingGeometry;
-        S.NumNoShadow += !bCasts;
-        S.NumDynamic += bDynamic;
-        S.NumDynamicNoShadow += bDynamic && !bCasts;
-        S.NumHidden += Binding.bHidden;
-        uint8& Entry = S.Entries[Binding.SBTRecordIndex / RAY_TRACING_NUM_SHADER_SLOTS];
-        if (Entry & HitEntryWritten)
-        {
-            ++S.NumDuplicate;
-            if (((Entry & HitEntryCasts) != 0) != bCasts) { ++S.NumConflict; Entry = uint8(Entry | HitEntryConflict); }
-            Entry = uint8(Entry | HitEntryDuplicate);
-        }
-        // The last writer wins here; the builder's tasks write in an unspecified order (see NumConflict).
-        Entry = uint8((Entry & (HitEntryDuplicate | HitEntryConflict)) | HitEntryWritten
-            | (bDynamic ? HitEntryDynamic : 0) | (bCasts ? HitEntryCasts : 0) | (Binding.bHidden ? HitEntryHidden : 0));
-    }
-    if (!S.PublicReadback) S.PublicReadback = new FRHIGPUBufferReadback(TEXT("FogMS.HitFlagsDebug.Public"));
-    if (!S.PrivateReadback) S.PrivateReadback = new FRHIGPUBufferReadback(TEXT("FogMS.HitFlagsDebug.Private"));
-    S.PublicBytes = PublicHitData->GetSize();
-    AddEnqueueCopyPass(GraphBuilder, S.PublicReadback, PublicHitData, S.PublicBytes);
-    S.bPrivateQueued = PrivateHitData != nullptr;
-    S.PrivateBytes = PrivateHitData ? PrivateHitData->GetSize() : 0;
-    if (PrivateHitData) AddEnqueueCopyPass(GraphBuilder, S.PrivateReadback, PrivateHitData, S.PrivateBytes);
-    S.bGpuQueued = false;
-    // Consumed by the first FogMS_RenderTransport of this frame (pass 2 GPU check, HitFlagsDebug 2).
-    S.GpuWantedFrame = FogMS_HitFlagsDebugMode() == 2 ? Frame : ~0ull;
-    S.bPublicSelected = FogMS_UsePublicShadowHitFlags();
-    S.QueuedFrame = Frame;
-    S.bPending = true;
-#endif
-}
-
 FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FSceneView& View,
     const FFogMSWorldRequest& Request, const FFogMSLumenSourceParameters& Lumen,
     const FFogMSWorldSourcesParameters& Lights, bool bIndirect, FRDGBufferRef ShadowHitData,
-    FRDGTextureRef PreviousAtlas, FRDGTextureRef* OutSunTransmittance, FRDGBufferRef AltShadowHitData)
+    FRDGTextureRef PreviousAtlas, FRDGTextureRef* OutSunTransmittance)
 {
     if (OutSunTransmittance) *OutSunTransmittance = nullptr;
 #if RHI_RAYTRACING
@@ -691,21 +448,6 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FSceneView
         auto P = Common; P.OutDirectionBoundaries = GraphBuilder.CreateUAV(Boundaries);
         Dispatch(14, TEXT("FogMS B3 directional boundary radiance"), P, Count);
     }
-    // r.FogMS.Transport.HitFlagsDebug 2: pass 2 (graphics only, the one DirectShadow caller) checks every shadow candidate against
-    // AltShadowHitData, once per queued readback set (FogMS_QueueHitFlagsCompare of this frame). Otherwise HitFlagsDebug 0 with
-    // a one-element dummy UAV and ShadowHitData's SRV as the alternate: no extra pass, the solver passes do not see either.
-    FHitFlagsDebugState& HitFlagsDebugState = GetHitFlagsDebugState();
-    const bool bHitFlagsGpuCheck = AltShadowHitData && FogMS_HitFlagsDebugMode() == 2 && HitFlagsDebugState.bPending
-        && !HitFlagsDebugState.bGpuQueued && HitFlagsDebugState.GpuWantedFrame == GFrameCounterRenderThread;
-    FRDGBufferRef HitFlagsDebugOut = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32),
-        bHitFlagsGpuCheck ? HitFlagsDebugUints : 1), bHitFlagsGpuCheck ? TEXT("FogMS.Transport.HitFlagsDebug") : TEXT("FogMS.Transport.HitFlagsDebugDummy"));
-    if (bHitFlagsGpuCheck) AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(HitFlagsDebugOut), 0u);
-    const auto BindHitFlagsDebug = [&](FTransportParameters& P)
-    {
-        P.HitFlagsDebug = bHitFlagsGpuCheck ? 2 : 0;
-        P.ShadowHitDataAlt = bHitFlagsGpuCheck ? GraphBuilder.CreateSRV(AltShadowHitData) : Common.ShadowHitData;
-        P.HitFlagsDebugOut = GraphBuilder.CreateUAV(HitFlagsDebugOut);
-    };
     if (OutSunTransmittance)
     {
         // Hybrid injection: pass 2 also writes T_sun per cell (8 subcell points, same RT shadow ray and medium
@@ -713,17 +455,10 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FSceneView
         FRDGTextureRef SunTransmittance = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(FIntVector(TransportGridSize), PF_FloatRGBA,
             FClearValueBinding::None, Flags), TEXT("FogMS.Transport.SunTransmittance"));
         auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct); P.OutSunTransmittance = GraphBuilder.CreateUAV(SunTransmittance);
-        BindHitFlagsDebug(P);
         Dispatch(2, TEXT("FogMS B2 direct cell average + sun transmittance (hybrid)"), P, Cells, true);
         *OutSunTransmittance = SunTransmittance;
     }
-    else { auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct); BindHitFlagsDebug(P); Dispatch(2, TEXT("FogMS B2 direct cell average"), P, Cells); }
-    if (bHitFlagsGpuCheck)
-    {
-        if (!HitFlagsDebugState.GpuReadback) HitFlagsDebugState.GpuReadback = new FRHIGPUBufferReadback(TEXT("FogMS.HitFlagsDebug.Gpu"));
-        AddEnqueueCopyPass(GraphBuilder, HitFlagsDebugState.GpuReadback, HitFlagsDebugOut, HitFlagsDebugUints * sizeof(uint32));
-        HitFlagsDebugState.bGpuQueued = true;
-    }
+    else { auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct); Dispatch(2, TEXT("FogMS B2 direct cell average"), P, Cells); }
     FRDGBufferRef U = Buffer(TEXT("FogMS.B2.U")), R = Buffer(TEXT("FogMS.B2.R")), Pcg = Buffer(TEXT("FogMS.B2.P"));
     FRDGBufferRef Primary = Buffer(TEXT("FogMS.B2.Primary"));
     // One scratch buffer reused by ordered RDG passes; angular quality does not
