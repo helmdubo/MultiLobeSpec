@@ -13,6 +13,7 @@ print('$1', b.get_editor_property('spatial_status'))"; }
 python "$S/boxstate.py" save "$M/hybridab_state.json" | cut -c1-120
 rm -rf "$M"/hyb_* 2>/dev/null
 U cmd "r.FogMS.Transport.WarmStart 1"; U cmd "r.FogMS.Transport.SunAligned 1"; U cmd "r.FogMS.Transport.SweepThreads 1024"; U cmd "r.FogMS.Transport.AsyncCompute 0"
+U cmd "r.SkyLight.RealTimeReflectionCapture 0"  # frozen sky for the A/B (noise floor otherwise ~1 %); restored below
 PY "import unreal
 $BOX
 b.set_editor_property('manual_animation_time', 100.0); b.set_editor_property('use_manual_animation_time', True)
@@ -45,4 +46,5 @@ for t in ("hyb_full", "hyb_hybrid", "hyb_hybrid_async"):
     except Exception as e:
         print(t, "ERR", e)
 PYEOF
+U cmd "r.SkyLight.RealTimeReflectionCapture 1"
 python "$S/boxstate.py" restore "$M/hybridab_state.json" | cut -c1-200

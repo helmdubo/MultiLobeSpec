@@ -7,6 +7,7 @@ BOX="b=[a for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_
 MEAS() { python "$S/measure.py" "$@" 2>&1 | grep "^==" | sed 's/| metrics.*"maxRelativeCellResidual": \([0-9.e-]*\).*/| maxres \1/' | cut -c1-170; }
 rm -rf "$M"/tier_* 2>/dev/null
 U cmd "r.FogMS.Transport.WarmStart 1"; U cmd "r.FogMS.Transport.SunAligned 1"; U cmd "r.FogMS.Transport.SweepThreads 1024"; U cmd "r.FogMS.Transport.AsyncCompute 0"
+U cmd "r.SkyLight.RealTimeReflectionCapture 0"  # frozen sky for the A/B (noise floor otherwise ~1 %); restored below
 PY "import unreal
 $BOX
 b.freeze_density_animation(); b.set_editor_property('emissive_injection', False); b.set_editor_property('transport_preset', unreal.FogMSTransportPreset.CUSTOM); b.set_editor_property('transport_tolerance', 1e-14); b.update_density(); print('FROZEN')"
@@ -34,3 +35,4 @@ PYEOF
 PY "import unreal
 $BOX
 b.set_editor_property('scattering_mode', unreal.FogMSScatteringMode.ANGULAR_TRANSPORT); b.set_editor_property('angular_quality', unreal.FogMSAngularQuality.HIGH96); b.set_editor_property('transport_iterations', 16); b.set_editor_property('transport_tolerance', -1.0); b.resume_density_animation(); b.update_density(); print('RESTORED')"
+U cmd "r.SkyLight.RealTimeReflectionCapture 1"

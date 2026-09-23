@@ -14,6 +14,7 @@ MEAS() { python "$S/measure.py" "$@" 2>&1 | grep "^==" | sed 's/| metrics.*"maxR
 python "$S/boxstate.py" save "$M/hitflags_state.json" | cut -c1-120
 rm -rf "$M"/hf_* 2>/dev/null
 U cmd "r.FogMS.Transport.WarmStart 1"; U cmd "r.FogMS.Transport.SunAligned 1"; U cmd "r.FogMS.Transport.SweepThreads 1024"; U cmd "r.FogMS.Transport.AsyncCompute 0"; U cmd "r.FogMS.Transport.SolveInterval 1"
+U cmd "r.SkyLight.RealTimeReflectionCapture 0"  # frozen sky for the A/B (noise floor otherwise ~1 %); restored below
 PY "import unreal
 $BOX
 b.set_editor_property('manual_animation_time', 100.0); b.set_editor_property('use_manual_animation_time', True)
@@ -51,4 +52,5 @@ for a, b, what in (("hf_1a", "hf_1b", "noise floor public 1a vs 1b"), ("hf_1a", 
         print("compare ERR", what, e)
 PYEOF
 U cmd "r.FogMS.Transport.PublicHitFlags 0"
+U cmd "r.SkyLight.RealTimeReflectionCapture 1"
 python "$S/boxstate.py" restore "$M/hitflags_state.json" | cut -c1-200

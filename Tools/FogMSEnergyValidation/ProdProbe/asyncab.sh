@@ -11,6 +11,7 @@ PY "import unreal
 $BOX
 b.freeze_density_animation(); b.set_editor_property('transport_preset', unreal.FogMSTransportPreset.PRODUCTION); b.set_editor_property('emissive_injection', False); b.update_density(); print('FROZEN')"
 U cmd "r.FogMS.Transport.WarmStart 1"; U cmd "r.FogMS.Transport.SunAligned 1"; U cmd "r.FogMS.Transport.SweepThreads 1024"
+U cmd "r.SkyLight.RealTimeReflectionCapture 0"  # frozen sky for the A/B (noise floor otherwise ~1 %); restored below
 for INJMODE in 0 ${INJ:+1}; do
   PY "import unreal
 $BOX
@@ -29,3 +30,4 @@ U cmd "r.FogMS.Transport.AsyncCompute 0"
 PY "import unreal
 $BOX
 b.set_editor_property('emissive_injection', False); b.set_editor_property('transport_preset', unreal.FogMSTransportPreset.CUSTOM); b.set_editor_property('angular_quality', unreal.FogMSAngularQuality.HIGH96); b.set_editor_property('transport_iterations', 16); b.set_editor_property('transport_tolerance', -1.0); b.resume_density_animation(); b.update_density(); print('RESTORED')"
+U cmd "r.SkyLight.RealTimeReflectionCapture 1"
