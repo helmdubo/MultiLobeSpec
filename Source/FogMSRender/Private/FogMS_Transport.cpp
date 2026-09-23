@@ -53,7 +53,7 @@ namespace
         TEXT("1 moves the transport solver passes (sweeps, PCG, reductions, warm start, publish, injection field) to the async compute queue when RDG async compute is available ")
         TEXT("(r.RDG.AsyncCompute>0 and an efficient async-compute RHI); otherwise they silently stay on graphics. Ray-traced passes and the density average always stay on graphics. Same result."),
         ECVF_RenderThreadSafe);
-    TAutoConsoleVariable<int32> CVarPublicHitFlags(TEXT("r.FogMS.Transport.PublicHitFlags"), 1,
+    TAutoConsoleVariable<int32> CVarPublicHitFlags(TEXT("r.FogMS.Transport.PublicHitFlags"), 0,
         TEXT("Per-segment CastShadow flags of the direct-light shadow rays. 1 builds them each frame from the public ray tracing bindings ")
         TEXT("(FXRenderingUtils visible shader bindings + mesh commands, same bit and index as the engine). 0 uses the renderer-private Lumen ")
         TEXT("hit-data buffer (A/B fallback, to be removed). Same field expected."), ECVF_RenderThreadSafe);
