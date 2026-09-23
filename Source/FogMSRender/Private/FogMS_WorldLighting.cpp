@@ -19,19 +19,23 @@
 #include "RenderUtils.h"
 #include "RHICommandList.h"
 #include "RHIStaticStates.h"
-#include "SceneRendering.h"
-#include "SceneViewState.h"
+#include "SceneInterface.h"
 #include "SceneRendererInterface.h"
 #include "SceneUniformBuffer.h"
+#include "SceneView.h"
 #include "ShaderParameterStruct.h"
 #include "ShaderPlatformConfig.h"
 #if RHI_RAYTRACING
-#include "RayTracing/RayTracingScene.h"
+#include "FXRenderingUtils.h"
 #endif
+// Renderer/Private, only for the two remaining FViewInfo reads in FogMS_BuildWorldLighting: the Lumen surface-cache
+// source (P8: FogMS_GetLumenSource still takes FViewInfo) and the r.FogMS.Transport.PublicHitFlags 0 fallback (P5:
+// FViewInfo::LumenHardwareRayTracingHitDataBuffer). Everything else here uses the public FSceneView API.
+#include "SceneRendering.h"
 
 // Implemented in FogMS_Transport.cpp (transport pass 17). Declared here, not in FogMS_Transport.h,
 // to keep this change within the reviewed file set. SunTransmittance non-null selects the hybrid field.
-void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field,
+void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FSceneView& View, FRDGTextureRef Atlas, FRDGTextureRef Field,
 	FRDGTextureRef SunTransmittance);
 bool FogMS_TransportAsync(const FRDGBuilder& GraphBuilder);
 
@@ -410,14 +414,23 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 		Result.Error = TEXT("World lighting requires r.RayTracing.Culling=0 and r.Lumen.AsyncCompute=0. Use Enable Indirect Preview.");
 		return Result;
 	}
-	const FViewInfo& View = static_cast<const FViewInfo&>(SceneView);
-	if (Request.bTransport && !View.LumenHardwareRayTracingHitDataBuffer)
+	// PostTLASBuild of the deferred renderer passes an actual FViewInfo. The renderer-private view is read only for
+	// the Lumen surface-cache source (P8) and the private CastShadow-flag fallback (P5, PublicHitFlags 0).
+	const FViewInfo& PrivateView = static_cast<const FViewInfo&>(SceneView);
+	const FSceneView& View = SceneView;
+	const bool bPublicHitFlags = FogMS_UsePublicShadowHitFlags();
+	if (Request.bTransport && !bPublicHitFlags && !PrivateView.LumenHardwareRayTracingHitDataBuffer)
 	{
 		Result.Error = TEXT("B2 is waiting for per-segment ray-traced shadow flags.");
 		return Result;
 	}
-	if (!View.ViewState || !View.ViewUniformBuffer.IsValid() || !View.HasRayTracingScene()
-		|| !View.GetInlineRayTracingBindingDataBuffer())
+	// Public equivalents of FViewInfo::ViewState / HasRayTracingScene() / GetRayTracingSceneLayerViewChecked(Base):
+	// FSceneView::State (FViewInfo::ViewState is the same pointer), FXRenderingUtils (same RayTracingScene.IsCreated()
+	// and GetLayerView(Base, view handle)); the TLAS is null-checked here instead of the renderer's checkf.
+	const FSceneInterface* const SceneInterface = View.Family->Scene;
+	const FRDGBufferSRVRef TLAS = SceneInterface && UE::FXRenderingUtils::RayTracing::HasRayTracingScene(*SceneInterface)
+		? UE::FXRenderingUtils::RayTracing::GetRayTracingSceneViewRDG(*SceneInterface, View) : nullptr;
+	if (!View.State || !View.ViewUniformBuffer.IsValid() || !TLAS || !View.GetInlineRayTracingBindingDataBuffer())
 	{
 		Result.Error = TEXT("World lighting is waiting for a persistent view, TLAS and inline triangle metadata.");
 		return Result;
@@ -428,7 +441,8 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 		Result.Error = TEXT("World lighting shader map is unavailable.");
 		return Result;
 	}
-	const uint64 Key = (uint64(View.ViewState->GetViewKey()) << 1) | (Request.bTransport ? 1u : 0u);
+	// FSceneView::GetViewKey() is State->GetViewKey() (SceneView.cpp:1238-1242): the same key as ViewState->GetViewKey().
+	const uint64 Key = (uint64(View.GetViewKey()) << 1) | (Request.bTransport ? 1u : 0u);
 	const int32 SolveInterval = Request.bTransport ? FMath::Clamp(CVarSolveInterval.GetValueOnRenderThread(), 1, 8) : 1;
 	if (SolveInterval > 1)
 	{
@@ -470,7 +484,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	}
 	FFogMSWorldCS::FParameters Common;
 	FMemory::Memzero(&Common, sizeof(Common));
-	if (!FogMS_GetLumenSource(GraphBuilder, View, Common.LumenSource, Result.Error)
+	if (!FogMS_GetLumenSource(GraphBuilder, PrivateView, Common.LumenSource, Result.Error)
 		|| !FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Common.LightSources, Result.Error)) return Result;
 	FRHICommandListImmediate& RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
 	++WorldAccessSerial;
@@ -484,7 +498,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	Common.View = View.ViewUniformBuffer;
 	Common.FogMSDensityAtlas = Request.DensityAtlas.GetReference();
 	Common.Scene = GetSceneUniformBufferRef(GraphBuilder, View);
-	Common.TLAS = View.GetRayTracingSceneLayerViewChecked(ERayTracingSceneLayer::Base);
+	Common.TLAS = TLAS;
 	Common.RayTracingSceneMetadata = GraphBuilder.CreateSRV(View.GetInlineRayTracingBindingDataBuffer());
 	for (int32 Index = 0; Index < 24; ++Index) Common.BoxRows[Index] = Request.BoxRows[Index];
 	Common.BoxCenterTranslated = FVector3f(Request.CenterWS + View.ViewMatrices.GetPreViewTranslation());
@@ -505,8 +519,11 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 		// Hybrid injection: pass 2 of this graph also writes T_sun (RDG texture); pass 17 below consumes it in the
 		// same graph for both deliveries, so the late path needs no extra lifetime or fence handling.
 		FRDGTextureRef SunTransmittance = nullptr;
-		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0, Previous,
-			Request.bHybridInjection ? &SunTransmittance : nullptr);
+		// Per-segment CastShadow flags for the direct shadow rays: public rebuild (default) or the private A/B fallback.
+		const FRDGBufferRef ShadowHitData = bPublicHitFlags ? FogMS_BuildShadowHitFlags(GraphBuilder, View)
+			: PrivateView.LumenHardwareRayTracingHitDataBuffer;
+		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0,
+			ShadowHitData, Previous, Request.bHybridInjection ? &SunTransmittance : nullptr);
 		if (!Work) { Result.Error = TEXT("B2 transport graph unavailable."); return Result; }
 		// Fail closed: a hybrid material must never receive the full field (native single scattering would double count).
 		if (Request.bHybridInjection && !SunTransmittance) { Result.Error = TEXT("Hybrid injection: sun transmittance unavailable."); return Result; }
@@ -614,7 +631,9 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 		AddCopyTexturePass(GraphBuilder, Work, Output);
 		GraphBuilder.UseExternalAccessMode(Output, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
 	}
-	State.LastFrameIndex = View.ViewState->GetFrameIndex();
+	// Dump metadata only ("viewFrame"). FSceneViewState::GetFrameIndex() is renderer-private; the family's
+	// FrameNumber (GFrameNumber copy) serves the same frame-identification purpose. Not compared anywhere.
+	State.LastFrameIndex = View.Family->FrameNumber;
 	State.LastRequest = Request;
 	State.LastRequest.InjectionTexture.SafeRelease(); // Do not extend the Box field's lifetime.
 	State.LastRequest.DensityAtlas.SafeRelease(); // Nor the density atlas's (warm start compares bounds only).

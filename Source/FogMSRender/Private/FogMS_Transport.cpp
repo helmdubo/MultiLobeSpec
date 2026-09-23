@@ -7,13 +7,19 @@
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "RenderUtils.h"
-#include "SceneRendering.h"
+#include "SceneInterface.h"
+#include "SceneRendererInterface.h"
 #include "SceneUniformBuffer.h"
+#include "SceneView.h"
 #include "ShaderParameterStruct.h"
 #include "ShaderPlatformConfig.h"
 #include "SystemTextures.h"
 #if RHI_RAYTRACING
-#include "RayTracing/RayTracingScene.h"
+// Public Renderer API only (Renderer/Public + Shaders/Shared): TLAS layer view, visible SBT bindings, mesh commands.
+#include "Async/TaskGraphInterfaces.h"
+#include "FXRenderingUtils.h"
+#include "RayTracingDefinitions.h"
+#include "RayTracingMeshDrawCommands.h"
 #endif
 
 namespace
@@ -46,8 +52,18 @@ namespace
         TEXT("1 moves the transport solver passes (sweeps, PCG, reductions, warm start, publish, injection field) to the async compute queue when RDG async compute is available ")
         TEXT("(r.RDG.AsyncCompute>0 and an efficient async-compute RHI); otherwise they silently stay on graphics. Ray-traced passes and the density average always stay on graphics. Same result."),
         ECVF_RenderThreadSafe);
+    TAutoConsoleVariable<int32> CVarPublicHitFlags(TEXT("r.FogMS.Transport.PublicHitFlags"), 1,
+        TEXT("Per-segment CastShadow flags of the direct-light shadow rays. 1 builds them each frame from the public ray tracing bindings ")
+        TEXT("(FXRenderingUtils visible shader bindings + mesh commands, same bit and index as the engine). 0 uses the renderer-private Lumen ")
+        TEXT("hit-data buffer (A/B fallback, to be removed). Same field expected."), ECVF_RenderThreadSafe);
 
 #if RHI_RAYTRACING
+    // Bit 29 of the engine's Lumen hit-group user data (CalculateLumenHardwareRayTracingUserData,
+    // LumenHardwareRayTracingMaterials.cpp:135); FogMS_Transport.usf DirectShadow reads only this bit.
+    constexpr uint32 CastShadowBit = 1u << 29;
+    // Same split as the engine's hit-group build (LumenHardwareRayTracingMaterials.cpp:155).
+    constexpr uint32 HitFlagBindingsPerTask = 512;
+
     // RDG's own predicate (IsAsyncComputeSupported: r.RDG.AsyncCompute > 0, GSupportsEfficientAsyncCompute,
     // no immediate mode / render-pass merging), so an unsupported configuration falls back to Compute.
     ERDGPassFlags SolverPassFlags(const FRDGBuilder& GraphBuilder)
@@ -203,16 +219,81 @@ namespace
 #endif
 }
 
-FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo& View,
+bool FogMS_UsePublicShadowHitFlags()
+{
+    return CVarPublicHitFlags.GetValueOnRenderThread() != 0;
+}
+
+FRDGBufferRef FogMS_BuildShadowHitFlags(FRDGBuilder& GraphBuilder, const FSceneView& View)
+{
+#if RHI_RAYTRACING
+    if (!View.Family || !View.Family->Scene) return nullptr;
+    const FRayTracingMeshCommandStorage* MeshCommands = UE::FXRenderingUtils::RayTracing::GetRayTracingMeshCommands(View.Family->Scene);
+    if (!MeshCommands) return nullptr;
+    // PostTLASBuild: the view's visible bindings are final (FinishGatherVisibleShaderBindings precedes the hit-group
+    // build and the extension callback). This is FViewInfo::VisibleRayTracingShaderBindings: the static/cached and
+    // serially-built dynamic bindings of the one view (FogMS_BuildWorldLighting requires one view); the engine's buffer
+    // is built from the deduplicated scene list of the same records (RayTracing.cpp:2281-2313). NOT included: dynamic
+    // bindings built by parallel mesh-batch tasks (r.RayTracing.ParallelMeshBatchSetup 1, default), which the renderer
+    // merges only into its private scene list (RayTracing.cpp:2353-2361). Their segments keep the default below.
+    const TConstArrayView<FRayTracingShaderBindingData> Bindings = UE::FXRenderingUtils::RayTracing::GetVisibleRayTracingShaderBindings(View);
+    // The engine sizes its buffer by the private segment count (RayTracingSBT.GetNumGeometrySegments()); take
+    // max index + 1 instead. FogMS_Transport.usf treats an index past the end as a shadow caster.
+    uint32 NumEntries = 1;
+    for (const FRayTracingShaderBindingData& Binding : Bindings)
+        NumEntries = FMath::Max(NumEntries, Binding.SBTRecordIndex / RAY_TRACING_NUM_SHADER_SLOTS + 1u);
+    FRDGUploadData<uint32> HitFlags(GraphBuilder, NumEntries);
+    // Segments without a binding in this list (unwritten engine entries are uninitialized, AllocPODArray; parallel
+    // dynamic segments above) cast shadows, the same rule as an out-of-range index: only a dynamic segment with
+    // bCastRayTracedShadows == false can differ from the private buffer (it shadows here).
+    for (uint32& Flags : HitFlags) Flags = CastShadowBit;
+    const uint32 NumBindings = uint32(Bindings.Num());
+    if (NumBindings > 0)
+    {
+        const uint32 NumTasks = FMath::Min(uint32(FMath::Max(FTaskGraphInterface::Get().GetNumWorkerThreads(), 1)),
+            FMath::DivideAndRoundUp(NumBindings, HitFlagBindingsPerTask));
+        const uint32 NumBindingsPerTask = FMath::DivideAndRoundUp(NumBindings, NumTasks);
+        for (uint32 TaskIndex = 0; TaskIndex < NumTasks; ++TaskIndex)
+        {
+            const uint32 First = TaskIndex * NumBindingsPerTask;
+            if (First >= NumBindings) break;
+            const FRayTracingShaderBindingData* TaskBindings = Bindings.GetData() + First;
+            const uint32 Count = FMath::Min(NumBindingsPerTask, NumBindings - First);
+            // Synced before graph execution (the upload below reads HitFlags then); runs inline without parallel setup.
+            GraphBuilder.AddSetupTask([TaskBindings, Count, HitFlags, MeshCommands]()
+            {
+                for (uint32 Index = 0; Index < Count; ++Index)
+                {
+                    const FRayTracingShaderBindingData& Binding = TaskBindings[Index];
+                    const FRayTracingMeshCommand& MeshCommand = Binding.GetRayTracingMeshCommand(*MeshCommands);
+                    // Same index and bit as SetupLumenHardwareRayTracingHitGroupBuffer; the other user-data bits are
+                    // not read by FogMS (DirectShadow tests bit 29 only), so only the CastShadow bit is written.
+                    HitFlags[Binding.SBTRecordIndex / RAY_TRACING_NUM_SHADER_SLOTS] = MeshCommand.bCastRayTracedShadows ? CastShadowBit : 0u;
+                }
+            });
+        }
+    }
+    return CreateStructuredBuffer(GraphBuilder, TEXT("FogMS.Transport.ShadowHitFlags"), HitFlags);
+#else
+    return nullptr;
+#endif
+}
+
+FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FSceneView& View,
     const FFogMSWorldRequest& Request, const FFogMSLumenSourceParameters& Lumen,
-    const FFogMSWorldSourcesParameters& Lights, bool bIndirect, FRDGTextureRef PreviousAtlas,
-    FRDGTextureRef* OutSunTransmittance)
+    const FFogMSWorldSourcesParameters& Lights, bool bIndirect, FRDGBufferRef ShadowHitData,
+    FRDGTextureRef PreviousAtlas, FRDGTextureRef* OutSunTransmittance)
 {
     if (OutSunTransmittance) *OutSunTransmittance = nullptr;
 #if RHI_RAYTRACING
-    if (!View.LumenHardwareRayTracingHitDataBuffer) return nullptr;
+    if (!ShadowHitData || !View.Family || !View.Family->Scene) return nullptr;
     // Validated by FogMS_BuildWorldLighting (non-null 2D); a null binding would fail pass 0's shader validation.
     if (!Request.DensityAtlas.IsValid()) return nullptr;
+    // Same layer view as FViewInfo::GetRayTracingSceneLayerViewChecked(Base) (FXRenderingUtils.cpp:325-331 and
+    // SceneRendering.cpp:1228-1240 both return RayTracingScene.GetLayerView(Base, view handle)), without the check.
+    const FRDGBufferSRVRef TLAS = UE::FXRenderingUtils::RayTracing::GetRayTracingSceneViewRDG(*View.Family->Scene, View);
+    const FRDGBufferRef BindingData = View.GetInlineRayTracingBindingDataBuffer();
+    if (!TLAS || !BindingData) return nullptr;
     const bool bWarm = PreviousAtlas != nullptr && CVarWarmStart.GetValueOnRenderThread() != 0;
     FTransportParameters Common;
     FMemory::Memzero(&Common, sizeof(Common));
@@ -225,9 +306,9 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
     // Fixed 1cm numerical regularizer, independent of Box/grid size. Light radiance
     // is averaged at eight subcell points; changing the grid no longer changes b.
     Common.LightSources.FogMSWorldDistanceBiasSqr = 1.0f;
-    Common.TLAS = View.GetRayTracingSceneLayerViewChecked(ERayTracingSceneLayer::Base);
-    Common.RayTracingSceneMetadata = GraphBuilder.CreateSRV(View.GetInlineRayTracingBindingDataBuffer());
-    Common.ShadowHitData = GraphBuilder.CreateSRV(View.LumenHardwareRayTracingHitDataBuffer);
+    Common.TLAS = TLAS;
+    Common.RayTracingSceneMetadata = GraphBuilder.CreateSRV(BindingData);
+    Common.ShadowHitData = GraphBuilder.CreateSRV(ShadowHitData);
     for (int32 I = 0; I < 24; ++I) Common.BoxRows[I] = Request.BoxRows[I];
     Common.BoxCenterTranslated = FVector3f(Request.CenterWS + View.ViewMatrices.GetPreViewTranslation());
     Common.BoxAxisX = FVector4f(Request.AxisX, Request.Extent.X);
@@ -466,7 +547,7 @@ bool FogMS_TransportAsync(const FRDGBuilder& GraphBuilder)
 // external SRV access after. Late (async): Field is a transient graph texture copied later.
 // Hybrid (SunTransmittance = pass 2's (Direct_sun, T_sun) texture of the same graph): RGB = max(slab 0 - Direct_sun, 0),
 // alpha = 0.5 + 0.5*T_sun*k (k = sun share of the uncollided light). Null: the unchanged full-field permutation (J, alpha 1).
-void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field,
+void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FSceneView& View, FRDGTextureRef Atlas, FRDGTextureRef Field,
     FRDGTextureRef SunTransmittance)
 {
 #if RHI_RAYTRACING

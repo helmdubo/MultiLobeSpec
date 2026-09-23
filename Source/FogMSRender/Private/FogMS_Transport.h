@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "RenderGraphFwd.h"
 
-class FViewInfo;
+class FSceneView;
 struct FFogMSWorldRequest;
 class FFogMSLumenSourceParameters;
 class FFogMSWorldSourcesParameters;
@@ -13,7 +13,22 @@ class FFogMSWorldSourcesParameters;
 // PreviousAtlas (same layout, same Box) warm-starts the PCG solution; null is a cold start.
 // OutSunTransmittance non-null (hybrid injection): pass 2 also writes a GridSize^3 R16F RDG texture of the
 // per-cell atmosphere-sun transmittance T_sun (1 without that sun); set to null when the graph is unavailable.
-FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo& View,
+// ShadowHitData: per-geometry-segment hit-group user data (bit 29 = CastShadow, index = instance hit-group
+// contribution / RAY_TRACING_NUM_SHADER_SLOTS + geometry index); FogMS_BuildShadowHitFlags or, as the A/B
+// fallback, the renderer's Lumen hit-data buffer. Null returns null (no graph).
+// View: the PostTLASBuild view of a deferred scene renderer (public FSceneView API only).
+FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	const FFogMSWorldRequest& Request, const FFogMSLumenSourceParameters& Lumen,
-	const FFogMSWorldSourcesParameters& Lights, bool bIndirect, FRDGTextureRef PreviousAtlas = nullptr,
-	FRDGTextureRef* OutSunTransmittance = nullptr);
+	const FFogMSWorldSourcesParameters& Lights, bool bIndirect, FRDGBufferRef ShadowHitData,
+	FRDGTextureRef PreviousAtlas = nullptr, FRDGTextureRef* OutSunTransmittance = nullptr);
+
+// r.FogMS.Transport.PublicHitFlags: true builds the CastShadow flags from public ray tracing bindings
+// (FogMS_BuildShadowHitFlags); false uses the renderer-private Lumen hit-data buffer (A/B fallback).
+bool FogMS_UsePublicShadowHitFlags();
+
+// PostTLASBuild, render thread. Per-segment hit-group user data built from the view's visible ray tracing
+// shader bindings (UE::FXRenderingUtils::RayTracing), exactly as the engine's Lumen hit-group buffer:
+// entry SBTRecordIndex / RAY_TRACING_NUM_SHADER_SLOTS, bit 29 = FRayTracingMeshCommand::bCastRayTracedShadows.
+// Sized max index + 1; entries without a visible binding (and, in the shader, indices past the end) cast shadows.
+// Null without a render scene (or without RHI_RAYTRACING).
+FRDGBufferRef FogMS_BuildShadowHitFlags(FRDGBuilder& GraphBuilder, const FSceneView& View);

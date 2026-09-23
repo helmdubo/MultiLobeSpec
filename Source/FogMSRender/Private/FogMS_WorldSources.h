@@ -4,7 +4,7 @@
 #include "ShaderParameterStruct.h"
 
 class FRDGBuilder;
-class FViewInfo;
+class FSceneView;
 
 // Include this with SHADER_PARAMETER_STRUCT_INCLUDE(..., WorldSources). The .ush
 // declares the same flattened names; it needs Common.ush, but no native light UB.
@@ -19,7 +19,9 @@ BEGIN_SHADER_PARAMETER_STRUCT(FFogMSWorldSourcesParameters, )
 	SHADER_PARAMETER_SAMPLER(SamplerState, FogMSWorldSkySampler)
 	SHADER_PARAMETER_RDG_TEXTURE(TextureCube, FogMSWorldSkyBlendTexture)
 	SHADER_PARAMETER_SAMPLER(SamplerState, FogMSWorldSkyBlendSampler)
-	SHADER_PARAMETER(FVector3f, FogMSWorldSkyColor)
+	// Sky volumetric scattering intensity (0 = no sky term). The shader multiplies by View.SkyLightColor from the
+	// bound View uniform buffer (FogMS_WorldSky), i.e. exactly the former CPU product SkyLightColor * intensity.
+	SHADER_PARAMETER(float, FogMSWorldSkyIntensity)
 	SHADER_PARAMETER(float, FogMSWorldSkyBlend)
 	// Added to the sector-matched sky cubemap mip FogMS_WorldSky picks when given a
 	// sector solid angle (r.FogMS.World.SkyMipBias). Not applied to point samples.
@@ -47,6 +49,7 @@ END_SHADER_PARAMETER_STRUCT()
 // Rect / IES / light-function / baked-static / native cloud-shadow sources
 // intersecting this Box fail explicitly. Camera MaxDrawDistance fading and
 // screen-froxel LightSoftFading are intentionally not applied to this world grid.
-bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
+// View: FSceneView of the PostTLASBuild callback; the caller's shader must bind that view's View uniform buffer.
+bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	FVector BoxCenterWS, FVector3f BoxExtent,
 	FFogMSWorldSourcesParameters& OutParameters, FString& Error);

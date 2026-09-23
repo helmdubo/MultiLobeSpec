@@ -111,6 +111,10 @@ bool DirectShadow(float3 P,float3 D,float Limit)
     // UE 5.8.2 LumenHardwareRayTracingMaterials packs CastShadow in bit 29.
     // Force candidate callbacks so mixed-material instances respect each segment.
     // Masked geometry remains opaque in this reference; no material opacity eval.
+    // ShadowHitData may be the plugin's public rebuild (r.FogMS.Transport.PublicHitFlags 1), sized by the highest
+    // visible segment index + 1: an index past the end has no flag and is treated as a shadow caster.
+    uint NumHitData,HitDataStride;
+    ShadowHitData.GetDimensions(NumHitData,HitDataStride);
     RayQuery<RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> Q;
     Q.TraceRayInline(TLAS,RAY_FLAG_NONE,RAY_TRACING_MASK_OPAQUE_SHADOW,Ray(P,D,Limit));
     while(Q.Proceed())
@@ -118,7 +122,7 @@ bool DirectShadow(float3 P,float3 D,float Limit)
         if(Q.CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE)
         {
             uint Index=Q.CandidateInstanceContributionToHitGroupIndex()/RAY_TRACING_NUM_SHADER_SLOTS+Q.CandidateGeometryIndex();
-            if((ShadowHitData[Index]&(1u<<29))!=0) Q.CommitNonOpaqueTriangleHit();
+            if(Index>=NumHitData || (ShadowHitData[Index]&(1u<<29))!=0) Q.CommitNonOpaqueTriangleHit();
         }
     }
     return Q.CommittedStatus()==COMMITTED_TRIANGLE_HIT;

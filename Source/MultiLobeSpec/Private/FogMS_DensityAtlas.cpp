@@ -8,7 +8,9 @@
 #endif
 #include "MultiGPU.h"
 #include "RHICommandList.h"
+#include "RHIShaderPlatform.h"
 #include "RenderingThread.h"
+#include "ShaderPlatformConfig.h"
 #include "TextureResource.h"
 #include "UObject/WeakObjectPtrTemplates.h"
 
@@ -17,6 +19,14 @@ namespace
 	constexpr int32 FogMS_MaxDensityDimension = 256;
 	constexpr int32 FogMS_MaxAtlasHeight = 16384;
 	constexpr int32 FogMS_MaxCachedDensityTextures = 4;
+
+	// Same predicate as FogMS_BoxRuntime.cpp FogMS_IsBindlessAll(): only BindlessAll has overlay consumers, the hidden
+	// heap readers that need the native never-evicted allocation and its descriptor. Fixed for the process lifetime.
+	bool FogMS_DensityAtlasNeedsHeapReaders()
+	{
+		return FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform)
+			&& FShaderPlatformConfig::GetBindlessConfiguration(GMaxRHIShaderPlatform) == ERHIBindlessConfiguration::All;
+	}
 
 	bool FogMS_AreAtlasDimensionsValid(int64 SizeX, int64 SizeY, int64 SizeZ)
 	{
@@ -250,6 +260,30 @@ uint32 FFogMSDensityAtlas::EnsureAndGetDescriptor(FRHICommandListImmediate& RHIC
 
 	TUniquePtr<FRenderThreadState::FAtlas> Atlas = MakeUnique<FRenderThreadState::FAtlas>();
 	Atlas->Upload = Upload;
+	if (!FogMS_DensityAtlasNeedsHeapReaders())
+	{
+		// Injection-only (no BindlessAll): the only reader is producer pass 0, which binds this texture as an ordinary
+		// SRV (FFogMSWorldRequest::DensityAtlas), so the RHI tracks its residency. A plain RHI texture suffices: same
+		// BGRA8 format, X by Y+Z*SizeY layout and bytes as the native path below; left in SRV state. No SRV object or
+		// heap index is created (nothing reads the heap without BindlessAll), so DescriptorIndex stays MAX_uint32.
+		Atlas->Texture = RHICmdList.CreateTexture(FRHITextureCreateDesc::Create2D(TEXT("FogMS.DensityAtlas"),
+			FIntPoint(Upload->SizeX, Upload->SizeY * Upload->SizeZ), PF_B8G8R8A8)
+			.SetFlags(ETextureCreateFlags::ShaderResource)
+			.SetInitialState(ERHIAccess::SRVMask));
+		if (Atlas->Texture.IsValid())
+		{
+			RHICmdList.UpdateTexture2D(Atlas->Texture, 0,
+				FUpdateTextureRegion2D(0, 0, 0, 0, Upload->SizeX, Upload->SizeY * Upload->SizeZ),
+				Upload->SizeX * 4, Upload->Bytes.GetData());
+			Atlas->bUploaded = true;
+		}
+		else
+		{
+			Atlas->Error = FString::Printf(TEXT("FogMS density atlas could not create a BGRA8 texture for %s; textured density remains disabled."), *Upload->TexturePath);
+		}
+	}
+	else
+	{
 #if PLATFORM_WINDOWS
 	ID3D12DynamicRHI* D3D12 = GetID3D12DynamicRHI();
 	D3D12_HEAP_PROPERTIES Heap{};
@@ -300,6 +334,7 @@ uint32 FFogMSDensityAtlas::EnsureAndGetDescriptor(FRHICommandListImmediate& RHIC
 #else
 	Atlas->Error = TEXT("FogMS density atlas currently supports Windows D3D12 only.");
 #endif
+	}
 	OutError = Atlas->Error;
 	if (OutTexture && Atlas->bUploaded) *OutTexture = Atlas->Texture;
 	const uint32 DescriptorIndex = Atlas->DescriptorIndex;

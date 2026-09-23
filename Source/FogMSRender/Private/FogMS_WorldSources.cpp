@@ -9,9 +9,10 @@
 #include "RenderingThread.h"
 #include "RHIStaticStates.h"
 #include "SceneManagement.h"
+// Renderer/Private, P9/P11 only (FScene::SkyLight / ConvolvedSkyRenderTarget, Scene.Lights, AtmosphereLights,
+// VolumetricCloud). The view side of this file uses the public FSceneView API.
 #include "ScenePrivate.h"
 #include "SceneProxies/SkyLightSceneProxy.h"
-#include "SceneRendering.h"
 #include "SceneView.h"
 #include "SystemTextures.h"
 #include "TextureResource.h"
@@ -37,33 +38,38 @@ namespace
 		return Finite(Value) && Value.X >= 0 && Value.Y >= 0 && Value.Z >= 0;
 	}
 
-	bool BindSky(FRDGBuilder& GraphBuilder, const FScene& Scene, const FViewInfo& View,
+	bool BindSky(FRDGBuilder& GraphBuilder, const FScene& Scene, const FSceneView& View,
 		FFogMSWorldSourcesParameters& Parameters, FString& Error)
 	{
 		Parameters.FogMSWorldSkyTexture = GSystemTextures.GetCubeBlackDummy(GraphBuilder);
 		Parameters.FogMSWorldSkyBlendTexture = Parameters.FogMSWorldSkyTexture;
 		Parameters.FogMSWorldSkySampler = TStaticSamplerState<SF_Trilinear>::GetRHI();
 		Parameters.FogMSWorldSkyBlendSampler = Parameters.FogMSWorldSkySampler;
-		Parameters.FogMSWorldSkyColor = FVector3f::ZeroVector;
+		Parameters.FogMSWorldSkyIntensity = 0;
 		Parameters.FogMSWorldSkyBlend = 0;
 		if (!Scene.SkyLight || !View.Family->EngineShowFlags.Lighting || !View.Family->EngineShowFlags.SkyLighting)
 			return true;
 
 		const FSkyLightSceneProxy& Sky = *Scene.SkyLight;
 		const float Intensity = Sky.VolumetricScatteringIntensity;
-		const FVector3f NativeColor(View.CachedViewUniformShaderParameters->SkyLightColor);
-		if (!FMath::IsFinite(Intensity) || Intensity < 0 || !Nonnegative(NativeColor))
+		// The colour scale itself is View.SkyLightColor, read in the shader from the bound View UB (FogMS_WorldSky).
+		// It is SkyLighting ? GetEffectiveLightColor() * SkyPreExposureInv * SkylightScale : Black (SceneRendering.cpp:2101;
+		// SkyLighting is checked above). SkyPreExposureInv is 1 or 1/GetCachedLightingPreExposure() (> 0), so this public
+		// gate colour is zero / non-finite / negative exactly when View.SkyLightColor is (ASSUMED finite pre-exposure).
+		// It only gates; the multiplied value is the native View.SkyLightColor as before.
+		const FVector3f GateColor(Sky.GetEffectiveLightColor() * View.SkylightScale);
+		if (!FMath::IsFinite(Intensity) || Intensity < 0 || !Nonnegative(GateColor))
 		{
 			Error = TEXT("B1 sky has invalid color or volumetric intensity");
 			return false;
 		}
-		if (Intensity == 0 || NativeColor.IsZero()) return true;
-		Parameters.FogMSWorldSkyColor = NativeColor * Intensity;
-		if (!Nonnegative(Parameters.FogMSWorldSkyColor))
+		if (Intensity == 0 || GateColor.IsZero()) return true;
+		if (!Nonnegative(GateColor * Intensity))
 		{
 			Error = TEXT("B1 sky color overflows after volumetric intensity");
 			return false;
 		}
+		Parameters.FogMSWorldSkyIntensity = Intensity;
 
 		// Narrow equivalent of IndirectLightRendering.cpp:660-731. Calling its
 		// private SetupReflectionUniformParameters would require a Renderer export.
@@ -121,7 +127,7 @@ namespace
 	}
 }
 
-bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
+bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	FVector BoxCenterWS, FVector3f BoxExtent,
 	FFogMSWorldSourcesParameters& OutParameters, FString& Error)
 {
@@ -134,7 +140,7 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
 	OutParameters.FogMSWorldSunExcludeCos = 2.0f;
 	// Memzero would make light 0 the sun: -1 = no atmosphere sun in the list (T_sun = 1 in transport pass 2).
 	OutParameters.FogMSWorldSunLightIndex = -1;
-	if (!View.Family || !View.Family->Scene || !View.CachedViewUniformShaderParameters
+	if (!View.Family || !View.Family->Scene || !View.ViewUniformBuffer.IsValid()
 		|| BoxCenterWS.ContainsNaN() || !Finite(BoxExtent) || BoxExtent.GetMin() <= 0)
 	{
 		Error = TEXT("B1 world sources require a valid scene, View UB and Box bounds");
@@ -166,11 +172,10 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
 	TArray<FVector4f> Rows;
 	Rows.Reserve(MaxWorldLights * LightRows);
 	const FEngineShowFlags& Show = View.Family->EngineShowFlags;
-	// The FViewInfo overload is not exported. Its implementation and the exported
-	// FSceneView accessor read the same EyeAdaptationViewState and return 0 when
-	// absent (SceneRendering.cpp:2609; SceneView.cpp:2967). Preserve that exact
-	// exposure for inverse-exposure-blended lights, rather than using PreExposure.
-	const float Exposure = View.FSceneView::GetLastEyeAdaptationExposure();
+	// The exported FSceneView accessor (not the unexported FViewInfo overload; both read the same
+	// EyeAdaptationViewState and return 0 when absent, SceneRendering.cpp:2609; SceneView.cpp:2967).
+	// Preserve that exact exposure for inverse-exposure-blended lights, rather than using PreExposure.
+	const float Exposure = View.GetLastEyeAdaptationExposure();
 	// Sun for the sky exclusion cone. Must be a light that actually enters the list
 	// (pass 2 / FogMS_WorldLight shadows it), otherwise the captured disc is the only
 	// sun term and must stay. Prefer Scene.AtmosphereLights[0]: the render-thread

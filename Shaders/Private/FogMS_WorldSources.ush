@@ -10,7 +10,8 @@ TextureCube FogMSWorldSkyTexture;
 SamplerState FogMSWorldSkySampler;
 TextureCube FogMSWorldSkyBlendTexture;
 SamplerState FogMSWorldSkyBlendSampler;
-float3 FogMSWorldSkyColor;
+// Sky volumetric scattering intensity; FogMS_WorldSky multiplies it by View.SkyLightColor (View UB).
+float FogMSWorldSkyIntensity;
 float FogMSWorldSkyBlend;
 float FogMSWorldSkyMipBias;
 float3 FogMSWorldSunDirection;
@@ -86,8 +87,8 @@ void FogMS_WorldLight(uint Index, float3 TranslatedPosition, out float3 Directio
 }
 
 // Escaped sky rays ONLY: radiance, no phase / sigma / View.PreExposure. Native
-// View.SkyLightColor removes RTC cached exposure; C++ folds sky volumetric
-// intensity exactly once. Do not apply this factor to surface GI or emissive hits.
+// View.SkyLightColor removes RTC cached exposure; it is read here from the bound View
+// uniform buffer and multiplied by the sky volumetric intensity exactly once. Do not apply this factor to surface GI or emissive hits.
 // SectorSolidAngle > 0: WorldDirection stands for a whole quadrature sector of that
 // solid angle (4*pi/AngularCount). The cubemap is then sampled at the mip whose
 // texel footprint matches the sector cone, so the ordinate sees the sector-average
@@ -151,7 +152,8 @@ float3 FogMS_WorldSky(float3 WorldDirection, float SectorSolidAngle)
 		float3 Destination = FogMSWorldSkyBlendTexture.SampleLevel(FogMSWorldSkyBlendSampler, SampleDirection, BlendMip).rgb;
 		Radiance = lerp(Radiance, Destination, FogMSWorldSkyBlend);
 	}
-	Radiance *= FogMSWorldSkyColor;
+	// Same product as the former CPU FogMSWorldSkyColor = SkyLightColor.rgb * intensity (per channel, fp32).
+	Radiance *= View.SkyLightColor.rgb * FogMSWorldSkyIntensity;
 	return all(isfinite(Radiance)) ? max(Radiance, 0.0f) : 0.0f;
 }
 
