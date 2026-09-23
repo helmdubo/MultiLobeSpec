@@ -1,0 +1,50 @@
+SAVED E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\mult
+SETUP | live box ready Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky Vi
+one-box t=2s | FogMS - Live Box | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sk
+
+one-box t=2s | FogMS - Test Box 2 | MISSING
+
+one-box t=2s | FogMS - Test Box 3 | MISSING
+DUP FogMS - Test Box 2 <Struct 'Vector' (0x00000209F386CDD0) {x: 34693.992204, y: 2905.859471, z: 1222.472051}> | src <Struct 'Vector' (0x00000209F386D140) {x: 3.036511, y: 2905.859471, z: 1222.472051
+DUP FogMS - Test Box 3 <Struct 'Vector' (0x00000209F386CD30) {x: 69384.947897, y: 2905.859471, z: 1222.472051}> | src <Struct 'Vector' (0x00000209F386D140) {x: 3.036511, y: 2905.859471, z: 1222.472051
+three-boxes t=2s | FogMS - Live Box | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: proce
+
+three-boxes t=2s | FogMS - Test Box 2 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (Emissive
+
+three-boxes t=2s | FogMS - Test Box 3 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostic
+RESULT three Active: True
+LOGSCAN three | 2 suspicious lines
+    [2026.09.23-20.12.06:520][  0]LogFogMSRHICompatibility: Warning: UE 5.8.2 D3D12/SM6 BindlessAll compatibility: r.RHICmd.ParallelTranslate.Enable=0 (CPU RHI translation). Native RT descriptor-heap rest
+    [2026.09.23-20.12.08:818][  0]LogNNERuntimeORT:   RDG: yes
+=== budget 1
+budget1 t=2s | FogMS - Live Box | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sk
+
+budget1 t=2s | FogMS - Test Box 2 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (Emissive Inj
+
+budget1 t=2s | FogMS - Test Box 3 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (
+RESULT queued/hold seen: True
+budget4-again t=2s | FogMS - Live Box | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostic
+
+budget4-again t=2s | FogMS - Test Box 2 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (Emissi
+
+budget4-again t=2s | FogMS - Test Box 3 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnost
+=== disable Box 2
+box2 disabled
+box2-off t=2s | FogMS - Live Box | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: processe
+
+box2-off t=2s | FogMS - Test Box 2 | Off (Box Enabled is false)
+
+box2-off t=2s | FogMS - Test Box 3 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (Emissive In
+RESULT two Active after disable: True
+=== destroy test boxes
+destroyed
+single-again t=2s | FogMS - Live Box | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: proc
+
+single-again t=2s | FogMS - Test Box 2 | MISSING
+
+single-again t=2s | FogMS - Test Box 3 | MISSING
+RESULT single Box Active: True
+LOGSCAN end | 2 suspicious lines
+    [2026.09.23-20.12.06:520][  0]LogFogMSRHICompatibility: Warning: UE 5.8.2 D3D12/SM6 BindlessAll compatibility: r.RHICmd.ParallelTranslate.Enable=0 (CPU RHI translation). Native RT descriptor-heap rest
+    [2026.09.23-20.12.08:818][  0]LogNNERuntimeORT:   RDG: yes
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',
