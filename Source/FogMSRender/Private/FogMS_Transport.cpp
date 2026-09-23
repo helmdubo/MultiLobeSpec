@@ -63,6 +63,15 @@ namespace
         TEXT("Lumen hit data) in the same frame, reads both back and logs the per-entry comparison. 2 additionally checks every shadow-ray candidate of ")
         TEXT("pass 2 against both buffers on the GPU and logs the mismatch count and the first 32 records. The A/B-selected buffer still shadows. 0 off."),
         ECVF_RenderThreadSafe);
+    TAutoConsoleVariable<int32> CVarDirectSkipEmpty(TEXT("r.FogMS.Transport.DirectSkipEmpty"), 0,
+        TEXT("Pass 2 (uncollided direct light): 1 traces no shadow rays / medium marches for a cell whose averaged sigma_t is exactly 0 and writes Direct 0 ")
+        TEXT("(hybrid: Direct_sun 0, T_sun 1). The solve is unchanged (an empty cell has sigma_s 0, so its Direct never enters b), but the published ")
+        TEXT("J (slab 0) and uncollided slab 1 of empty cells lose their direct part, and both are interpolated into neighbouring fog by the ")
+        TEXT("reconstruction and the injection field. 0 (default) computes every cell."), ECVF_RenderThreadSafe);
+    TAutoConsoleVariable<int32> CVarDirectSamples(TEXT("r.FogMS.Transport.DirectSamples"), 8,
+        TEXT("Pass 2 subcell points per cell for the direct light (and hybrid T_sun). 8 (default) all corners of the half-cell lattice; 4 one ")
+        TEXT("tetrahedron of them, alternating with the complementary tetrahedron on every solve (half the shadow rays; the direct term then ")
+        TEXT("changes between successive solves where the two disagree). Other values: 8."), ECVF_RenderThreadSafe);
     TAutoConsoleVariable<int32> CVarHitFlagsDebugInterval(TEXT("r.FogMS.Transport.HitFlagsDebugInterval"), 120,
         TEXT("HitFlagsDebug: minimum frames between two logged comparisons (one readback set in flight at a time)."), ECVF_RenderThreadSafe);
 
@@ -116,6 +125,9 @@ namespace
         SHADER_PARAMETER(int32, TestBoundary)
         SHADER_PARAMETER(float, TestTau)
         SHADER_PARAMETER(float, TestAlbedo)
+        SHADER_PARAMETER(int32, DirectSkipEmpty)
+        SHADER_PARAMETER(int32, DirectSamples)
+        SHADER_PARAMETER(uint32, FogMSSolveParity)
         SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, Coefficients)
         SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, DirectField)
         SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, ReconstructionAtlas)
@@ -616,6 +628,12 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FSceneView
     Common.TestBoundary = TestBoundary.GetValueOnRenderThread() != 0;
     Common.TestTau = FMath::Clamp(TestTau.GetValueOnRenderThread(), 0.0f, 128.0f);
     Common.TestAlbedo = FMath::Clamp(TestAlbedo.GetValueOnRenderThread(), -1.0f, 1.0f);
+    Common.DirectSkipEmpty = CVarDirectSkipEmpty.GetValueOnRenderThread() != 0;
+    Common.DirectSamples = CVarDirectSamples.GetValueOnRenderThread() == 4 ? 4 : 8;
+    // Per-solve counter (render thread): this function runs once per solve, a SolveInterval hold does not call it.
+    // Process-wide, not per Box/view: an even number of solves per frame would give each of them a fixed parity.
+    static uint32 SolveCounter = 0;
+    Common.FogMSSolveParity = SolveCounter++ & 1u;
     FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.GetShaderPlatform());
     const auto Buffer = [&](const TCHAR* Name, int32 Size = Cells)
     { return GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector4f), Size), Name); };

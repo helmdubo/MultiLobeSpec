@@ -48,6 +48,12 @@ int TestGeometry;
 int TestBoundary;
 float TestTau;
 float TestAlbedo;
+// Pass 2 trims (runtime branches, no permutation). DirectSkipEmpty != 0: a cell whose pass-0 sigma_t is 0 traces no
+// rays (Direct = 0; hybrid Direct_sun = 0, T_sun = 1). DirectSamples 4: four subcell points instead of eight, the
+// tetrahedron {0,3,5,6} of the corner bit pattern on even FogMSSolveParity and its complement {1,2,4,7} on odd.
+int DirectSkipEmpty;
+int DirectSamples;
+uint FogMSSolveParity;
 Texture3D<float4> Coefficients;
 Texture3D<float4> DirectField;
 Texture2D<float4> ReconstructionAtlas;
@@ -313,16 +319,28 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
 #elif FOGMS_TRANSPORT_PASS == 2
     if(I>=N) return;
     uint3 C=Cell(I); float3 Direct=0;
+    // DirectSkipEmpty: sigma_t = 0 exactly (pass 0 averages eight point densities; the density mask returns exact
+    // zeros outside the cloud). Then sigma_s = 0 too, so this cell's Direct never reaches the solve (b = sqrt(sigma_s)*Base);
+    // it does reach slab 0 (Total) / slab 1 (Base) that the reconstruction and pass 17 interpolate, hence opt-in.
+    const bool Empty=DirectSkipEmpty!=0&&Coefficients.Load(int4(C,0)).a<=0.f;
 #if FOGMS_TRANSPORT_HYBRID
-    // T_sun: same eight subcell points, shadow ray and medium march as Direct, for the atmosphere sun only
-    // (FogMSWorldSunLightIndex from FogMS_GetWorldSources). No sun in the list, or test inputs: T_sun = 1.
+    // T_sun: same subcell points, shadow ray and medium march as Direct, for the atmosphere sun only
+    // (FogMSWorldSunLightIndex from FogMS_GetWorldSources). No sun in the list, test inputs or a skipped empty cell: T_sun = 1.
     float SunT=0; float3 SunDirect=0;
-    const bool HasSun=TestMode==0&&FogMSWorldSunLightIndex>=0&&uint(FogMSWorldSunLightIndex)<FogMS_WorldLightCount();
+    const bool HasSun=TestMode==0&&!Empty&&FogMSWorldSunLightIndex>=0&&uint(FogMSWorldSunLightIndex)<FogMS_WorldLightCount();
 #endif
-    if(TestMode==0)
+    if(TestMode==0&&!Empty)
     {
-        UNROLL for(uint Sample=0;Sample<8;++Sample)
+        // Weight 1/Samples, exact powers of two: at 8 the sums are bit-identical to the former "/8.f".
+        const uint Samples=DirectSamples==4?4u:8u;
+        const float Weight=Samples==4u?.25f:.125f;
+        UNROLL for(uint K=0;K<8;++K)
         {
+            if(K>=Samples) break;
+            // 8: Sample = K (the unchanged order). 4: K -> 0,3,5,6 (even bit counts: K*2 | parity(K)), XOR 7 on odd
+            // solves -> 7,4,2,1. Each is a regular tetrahedron of the .25/.75 corners centred on the cell (exact for
+            // linear and quadratic terms); the two differ in the sign of the xyz term, which cancels over two solves.
+            uint Sample=Samples==8u?K:(((K<<1)|(countbits(K)&1u))^((FogMSSolveParity&1u)*7u));
             float3 Offset=float3(Sample&1,(Sample>>1)&1,(Sample>>2)&1)*.5f+.25f;
             float3 P=World((float3(C)+Offset)*CellSize-Extent());
             LOOP for(uint Light=0;Light<FogMS_WorldLightCount();++Light)
@@ -332,19 +350,20 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
 #if FOGMS_TRANSPORT_HYBRID
                 if(HasSun&&Light==uint(FogMSWorldSunLightIndex))
                 {
-                    // One visibility ray shared by Direct and T_sun; Direct gets the identical J*MediumT/8 term.
+                    // One visibility ray shared by Direct and T_sun; Direct gets the identical J*MediumT*Weight term.
                     // D points toward the sun, Distance = 1e27 (FogMS_WorldLight): MediumT stops at the Box exit.
                     bool Visible=!Shadow||!DirectShadow(P,D,Distance);
                     float T=Visible?MediumT(P,D,Distance):0.f;
-                    if(any(J>0)&&Visible) {Direct+=J*T/8.f; SunDirect+=J*T/8.f;}
-                    SunT+=T/8.f;
+                    if(any(J>0)&&Visible) {Direct+=J*T*Weight; SunDirect+=J*T*Weight;}
+                    SunT+=T*Weight;
                     continue;
                 }
 #endif
-                if(any(J>0)&&(!Shadow||!DirectShadow(P,D,Distance))) Direct+=J*MediumT(P,D,Distance)/8.f;
+                if(any(J>0)&&(!Shadow||!DirectShadow(P,D,Distance))) Direct+=J*MediumT(P,D,Distance)*Weight;
             }
         }
     }
+    // Also for empty cells: InverseDiagonal reads it (there 1 - sigma_s*Lambda = 1, so the value is inert, but kept exact).
     float LambdaDiagonal=0;
     if(AngularCount>6)
     {
