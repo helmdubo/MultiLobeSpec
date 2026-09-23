@@ -45,7 +45,7 @@ def setp(assign, label):
     out = py("import unreal\n" + BOX + "\n" + assign + "\nb.update_density()\nprint('SET %s |', b.get_editor_property('spatial_status'))" % label)
     print(out[:200])
 
-RESET = ("b.set_editor_property('erosion_strength', 0.0); b.set_editor_property('erosion_depth', 0.3)\n"
+RESET = ("b.set_editor_property('erosion_strength', 0.0); b.set_editor_property('erosion_depth', 0.15)\n"
          "b.set_editor_property('height_profile_preset', unreal.FogMSHeightProfilePreset.NONE); b.set_editor_property('height_profile', False)\n"
          "b.set_editor_property('height_bottom', 0.0); b.set_editor_property('height_top', 1.0); b.set_editor_property('bottom_softness', 0.05); b.set_editor_property('top_softness', 0.1); b.set_editor_property('anvil_strength', 0.0)")
 
@@ -53,7 +53,8 @@ SERIES = [
     ("00_base",            RESET),
     ("01_erosion_0.3",     RESET + "\nb.set_editor_property('erosion_strength', 0.3)"),
     ("02_erosion_0.6",     RESET + "\nb.set_editor_property('erosion_strength', 0.6)"),
-    ("03_erosion_0.6_depth_0.6", RESET + "\nb.set_editor_property('erosion_strength', 0.6); b.set_editor_property('erosion_depth', 0.6)"),
+    ("03_erosion_0.2",       RESET + "\nb.set_editor_property('erosion_strength', 0.2)"),
+    ("04_erosion_0.3_depth_0.3", RESET + "\nb.set_editor_property('erosion_strength', 0.3); b.set_editor_property('erosion_depth', 0.3)"),
     ("10_stratus",         RESET + "\nb.set_editor_property('height_profile_preset', unreal.FogMSHeightProfilePreset.STRATUS)"),
     ("11_cumulus",         RESET + "\nb.set_editor_property('height_profile_preset', unreal.FogMSHeightProfilePreset.CUMULUS)"),
     ("12_cumulonimbus",    RESET + "\nb.set_editor_property('height_profile_preset', unreal.FogMSHeightProfilePreset.CUMULONIMBUS)"),

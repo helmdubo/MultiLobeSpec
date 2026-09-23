@@ -409,8 +409,8 @@ void AFogMSBoxVolume::ApplyHeightProfilePreset()
 	switch (HeightProfilePreset)
 	{
 	case EFogMSHeightProfilePreset::Stratus: Values[0] = 0.40f; Values[1] = 0.60f; Values[2] = 0.05f; Values[3] = 0.10f; Values[4] = 0.0f; break;
-	case EFogMSHeightProfilePreset::Cumulus: Values[0] = 0.10f; Values[1] = 0.70f; Values[2] = 0.02f; Values[3] = 0.45f; Values[4] = 0.0f; break;
-	case EFogMSHeightProfilePreset::Cumulonimbus: Values[0] = 0.05f; Values[1] = 0.98f; Values[2] = 0.02f; Values[3] = 0.10f; Values[4] = 0.6f; break;
+	case EFogMSHeightProfilePreset::Cumulus: Values[0] = 0.10f; Values[1] = 0.80f; Values[2] = 0.05f; Values[3] = 0.20f; Values[4] = 0.0f; break;
+	case EFogMSHeightProfilePreset::Cumulonimbus: Values[0] = 0.05f; Values[1] = 0.98f; Values[2] = 0.02f; Values[3] = 0.15f; Values[4] = 1.0f; break;
 	case EFogMSHeightProfilePreset::ValleyFog: Values[0] = 0.0f; Values[1] = 0.35f; Values[2] = 0.0f; Values[3] = 0.30f; Values[4] = 0.0f; break;
 	default: return;
 	}

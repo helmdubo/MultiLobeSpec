@@ -37,8 +37,8 @@ enum class EFogMSHeightProfilePreset : uint8
 {
 	None = 0 UMETA(DisplayName="None", ToolTip="Values are edited directly. Editing any of the five values selects None."),
 	Stratus = 1 UMETA(DisplayName="Stratus", ToolTip="Bottom 0.40, Top 0.60, Bottom Softness 0.05, Top Softness 0.10, Anvil 0."),
-	Cumulus = 2 UMETA(DisplayName="Cumulus", ToolTip="Flat base, dome: Bottom 0.10, Top 0.70, Bottom Softness 0.02, Top Softness 0.45, Anvil 0."),
-	Cumulonimbus = 3 UMETA(DisplayName="Cumulonimbus", ToolTip="Column with an anvil: Bottom 0.05, Top 0.98, Bottom Softness 0.02, Top Softness 0.10, Anvil 0.6."),
+	Cumulus = 2 UMETA(DisplayName="Cumulus", ToolTip="Flat base, rounded top: Bottom 0.10, Top 0.80, Bottom Softness 0.05, Top Softness 0.20, Anvil 0."),
+	Cumulonimbus = 3 UMETA(DisplayName="Cumulonimbus", ToolTip="Column with an anvil: Bottom 0.05, Top 0.98, Bottom Softness 0.02, Top Softness 0.15, Anvil 1.0."),
 	ValleyFog = 4 UMETA(DisplayName="Valley Fog", ToolTip="Bottom 0, Top 0.35, Bottom Softness 0, Top Softness 0.30, Anvil 0.")
 };
 
@@ -390,8 +390,8 @@ public:
 	float ErosionStrength = 0.0f;
 
 	/** S1, packet row 24.y: noise-space depth over which erosion fades from the band's lower edge (Lo) to zero. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && ErosionStrength > 0", ClampMin="0.01", ClampMax="1.0", UIMin="0.01", UIMax="1.0", ToolTip="How deep into the cloud erosion reaches, in noise units above Threshold - Softness/2: full erosion at the edge, none from this depth on. Larger values erode deeper."))
-	float ErosionDepth = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && ErosionStrength > 0", ClampMin="0.01", ClampMax="1.0", UIMin="0.01", UIMax="1.0", ToolTip="How deep into the cloud erosion reaches, in noise units above Threshold - Softness/2: full erosion at the edge, none from this depth on. Larger values erode deeper; above ~0.3 most of a typical cloud counts as edge and erosion thins the whole volume. Default 0.15."))
+	float ErosionDepth = 0.15f;
 
 	/** S1, packet row 24.z (texture channel index 1..3). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && ErosionStrength > 0", ToolTip="Channel of the second detail sample used as the erosion pattern. The bundled Perlin-Worley texture stores Worley FBM in G, B and A."))
@@ -470,7 +470,7 @@ private:
 		float DetailSecondOctaveValue = 0.5f;
 		/** S1 edge erosion; ErosionMask is one-hot RGBA (MID FogMS_ErosionMask). */
 		float ErosionStrengthValue = 0.0f;
-		float ErosionDepthValue = 0.3f;
+		float ErosionDepthValue = 0.15f;
 		FLinearColor ErosionMask = FLinearColor(0, 1, 0, 0);
 		/** S2 height profile; with bHeightProfile false the five values stay at their neutral defaults. */
 		bool bHeightProfile = false;

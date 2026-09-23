@@ -29,7 +29,7 @@ OLD_INPUTS = ('Noise', 'Detail0', 'Detail1', 'ChannelMask', 'DetailStrength', 'S
               'LocalPosition', 'WorldExtent', 'Threshold', 'Softness', 'Density', 'Feather')
 # (parameter name, default, Custom input pin). Names match the MID setters in FogMS_BoxVolume.cpp.
 NEW_SCALARS = (('FogMS_ErosionStrength', 0.0, 'ErosionStrength'),
-               ('FogMS_ErosionDepth', 0.3, 'ErosionDepth'),
+               ('FogMS_ErosionDepth', 0.15, 'ErosionDepth'),
                ('FogMS_HeightProfile', 0.0, 'HeightProfile'),
                ('FogMS_HeightBottom', 0.0, 'HeightBottom'),
                ('FogMS_HeightTop', 1.0, 'HeightTop'),
