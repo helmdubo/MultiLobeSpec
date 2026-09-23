@@ -132,6 +132,8 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
 	FMemory::Memzero(&OutParameters, sizeof(OutParameters));
 	// 2 = "never inside the cone" (dot of unit vectors <= 1); zero would exclude a hemisphere.
 	OutParameters.FogMSWorldSunExcludeCos = 2.0f;
+	// Memzero would make light 0 the sun: -1 = no atmosphere sun in the list (T_sun = 1 in transport pass 2).
+	OutParameters.FogMSWorldSunLightIndex = -1;
 	if (!View.Family || !View.Family->Scene || !View.CachedViewUniformShaderParameters
 		|| BoxCenterWS.ContainsNaN() || !Finite(BoxExtent) || BoxExtent.GetMin() <= 0)
 	{
@@ -242,6 +244,9 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
 		Rows.Add(FVector4f(Color, Proxy.IsInverseSquared() ? 1.0f : 0.0f));
 		Rows.Add(FVector4f(Light.SpotAngles.X, Light.SpotAngles.Y, Light.FalloffExponent, bCastShadow ? 1.0f : 0.0f));
 		Rows.Add(FVector4f(Light.Tangent.GetSafeNormal(), Light.SourceLength));
+		// Explicit index of the atmosphere sun's row block (no direction matching in the shader): transport pass 2
+		// evaluates exactly this light's shadow ray and medium transmittance into T_sun for hybrid injection.
+		if (bDirectional && Info == AtmosphereSun) OutParameters.FogMSWorldSunLightIndex = int32(OutParameters.FogMSWorldNumLights);
 		++OutParameters.FogMSWorldNumLights;
 		if (bDirectional && !bSunIsAtmosphereLight && (SunDirection.IsZero() || Info == AtmosphereSun))
 		{

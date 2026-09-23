@@ -15,6 +15,9 @@ float FogMSWorldSkyBlend;
 float FogMSWorldSkyMipBias;
 float3 FogMSWorldSunDirection;
 float FogMSWorldSunExcludeCos;
+// Index into FogMSWorldLights of the atmosphere sun (Scene.AtmosphereLights[0]); -1 when it is not in the
+// list. Transport pass 2 (hybrid injection) uses it to write the per-cell sun transmittance T_sun.
+int FogMSWorldSunLightIndex;
 
 uint FogMS_WorldLightCount()
 {

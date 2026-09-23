@@ -1,6 +1,11 @@
 // B2: conservative six-ordinate, cell-average formal transport. Optional PCG warm start from the previous atlas (no temporal blend).
 #include "/Engine/Private/Common.ush"
 #include "/Engine/Shared/RayTracingDefinitions.h"
+// Hybrid injection permutation (FTransportCS, passes 2 and 17 only): pass 2 also writes the per-cell
+// atmosphere-sun transmittance, pass 17 publishes (multiple-scattering J, 0.5 + 0.5*T_sun). Other passes: 0.
+#ifndef FOGMS_TRANSPORT_HYBRID
+#define FOGMS_TRANSPORT_HYBRID 0
+#endif
 float4 BoxRows[24];
 #include "/Plugin/FogMS/Private/FogMS_Indirect.ush"
 #if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
@@ -63,6 +68,10 @@ RWStructuredBuffer<float4> Scalars;
 RWTexture2D<float4> OutAtlas;
 // Pass 17 (Emissive Injection) output: Box-owned UTextureRenderTargetVolume, GridSize^3.
 RWTexture3D<float4> OutField;
+// Hybrid injection: per-cell T_sun (GridSize^3), written by pass 2, read by pass 17. Bound only in the
+// hybrid permutations; RDG tracks the texture, so an async pass 17 waits for graphics pass 2.
+RWTexture3D<float> OutSunTransmittance;
+Texture3D<float> SunTransmittance;
 
 uint Count() { return uint(GridSize*GridSize*GridSize); }
 uint Flat(uint3 C) { return C.x+uint(GridSize)*(C.y+uint(GridSize)*C.z); }
@@ -222,6 +231,12 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
 #elif FOGMS_TRANSPORT_PASS == 2
     if(I>=N) return;
     uint3 C=Cell(I); float3 Direct=0;
+#if FOGMS_TRANSPORT_HYBRID
+    // T_sun: same eight subcell points, shadow ray and medium march as Direct, for the atmosphere sun only
+    // (FogMSWorldSunLightIndex from FogMS_GetWorldSources). No sun in the list, or test inputs: T_sun = 1.
+    float SunT=0;
+    const bool HasSun=TestMode==0&&FogMSWorldSunLightIndex>=0&&uint(FogMSWorldSunLightIndex)<FogMS_WorldLightCount();
+#endif
     if(TestMode==0)
     {
         UNROLL for(uint Sample=0;Sample<8;++Sample)
@@ -232,6 +247,18 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
             {
                 float3 D,J; float Distance; bool Shadow;
                 FogMS_WorldLight(Light,P,D,Distance,J,Shadow);
+#if FOGMS_TRANSPORT_HYBRID
+                if(HasSun&&Light==uint(FogMSWorldSunLightIndex))
+                {
+                    // One visibility ray shared by Direct and T_sun; Direct gets the identical J*MediumT/8 term.
+                    // D points toward the sun, Distance = 1e27 (FogMS_WorldLight): MediumT stops at the Box exit.
+                    bool Visible=!Shadow||!DirectShadow(P,D,Distance);
+                    float T=Visible?MediumT(P,D,Distance):0.f;
+                    if(any(J>0)&&Visible) Direct+=J*T/8.f;
+                    SunT+=T/8.f;
+                    continue;
+                }
+#endif
                 if(any(J>0)&&(!Shadow||!DirectShadow(P,D,Distance))) Direct+=J*MediumT(P,D,Distance)/8.f;
             }
         }
@@ -244,6 +271,9 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
             LambdaDiagonal+=Ordinates[D].w/(Sigma+dot(abs(Ordinates[D].xyz),rcp(CellSize)));
     }
     OutDirect[C]=float4(Direct,LambdaDiagonal);
+#if FOGMS_TRANSPORT_HYBRID
+    OutSunTransmittance[C]=HasSun?saturate(SunT):1.f;
+#endif
 #elif FOGMS_TRANSPORT_PASS == 14
     // One incoming ordinate per exterior face/cell. Internal closed-face
     // surface radiance remains the reciprocal diffuse face adapter.
@@ -388,9 +418,23 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
     // field; a cleared field (alpha 0) tells the material to fall back to native albedo lighting.
     if(I>=N) return;
     uint3 C=Cell(I);
+#if FOGMS_TRANSPORT_HYBRID
+    // Hybrid: native fog owns all single scattering, so publish only the collided remainder
+    // J_ms = slab 0 (Total = Direct + Diffuse) - slab 1 (Base = DirectField + uncollided boundary
+    // sweep, texel (C.x, C.y + C.z*N + N*N)). Alpha 0.5 + 0.5*T_sun stays >= 0.5 (valid) and carries
+    // the sun transmittance the material applies to native single scattering: T = saturate(2A - 1).
+    int2 XY=int2(C.x,C.y+C.z*GridSize);
+    float3 Total=ReconstructionAtlas.Load(int3(XY,0)).rgb;
+    float3 Uncollided=ReconstructionAtlas.Load(int3(XY+int2(0,GridSize*GridSize),0)).rgb;
+    float3 Jms=max(Total-Uncollided,0.f);
+    if(!all(isfinite(Jms))) Jms=0;
+    float SunT=SunTransmittance.Load(int4(C,0));
+    OutField[C]=float4(Jms,isfinite(SunT)?.5f+.5f*saturate(SunT):.5f);
+#else
     float3 J=max(ReconstructionAtlas.Load(int3(C.x,C.y+C.z*GridSize,0)).rgb,0.f);
     if(!all(isfinite(J))) J=0;
     OutField[C]=float4(J,1);
+#endif
 #endif
 }
 

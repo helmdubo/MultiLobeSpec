@@ -30,8 +30,9 @@
 #endif
 
 // Implemented in FogMS_Transport.cpp (transport pass 17). Declared here, not in FogMS_Transport.h,
-// to keep this change within the reviewed file set.
-void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field);
+// to keep this change within the reviewed file set. SunTransmittance non-null selects the hybrid field.
+void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field,
+	FRDGTextureRef SunTransmittance);
 bool FogMS_TransportAsync(const FRDGBuilder& GraphBuilder);
 
 namespace
@@ -325,6 +326,12 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 			return Result;
 		}
 	}
+	if (Request.bHybridInjection && !Request.InjectionTexture.IsValid())
+	{
+		// Hybrid only changes what the injection field carries (J_ms, T_sun); without a field it has no consumer.
+		Result.Error = TEXT("Hybrid injection requires Transport with an Emissive Injection volume field.");
+		return Result;
+	}
 	// Pass 0 of both producers binds the density atlas directly (FOGMS_BOUND_DENSITY_ATLAS); a missing or
 	// non-2D texture would fail shader-parameter validation, so reject it before any pass is added.
 	if (!Request.DensityAtlas.IsValid() || Request.DensityAtlas->GetDesc().Dimension != ETextureDimension::Texture2D)
@@ -409,8 +416,14 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		FRDGTextureRef Previous = nullptr;
 		if (!bWarmValid) State.PreviousAtlas.SafeRelease();
 		else if (State.PreviousAtlas.IsValid()) Previous = GraphBuilder.RegisterExternalTexture(State.PreviousAtlas, TEXT("FogMS.Transport.PreviousAtlas"));
-		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0, Previous);
+		// Hybrid injection: pass 2 of this graph also writes T_sun (RDG texture); pass 17 below consumes it in the
+		// same graph for both deliveries, so the late path needs no extra lifetime or fence handling.
+		FRDGTextureRef SunTransmittance = nullptr;
+		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0, Previous,
+			Request.bHybridInjection ? &SunTransmittance : nullptr);
 		if (!Work) { Result.Error = TEXT("B2 transport graph unavailable."); return Result; }
+		// Fail closed: a hybrid material must never receive the full field (native single scattering would double count).
+		if (Request.bHybridInjection && !SunTransmittance) { Result.Error = TEXT("Hybrid injection: sun transmittance unavailable."); return Result; }
 		GraphBuilder.QueueTextureExtraction(Work, &State.PreviousAtlas);
 		if (Request.InjectionTexture.IsValid() && bLate)
 		{
@@ -418,7 +431,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 			// PrePostProcessPass copy into the Box volume, so the Box volume keeps last frame's J through fog.
 			FieldBack = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(FIntVector(WorldSize), Request.InjectionTexture->GetDesc().Format,
 				FClearValueBinding::None, ETextureCreateFlags::ShaderResource | ETextureCreateFlags::UAV), TEXT("FogMS.TransportFieldBack"));
-			FogMS_PublishTransportField(GraphBuilder, View, Work, FieldBack);
+			FogMS_PublishTransportField(GraphBuilder, View, Work, FieldBack, SunTransmittance);
 		}
 		else if (Request.InjectionTexture.IsValid())
 		{
@@ -427,7 +440,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 			// That material binding is invisible to RDG: leave the field in external SRV access.
 			FRDGTextureRef Field = RegisterExternalTexture(GraphBuilder, Request.InjectionTexture, TEXT("FogMS.TransportField"));
 			GraphBuilder.UseInternalAccessMode(Field);
-			FogMS_PublishTransportField(GraphBuilder, View, Work, Field);
+			FogMS_PublishTransportField(GraphBuilder, View, Work, Field, SunTransmittance);
 			GraphBuilder.UseExternalAccessMode(Field, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
 		}
 	}

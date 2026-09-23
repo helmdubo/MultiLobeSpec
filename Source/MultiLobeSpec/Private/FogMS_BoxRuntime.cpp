@@ -547,10 +547,11 @@ namespace
 								{
 									// Density injection must survive a lighting-producer fallback:
 									// the native MID is zero while this authored Transport box is enabled.
-									// Emissive Injection (5) instead keeps the native MID density on and
-									// the overlay adds neither density nor source for this Box.
+									// Emissive Injection (5 full field, 6 hybrid) instead keeps the native MID density
+									// on and the overlay adds neither density nor source for this Box.
 									const FLinearColor Albedo = Selected->DensityAlbedo;
-									Packet.Rows[23] = FVector4f(Albedo.R, Albedo.G, Albedo.B, Selected->IsEmissiveInjectionActive() ? 5.0f : 4.0f);
+									Packet.Rows[23] = FVector4f(Albedo.R, Albedo.G, Albedo.B, Selected->IsEmissiveInjectionActive()
+										? (Selected->IsHybridInjectionActive() ? 6.0f : 5.0f) : 4.0f);
 								}
 								bAtlasStatusKnown = GPU->GetAtlasStatus(DensityUpload->Revision, DensityProblem);
 							}
@@ -677,8 +678,9 @@ namespace
 						SpatialProblem = TEXT("World requires finite Density Albedo RGB in [0,1].");
 					else
 					{
+						// Transport delivery marker: 4 overlay, 5 full-field injection, 6 hybrid injection.
 						Packet.Rows[23] = FVector4f(Albedo.R, Albedo.G, Albedo.B,
-							bTransport ? (Selected->IsEmissiveInjectionActive() ? 5.0f : 4.0f) : 0.0f);
+							bTransport ? (Selected->IsEmissiveInjectionActive() ? (Selected->IsHybridInjectionActive() ? 6.0f : 5.0f) : 4.0f) : 0.0f);
 						// Public additional streaming origin: keep native Lumen cards
 						// around the medium when the real camera leaves it. Preserve
 						// existing origins; native Lumen admits at most one extra origin.
@@ -878,8 +880,10 @@ namespace
 			Packet.Rows[22] = FVector4f(0, 0, 0, 0);
 			const bool bTransport = FogMS_IsTransportMode(static_cast<EFogMSScatteringMode>(Packet.Rows[5].Y));
 			const bool bWorldLighting = FogMS_UsesWorldProducer(Packet.Rows[5].Y);
-			// Row 23.w == 5: the Box Volume MID reads J from InjectionTexture; the overlay reads nothing.
-			const bool bInjection = bTransport && Packet.Rows[23].W == 5.0f && GPU->InjectionTexture.IsValid();
+			// Row 23.w == 5 (full field) or 6 (hybrid): the Box Volume MID reads the field from InjectionTexture; the
+			// overlay reads nothing (its consumers require exactly 4). Hybrid publishes J_ms and T_sun instead of J.
+			const bool bInjection = bTransport && (Packet.Rows[23].W == 5.0f || Packet.Rows[23].W == 6.0f) && GPU->InjectionTexture.IsValid();
+			const bool bHybrid = bInjection && Packet.Rows[23].W == 6.0f;
 			// Async solver (r.FogMS.Transport.AsyncCompute): publish one frame late. Every graphics consumer of the solve
 			// (atlas/field copies, row 22 upload) moves to PrePostProcessPass, after ComputeVolumetricFog, so RDG joins the
 			// async queue there and the solve overlaps lights/Lumen/fog. This frame's fog reads last frame's publication.
@@ -926,6 +930,7 @@ namespace
 					WorldRequest.Tolerance = Packet.Rows[16].W;
 				}
 				if (bInjection) WorldRequest.InjectionTexture = GPU->InjectionTexture;
+				WorldRequest.bHybridInjection = bHybrid; // Implies bInjection: the request validation needs the field.
 				// Uploaded by this packet's FogMS_UpdateBox command (same family, earlier on the render thread);
 				// pass 0 of the producer binds it directly. Null fails the request (native fallback below).
 				WorldRequest.DensityAtlas = GPU->DensityAtlasTexture;
@@ -1004,8 +1009,9 @@ namespace
 				GPU->FieldStatusRevision = GPU->Revision;
 				if (bPublished)
 					GPU->SpatialFieldStatus = bTransport
-						? FString::Printf(TEXT("Active %s isotropic transport (%d directions, %s%s%s; see convergence diagnostics)%s"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
-							*ToleranceText, bInjection ? TEXT("; emissive injection via material") : TEXT(""), bLate ? TEXT("; one frame late") : TEXT(""),
+						? FString::Printf(TEXT("Active %s isotropic transport (%d directions, %s%s%s%s; see convergence diagnostics)%s"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
+							*ToleranceText, bInjection ? TEXT("; emissive injection via material") : TEXT(""),
+							bHybrid ? TEXT("; hybrid: native single scattering") : TEXT(""), bLate ? TEXT("; one frame late") : TEXT(""),
 							GPU->HasPacket() ? TEXT("") : TEXT(" (injection-only: no BindlessAll; overlay features off)"))
 						: (bWorldLighting
 							? (Packet.Rows[21].X > 0 ? TEXT("Active World primary + three current-frame scattering orders (no fog history)")
@@ -1075,12 +1081,12 @@ namespace
 		{
 			const FBoxPacket& Packet = GPU->RenderSnapshot.Packet;
 			// Screen scattering is a post filter, not density/source injection: keep it for both
-			// Transport deliveries (4 overlay, 5 emissive injection) with a published field.
+			// Transport deliveries (4 overlay, 5 emissive injection, 6 hybrid injection) with a published field.
 			// BindlessAll: the field this frame's fog consumed is row 22 (unchanged). Injection-only has no row 22:
 			// PostTLAS records whether the injection volume sampled by this frame's fog holds a current J.
 			const bool bFieldConsumed = GPU->HasPacket() ? (Packet.Rows[22].Z >= .5f && Packet.Rows[22].W == 4.f)
 				: GPU->bInjectionFieldConsumed;
-			if (Packet.Rows[0].W > .5f && (Packet.Rows[23].W == 4.f || Packet.Rows[23].W == 5.f)
+			if (Packet.Rows[0].W > .5f && (Packet.Rows[23].W == 4.f || Packet.Rows[23].W == 5.f || Packet.Rows[23].W == 6.f)
 				&& bFieldConsumed
 				&& !View.bIsSceneCapture && !View.bIsReflectionCapture && !View.bIsPlanarReflection
 				&& View.Family && View.Family->Views.Num() == 1)

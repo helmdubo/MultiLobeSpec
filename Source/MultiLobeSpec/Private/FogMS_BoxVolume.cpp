@@ -442,7 +442,8 @@ bool AFogMSBoxVolume::EvaluateDirectionalMotion(double Time, const FVector& Velo
 bool AFogMSBoxVolume::FDensityState::HasSameDensityParameters(const FDensityState& Other) const
 {
 	return bUseNativeDensity == Other.bUseNativeDensity
-		&& bEmissiveInjection == Other.bEmissiveInjection && InjectionField == Other.InjectionField
+		&& bEmissiveInjection == Other.bEmissiveInjection && bHybridInjection == Other.bHybridInjection
+		&& InjectionField == Other.InjectionField
 		&& Texture == Other.Texture && TextureResource == Other.TextureResource
 		&& ChannelMask == Other.ChannelMask && TileScaleValue == Other.TileScaleValue
 		&& bWorldAligned == Other.bWorldAligned && WorldFrequencies == Other.WorldFrequencies
@@ -646,7 +647,7 @@ void AFogMSBoxVolume::UpdateDensity()
 				}
 				State.bActive = true;
 				// Emissive Injection: native voxelization owns sigma_t and receives sigma_s*J as
-				// emissive; the Box packet marks row 23.w = 5 so the overlay adds neither.
+				// emissive; the Box packet marks row 23.w = 5 (hybrid: 6) so the overlay adds neither.
 				// Falls back to the overlay path (MID density 0) if the field has no resource.
 				const bool bInjection = bEnabled && UsesEmissiveInjection() && EnsureTransportField();
 				// Keep authored density valid for the B2 atlas while avoiding duplicate
@@ -656,6 +657,8 @@ void AFogMSBoxVolume::UpdateDensity()
 				State.bUseNativeDensity = !bEnabled || !FogMS_IsTransportMode(ScatteringMode) || bInjection
 					|| !FogMS_IsBindlessAllConfiguration();
 				State.bEmissiveInjection = bInjection;
+				// Hybrid: native fog keeps single scattering; the field carries J_ms and T_sun (packet row 23.w = 6).
+				State.bHybridInjection = bInjection && bHybridSingleScattering;
 				State.InjectionField = bInjection ? TransportField.Get() : nullptr;
 				State.Texture = DensityTexture.Get();
 				State.TextureResource = DensityTexture->GetResource();
@@ -711,8 +714,11 @@ void AFogMSBoxVolume::UpdateDensity()
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_Albedo"), State.Albedo);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldExtent"), State.WorldExtent);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DensityFeather"), State.Feather);
-					// Material contract: Albedo -> lerp(Albedo, 0, Mode*Field.a), Emissive += J*Albedo*Extinction_per_m*Mode*Field.a.
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_InjectionMode"), State.bEmissiveInjection ? 1.0f : 0.0f);
+					// Material contract: valid = Field.a >= 0.5 (cleared field: 0), Emissive = valid*Field.rgb*Albedo*sigma_t.
+					// Mode 1 (full field, J, a = 1): BaseColor = Albedo*(1 - valid). Mode 2 (hybrid, J_ms, a = 0.5 + 0.5*T_sun):
+					// BaseColor = Albedo*lerp(1, saturate(2*Field.a - 1), valid), native single scattering darkened by T_sun.
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_InjectionMode"),
+						State.bEmissiveInjection ? (State.bHybridInjection ? 2.0f : 1.0f) : 0.0f);
 					if (State.bEmissiveInjection)
 						DensityMID->SetTextureParameterValue(TEXT("FogMS_TransportField"), TransportField);
 					LastMaterialState = State;

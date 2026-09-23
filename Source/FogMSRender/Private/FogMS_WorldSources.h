@@ -30,6 +30,10 @@ BEGIN_SHADER_PARAMETER_STRUCT(FFogMSWorldSourcesParameters, )
 	// cos(half-angle) of the cone removed from the captured sky radiance around the
 	// sun disc (r.FogMS.World.SunExcludeDegrees); 2 = never (no sun or cvar 0).
 	SHADER_PARAMETER(float, FogMSWorldSunExcludeCos)
+	// Light-list index (FogMSWorldLights row block) of the atmosphere sun, Scene.AtmosphereLights[0]; -1 when
+	// that light is not gathered (none, hidden, zero colour). Only the atmosphere sun, never a fallback
+	// directional light: hybrid injection darkens native single scattering by this light's transmittance.
+	SHADER_PARAMETER(int32, FogMSWorldSunLightIndex)
 END_SHADER_PARAMETER_STRUCT()
 
 // Render thread, after light proxies / View UB have been updated. BoxExtent is

@@ -112,6 +112,10 @@ namespace
         SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<float4>, Scalars)
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutAtlas)
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float4>, OutField)
+        // Hybrid injection only (FHybrid permutations of passes 2 and 17): per-cell atmosphere-sun transmittance,
+        // written by pass 2 on graphics, read by pass 17 (graphics or async; RDG orders the two). Null otherwise.
+        SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float>, OutSunTransmittance)
+        SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float>, SunTransmittance)
         // Pass 0 (density average) samples the Box density atlas through this ordinary binding
         // (FFogMSWorldRequest::DensityAtlas, raw RHI texture outside RDG, resident in SRV state);
         // no bindless descriptor. Other passes do not reference it.
@@ -147,11 +151,15 @@ namespace
     public:
         using FParameters = FTransportParameters;
         class FPass : SHADER_PERMUTATION_INT("FOGMS_TRANSPORT_PASS", 18);
-        using FPermutationDomain = TShaderPermutationDomain<FPass>;
+        // Hybrid injection: pass 2 also writes T_sun, pass 17 publishes (J_ms, 0.5 + 0.5*T_sun). A separate
+        // permutation keeps the non-hybrid code of every pass exactly as before (FOGMS_TRANSPORT_HYBRID 0).
+        class FHybrid : SHADER_PERMUTATION_BOOL("FOGMS_TRANSPORT_HYBRID");
+        using FPermutationDomain = TShaderPermutationDomain<FPass, FHybrid>;
         static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& P)
         {
-            const int32 Pass = FPermutationDomain(P.PermutationId).Get<FPass>();
-            return SupportsTransport(P.Platform) && Pass != 5 && Pass != 6;
+            const FPermutationDomain Domain(P.PermutationId);
+            const int32 Pass = Domain.Get<FPass>();
+            return SupportsTransport(P.Platform) && Pass != 5 && Pass != 6 && (!Domain.Get<FHybrid>() || Pass == 2 || Pass == 17);
         }
         static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& P, FShaderCompilerEnvironment& E)
         { FGlobalShader::ModifyCompilationEnvironment(P, E); TransportEnvironment(E); }
@@ -197,8 +205,10 @@ namespace
 
 FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo& View,
     const FFogMSWorldRequest& Request, const FFogMSLumenSourceParameters& Lumen,
-    const FFogMSWorldSourcesParameters& Lights, bool bIndirect, FRDGTextureRef PreviousAtlas)
+    const FFogMSWorldSourcesParameters& Lights, bool bIndirect, FRDGTextureRef PreviousAtlas,
+    FRDGTextureRef* OutSunTransmittance)
 {
+    if (OutSunTransmittance) *OutSunTransmittance = nullptr;
 #if RHI_RAYTRACING
     if (!View.LumenHardwareRayTracingHitDataBuffer) return nullptr;
     // Validated by FogMS_BuildWorldLighting (non-null 2D); a null binding would fail pass 0's shader validation.
@@ -298,12 +308,13 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
     // that first consumer is the atlas/field copy in the PrePostProcessPass hook, after ComputeVolumetricFog.
     const ERDGPassFlags SolverFlags = SolverPassFlags(GraphBuilder);
     const TCHAR* const SolverQueue = SolverFlags == ERDGPassFlags::AsyncCompute ? TEXT(" (async)") : TEXT("");
-    const auto Dispatch = [&](int32 Pass, const TCHAR* Name, const FTransportParameters& Params, int32 Threads)
+    const auto Dispatch = [&](int32 Pass, const TCHAR* Name, const FTransportParameters& Params, int32 Threads, bool bHybrid = false)
     {
         // Graphics only: 1/2/14 trace inline rays (TLAS, RT geometry through bindless metadata, Lumen cache);
         // 0 reads the density atlas (a raw bound texture RDG does not track). Hidden reads stay on the queue the BoxRuntime fences assume.
         const bool bGraphics = Pass == 0 || Pass == 1 || Pass == 2 || Pass == 14;
         FTransportCS::FPermutationDomain Permutation; Permutation.Set<FTransportCS::FPass>(Pass);
+        Permutation.Set<FTransportCS::FHybrid>(bHybrid);
         TShaderMapRef<FTransportCS> Shader(ShaderMap, Permutation);
         auto* P = GraphBuilder.AllocParameters<FTransportParameters>(); *P = Params;
         FComputeShaderUtils::AddPass(GraphBuilder, FRDGEventName(TEXT("%s%s"), Name, bGraphics ? TEXT("") : SolverQueue),
@@ -345,7 +356,17 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
         auto P = Common; P.OutDirectionBoundaries = GraphBuilder.CreateUAV(Boundaries);
         Dispatch(14, TEXT("FogMS B3 directional boundary radiance"), P, Count);
     }
-    { auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct); Dispatch(2, TEXT("FogMS B2 direct cell average"), P, Cells); }
+    if (OutSunTransmittance)
+    {
+        // Hybrid injection: pass 2 also writes T_sun per cell (8 subcell points, same RT shadow ray and medium
+        // march as Direct, atmosphere sun only). Created only for a hybrid publish; pass 17 reads it via RDG.
+        FRDGTextureRef SunTransmittance = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(FIntVector(TransportGridSize), PF_R16F,
+            FClearValueBinding::None, Flags), TEXT("FogMS.Transport.SunTransmittance"));
+        auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct); P.OutSunTransmittance = GraphBuilder.CreateUAV(SunTransmittance);
+        Dispatch(2, TEXT("FogMS B2 direct cell average + sun transmittance (hybrid)"), P, Cells, true);
+        *OutSunTransmittance = SunTransmittance;
+    }
+    else { auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct); Dispatch(2, TEXT("FogMS B2 direct cell average"), P, Cells); }
     FRDGBufferRef U = Buffer(TEXT("FogMS.B2.U")), R = Buffer(TEXT("FogMS.B2.R")), Pcg = Buffer(TEXT("FogMS.B2.P"));
     FRDGBufferRef Primary = Buffer(TEXT("FogMS.B2.Primary"));
     // One scratch buffer reused by ordered RDG passes; angular quality does not
@@ -443,7 +464,10 @@ bool FogMS_TransportAsync(const FRDGBuilder& GraphBuilder)
 // the transport atlas into a 32^3 volume field. Texel (x,y,z) = cell (x,y,z), alpha 1.
 // Same-frame: Field is the Box-owned volume; the caller puts it in internal access before and
 // external SRV access after. Late (async): Field is a transient graph texture copied later.
-void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field)
+// Hybrid (SunTransmittance = pass 2's T_sun texture of the same graph): RGB = J_ms = max(slab 0 - slab 1, 0),
+// alpha = 0.5 + 0.5*T_sun. Null SunTransmittance: the unchanged full-field permutation (J, alpha 1).
+void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field,
+    FRDGTextureRef SunTransmittance)
 {
 #if RHI_RAYTRACING
     if (!Atlas || !Field) return;
@@ -453,15 +477,18 @@ void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
     Params.GridSize = TransportGridSize;
     Params.ReconstructionAtlas = Atlas;
     Params.OutField = GraphBuilder.CreateUAV(Field);
+    Params.SunTransmittance = SunTransmittance;
     FTransportCS::FPermutationDomain Permutation; Permutation.Set<FTransportCS::FPass>(17);
+    Permutation.Set<FTransportCS::FHybrid>(SunTransmittance != nullptr);
     TShaderMapRef<FTransportCS> Shader(GetGlobalShaderMap(View.GetShaderPlatform()), Permutation);
     auto* P = GraphBuilder.AllocParameters<FTransportParameters>(); *P = Params;
     // May run on async compute. BoxRuntime then publishes late: Field is a transient texture whose first graphics
     // consumer is the PrePostProcessPass copy into the Box volume, where RDG joins async->graphics. A same-frame
     // caller's UseExternalAccessMode(Field, SRVMask, Graphics) would instead join at its access-mode pass.
+    // SunTransmittance is an RDG texture written by graphics pass 2: RDG adds the graphics->async dependency.
     const ERDGPassFlags Flags = SolverPassFlags(GraphBuilder);
-    FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS transport field publish (emissive injection)%s",
-        Flags == ERDGPassFlags::AsyncCompute ? TEXT(" (async)") : TEXT("")),
+    FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS transport field publish (emissive injection%s)%s",
+        SunTransmittance ? TEXT(", hybrid") : TEXT(""), Flags == ERDGPassFlags::AsyncCompute ? TEXT(" (async)") : TEXT("")),
         Flags, Shader, P, FIntVector(FMath::DivideAndRoundUp(Cells, 64), 1, 1));
 #endif
 }

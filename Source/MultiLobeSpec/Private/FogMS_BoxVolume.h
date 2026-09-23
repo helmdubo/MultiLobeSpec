@@ -159,17 +159,26 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Experimental: deliver the transport field to the native volumetric fog through this Box's Volume material (Emissive = sigma_s * J) instead of the bindless overlay. Native voxelization then owns density, jitter and history for this Box; the overlay skips its density/source injection. Requires the material to read FogMS_TransportField / FogMS_InjectionMode."))
 	bool bEmissiveInjection = false;
 
-	/** Transport field J for Emissive Injection: 32^3 PF_FloatRGBA, scene-linear, not pre-exposed.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="Hybrid Single Scattering", EditCondition="bEmissiveInjection && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ToolTip="Experimental Emissive Injection split: native volumetric fog keeps all single scattering (sun with its phase function and shadow maps, local lights, sky via Lumen) at froxel resolution; the field carries only the multiple-scattering remainder (total minus uncollided incident radiance). Native single scattering is darkened per 32^3 cell by the solver's sun transmittance (medium and ray-traced geometry). Approximation: the same sun transmittance also scales the native single scattering of sky and local lights. Requires the material to implement FogMS_InjectionMode 2."))
+	bool bHybridSingleScattering = false;
+
+	/** Transport field for Emissive Injection: 32^3 PF_FloatRGBA, scene-linear, not pre-exposed.
 	 * Texel (x,y,z) is Box-local cell (x,y,z) along the Box rotation axes, cell centres at half texels:
-	 * uvw = (Local + Extent) / (2 * Extent). RGB = total incident radiance J; A = 1 where the current
-	 * frame's field is valid, 0 when cleared (the material then falls back to native albedo lighting). */
-	UPROPERTY(Transient, DuplicateTransient, VisibleAnywhere, AdvancedDisplay, Category="FogMS|Scattering", meta=(ToolTip="Transport field J for Emissive Injection (32^3 FloatRGBA, scene-linear). Texel (x,y,z) = Box-local cell (x,y,z) along the Box axes; uvw = (Local + Extent) / (2 * Extent), cell centres at half texels. Alpha 1 = valid current field, 0 = cleared (fall back to native albedo lighting)."))
+	 * uvw = (Local + Extent) / (2 * Extent). A = 0 when cleared (no current field: the material falls back
+	 * to native albedo lighting); the material treats A >= 0.5 as a valid current field.
+	 * Full field (FogMS_InjectionMode 1, row 23.w 5): RGB = total incident radiance J, A = 1.
+	 * Hybrid (FogMS_InjectionMode 2, row 23.w 6): RGB = J_ms = max(total - uncollided incident, 0), the
+	 * multiple-scattering remainder; A = 0.5 + 0.5 * T_sun with T_sun in [0,1] the cell's transmittance toward
+	 * the atmosphere sun (1 without one). Material: T = saturate(2A - 1), BaseColor = Albedo * lerp(1, T, valid). */
+	UPROPERTY(Transient, DuplicateTransient, VisibleAnywhere, AdvancedDisplay, Category="FogMS|Scattering", meta=(ToolTip="Transport field for Emissive Injection (32^3 FloatRGBA, scene-linear). Texel (x,y,z) = Box-local cell (x,y,z) along the Box axes; uvw = (Local + Extent) / (2 * Extent), cell centres at half texels. Alpha 0 = cleared (fall back to native albedo lighting), alpha >= 0.5 = valid. Full field: RGB total J, alpha 1. Hybrid: RGB multiple-scattering J, alpha 0.5 + 0.5 * sun transmittance."))
 	TObjectPtr<UTextureRenderTargetVolume> TransportField;
 
 	/** Requested: Emissive Injection is enabled on a Transport/AngularTransport Box. */
 	bool UsesEmissiveInjection() const { return bEmissiveInjection && FogMS_IsTransportMode(ScatteringMode); }
 	/** Effective state applied to the MID by the last UpdateDensity (enabled Box, active density, valid field). */
 	bool IsEmissiveInjectionActive() const { return LastDensityState.bActive && LastDensityState.bEmissiveInjection; }
+	/** Effective hybrid split (FogMS_InjectionMode 2, packet row 23.w 6) from the last UpdateDensity; implies IsEmissiveInjectionActive(). */
+	bool IsHybridInjectionActive() const { return IsEmissiveInjectionActive() && LastDensityState.bHybridInjection; }
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS|Scattering")
 	FString SpatialStatus = TEXT("Off");
@@ -353,6 +362,8 @@ private:
 		bool bActive = false;
 		bool bUseNativeDensity = true;
 		bool bEmissiveInjection = false;
+		/** bEmissiveInjection with bHybridSingleScattering: MID FogMS_InjectionMode 2. */
+		bool bHybridInjection = false;
 		TWeakObjectPtr<UTextureRenderTargetVolume> InjectionField;
 		TWeakObjectPtr<UVolumeTexture> Texture;
 		const FTextureResource* TextureResource = nullptr;

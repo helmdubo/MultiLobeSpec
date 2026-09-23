@@ -24,6 +24,11 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	 * the Box Volume material. Null: no field write. An invalid texture fails the request.
 	 */
 	FTextureRHIRef InjectionTexture;
+	/** Hybrid injection (packet row 23.w == 6): native fog keeps all single scattering, so InjectionTexture receives
+	 * RGB = J_ms = max(total - uncollided incident, 0) and A = 0.5 + 0.5 * T_sun, the per-cell transmittance toward
+	 * the atmosphere sun (medium x RT visibility, 1 without that sun). Requires InjectionTexture; false = full field.
+	 */
+	bool bHybridInjection = false;
 	/** Render thread only; required. The Box's resident BGRA8 density atlas (FFogMSDensityAtlas, X by Y+Z*SizeY,
 	 * left in SRV state after its upload). Producers bind it as an ordinary SRV, so it works without -BindlessAll;
 	 * packet row 7.z (its heap index) is for overlay consumers only. Null or non-2D fails the request.
