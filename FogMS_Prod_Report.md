@@ -423,6 +423,26 @@ binding data — виртуальный `FSceneView::GetInlineRayTracingBindingD
 в работе). Остающиеся приватные зависимости: источник Lumen (P8), кубмапа неба/список источников (P9/P11), SSFS-постфильтр,
 Spatial-превью — см. `FogMS_Fab_Readiness.md`.
 
+## Раунды 19–20: путь упакованной игры и smoke-тест в `-game`
+
+Коммит после `c0ce338` («cooked-game path»): атлас плотности без editor-only Source строится compute-проходом
+(`FogMS_DensityAtlas.usf`, поток на воксель, тот же layout (x, y + z·SizeY); ждёт резидентности верхнего mip; ключ — render
+resource; `r.FogMS.DensityAtlas.ForceGPUCopy` для A/B в редакторе); `Apply Required Render Settings` на Box (по умолчанию вкл.)
+в `BeginPlay` игрового мира ставит `r.RayTracing.Culling 0` и `r.Lumen.AsyncCompute 0` с приоритетом `SetByGameSetting`
+(project ini, device profile, командная строка и консоль сильнее); источник Lumen принимает `FSceneView`, приватный
+`SceneRendering.h` остался только в `FogMS_LumenSource.cpp`. Раунд 20 дополнительно вернул `PublicHitFlags` в 0.
+
+**Smoke-тест `-game`** (`gametest.sh`, редакторные бинарники, `GIsEditor = false`, одни `-d3d12 -sm6`, `Game20.log`):
+- `bindless configuration RayTracing, inline RT yes; available modes: injection-only`;
+- `Non-editor run: engine-shader overlay and MLS/FogMS console tools inactive; the FogMS Box injection-only runtime starts from the actor`;
+- `Apply Required Render Settings (SetByGameSetting): r.RayTracing.Culling 3 -> 0; r.Lumen.AsyncCompute 1 -> 0`;
+- `FogMS Box: injection-only runtime (no BindlessAll) …`; ensure/ошибок нет; окно игры отрисовывалось (1616×939).
+
+**Не проверено:** GPU-путь атласа (в `-game` с редакторными бинарниками у текстуры есть Source, использовался CPU-путь;
+нужен `ForceGPUCopy 1` или настоящая упаковка), сама упаковка (`BuildCookRun`), кук глобального шейдера
+`FogMS_DensityAtlas.usf`. Замечено в логе: предупреждение `FindConsoleObject` (500 вызовов) по `r.FogMS.Transport.Test*` —
+проверка warm start ищет cvar по имени каждый кадр; кэшировать указатели.
+
 ## Что не сделано / открыто
 
 - Квадратура, ориентированная на солнце: работает после исключения диска и префильтрации неба, включена по умолчанию.
