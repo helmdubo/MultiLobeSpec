@@ -70,8 +70,8 @@ RWTexture2D<float4> OutAtlas;
 RWTexture3D<float4> OutField;
 // Hybrid injection: per-cell T_sun (GridSize^3), written by pass 2, read by pass 17. Bound only in the
 // hybrid permutations; RDG tracks the texture, so an async pass 17 waits for graphics pass 2.
-RWTexture3D<float> OutSunTransmittance;
-Texture3D<float> SunTransmittance;
+RWTexture3D<float4> OutSunTransmittance; // rgb = uncollided sun term Direct_sun, a = T_sun
+Texture3D<float4> SunTransmittance;
 
 uint Count() { return uint(GridSize*GridSize*GridSize); }
 uint Flat(uint3 C) { return C.x+uint(GridSize)*(C.y+uint(GridSize)*C.z); }
@@ -234,7 +234,7 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
 #if FOGMS_TRANSPORT_HYBRID
     // T_sun: same eight subcell points, shadow ray and medium march as Direct, for the atmosphere sun only
     // (FogMSWorldSunLightIndex from FogMS_GetWorldSources). No sun in the list, or test inputs: T_sun = 1.
-    float SunT=0;
+    float SunT=0; float3 SunDirect=0;
     const bool HasSun=TestMode==0&&FogMSWorldSunLightIndex>=0&&uint(FogMSWorldSunLightIndex)<FogMS_WorldLightCount();
 #endif
     if(TestMode==0)
@@ -254,7 +254,7 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
                     // D points toward the sun, Distance = 1e27 (FogMS_WorldLight): MediumT stops at the Box exit.
                     bool Visible=!Shadow||!DirectShadow(P,D,Distance);
                     float T=Visible?MediumT(P,D,Distance):0.f;
-                    if(any(J>0)&&Visible) Direct+=J*T/8.f;
+                    if(any(J>0)&&Visible) {Direct+=J*T/8.f; SunDirect+=J*T/8.f;}
                     SunT+=T/8.f;
                     continue;
                 }
@@ -272,7 +272,7 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
     }
     OutDirect[C]=float4(Direct,LambdaDiagonal);
 #if FOGMS_TRANSPORT_HYBRID
-    OutSunTransmittance[C]=HasSun?saturate(SunT):1.f;
+    OutSunTransmittance[C]=float4(HasSun?SunDirect:0.f,HasSun?saturate(SunT):1.f);
 #endif
 #elif FOGMS_TRANSPORT_PASS == 14
     // One incoming ordinate per exterior face/cell. Internal closed-face
@@ -426,10 +426,18 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
     int2 XY=int2(C.x,C.y+C.z*GridSize);
     float3 Total=ReconstructionAtlas.Load(int3(XY,0)).rgb;
     float3 Uncollided=ReconstructionAtlas.Load(int3(XY+int2(0,GridSize*GridSize),0)).rgb;
-    float3 Jms=max(Total-Uncollided,0.f);
-    if(!all(isfinite(Jms))) Jms=0;
-    float SunT=SunTransmittance.Load(int4(C,0));
-    OutField[C]=float4(Jms,isfinite(SunT)?.5f+.5f*saturate(SunT):.5f);
+    // Native single scattering cannot be limited to the sun (it adds sun + sky + local lights, all scaled by the
+    // material albedo). So the field keeps every uncollided term except the sun's (sector sky with its aureole,
+    // local lights, per-direction self-shadowing stay ours), and the albedo scale carries T_sun * k with
+    // k = sun share of the uncollided light: native then contributes about T_sun * sun only. No sun (night): k = 0,
+    // the Box degenerates to full-field injection.
+    float4 Sun=SunTransmittance.Load(int4(C,0));
+    float3 SunDirect=max(Sun.rgb,0.f); float SunT=Sun.a;
+    float3 Jpub=max(Total-SunDirect,0.f);
+    if(!all(isfinite(Jpub))) Jpub=0;
+    float K=saturate(Luminance(SunDirect)/max(Luminance(max(Uncollided,0.f)),1.e-6f));
+    float A=(isfinite(SunT)&&isfinite(K))?.5f+.5f*saturate(SunT*K):.5f;
+    OutField[C]=float4(Jpub,A);
 #else
     float3 J=max(ReconstructionAtlas.Load(int3(C.x,C.y+C.z*GridSize,0)).rgb,0.f);
     if(!all(isfinite(J))) J=0;

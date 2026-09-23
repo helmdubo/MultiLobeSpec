@@ -114,8 +114,8 @@ namespace
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float4>, OutField)
         // Hybrid injection only (FHybrid permutations of passes 2 and 17): per-cell atmosphere-sun transmittance,
         // written by pass 2 on graphics, read by pass 17 (graphics or async; RDG orders the two). Null otherwise.
-        SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float>, OutSunTransmittance)
-        SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float>, SunTransmittance)
+        SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float4>, OutSunTransmittance)
+        SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, SunTransmittance)
         // Pass 0 (density average) samples the Box density atlas through this ordinary binding
         // (FFogMSWorldRequest::DensityAtlas, raw RHI texture outside RDG, resident in SRV state);
         // no bindless descriptor. Other passes do not reference it.
@@ -360,7 +360,7 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
     {
         // Hybrid injection: pass 2 also writes T_sun per cell (8 subcell points, same RT shadow ray and medium
         // march as Direct, atmosphere sun only). Created only for a hybrid publish; pass 17 reads it via RDG.
-        FRDGTextureRef SunTransmittance = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(FIntVector(TransportGridSize), PF_R16F,
+        FRDGTextureRef SunTransmittance = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(FIntVector(TransportGridSize), PF_FloatRGBA,
             FClearValueBinding::None, Flags), TEXT("FogMS.Transport.SunTransmittance"));
         auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct); P.OutSunTransmittance = GraphBuilder.CreateUAV(SunTransmittance);
         Dispatch(2, TEXT("FogMS B2 direct cell average + sun transmittance (hybrid)"), P, Cells, true);
@@ -464,8 +464,8 @@ bool FogMS_TransportAsync(const FRDGBuilder& GraphBuilder)
 // the transport atlas into a 32^3 volume field. Texel (x,y,z) = cell (x,y,z), alpha 1.
 // Same-frame: Field is the Box-owned volume; the caller puts it in internal access before and
 // external SRV access after. Late (async): Field is a transient graph texture copied later.
-// Hybrid (SunTransmittance = pass 2's T_sun texture of the same graph): RGB = J_ms = max(slab 0 - slab 1, 0),
-// alpha = 0.5 + 0.5*T_sun. Null SunTransmittance: the unchanged full-field permutation (J, alpha 1).
+// Hybrid (SunTransmittance = pass 2's (Direct_sun, T_sun) texture of the same graph): RGB = max(slab 0 - Direct_sun, 0),
+// alpha = 0.5 + 0.5*T_sun*k (k = sun share of the uncollided light). Null: the unchanged full-field permutation (J, alpha 1).
 void FogMS_PublishTransportField(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Atlas, FRDGTextureRef Field,
     FRDGTextureRef SunTransmittance)
 {
