@@ -47,9 +47,9 @@ namespace
 	constexpr uint64 RetireAfterCalls = 120;
 	TAutoConsoleVariable<int32> CVarWorldIndirect(TEXT("r.FogMS.World.Indirect"), 1,
 		TEXT("World source diagnostic: 0 direct source only, 1 sky + Lumen surface radiance. Does not change native light components."), ECVF_RenderThreadSafe);
-	TAutoConsoleVariable<int32> CVarSolveInterval(TEXT("r.FogMS.Transport.SolveInterval"), 1,
+	TAutoConsoleVariable<int32> CVarSolveInterval(TEXT("r.FogMS.Transport.SolveInterval"), 2,
 		TEXT("Transport solves every N-th frame per view, clamped to [1,8]. Frames in between hold the last publication (resident atlas, ")
-		TEXT("row 22, injection volume) without any pass. Box/settings change, history reset, gap or failure solve at once. 1: every frame."),
+		TEXT("row 22, injection volume) without any pass. Box/settings change, history reset, gap or failure solve at once. 1: every frame. Default 2 (owner decision 2026-09-23): one frame of latency for lights/sky/Lumen changes, like the native fog history."),
 		ECVF_RenderThreadSafe);
 
 	// Producer only: all inputs are bound (BoxRows, density atlas, RDG textures). Inline RT on PCD3D_SM6 needs
