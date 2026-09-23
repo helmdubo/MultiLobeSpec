@@ -42,7 +42,7 @@ while time.time() - t0 < minutes * 60:
     x, y = cx + radius * math.cos(ang), cy + radius * math.sin(ang)
     yaw = math.degrees(math.atan2(cy - y, cx - x))
     code = "import unreal\n" + BOX + "\n"
-    code += "unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).set_level_viewport_camera_info(unreal.Vector(%f,%f,%f), unreal.Rotator(-12,%f,0))\n" % (x, y, height, yaw)
+    code += "unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).set_level_viewport_camera_info(unreal.Vector(%f,%f,%f), unreal.Rotator(roll=0, pitch=-12, yaw=%f))\n" % (x, y, height, yaw)
     if step % 40 == 20:
         code += "b.set_actor_location(b.get_actor_location()+unreal.Vector(0,0,15), False, False); b.update_density()\n"
     if step % 40 == 30:
@@ -64,6 +64,6 @@ cmd("r.FogMS.Transport.AsyncCompute 0")
 print(py("import unreal\n" + BOX + "\n" + SUN +
          "if c: c.set_intensity(%f)\n" % (sun0 if sun0 >= 0 else 140.0) +
          "b.set_actor_location(unreal.Vector(%f,%f,%f), False, False)\n" % (cx, cy, cz) +
-         "unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).set_level_viewport_camera_info(unreal.Vector(%f,%f,%f), unreal.Rotator(%f,%f,%f))\n" % tuple(cam[0:6]) +
+         "unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).set_level_viewport_camera_info(unreal.Vector(%f,%f,%f), unreal.Rotator(roll=%f, pitch=%f, yaw=%f))\n" % (cam[0], cam[1], cam[2], cam[5], cam[3], cam[4]) +
          "b.set_editor_property('emissive_injection', False); b.set_editor_property('transport_preset', unreal.FogMSTransportPreset.CUSTOM); b.set_editor_property('angular_quality', unreal.FogMSAngularQuality.HIGH96); b.set_editor_property('transport_iterations', 16); b.set_editor_property('transport_tolerance', -1.0); b.update_density()\n"
          "print('RESTORED', b.get_actor_location(), b.get_editor_property('spatial_status'))"))
