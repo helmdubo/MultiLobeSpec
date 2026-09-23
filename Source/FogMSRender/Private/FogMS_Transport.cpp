@@ -167,6 +167,7 @@ namespace
         Environment.CompilerFlags.Add(CFLAG_Wave32);
         Environment.CompilerFlags.Add(CFLAG_InlineRayTracing);
         Environment.SetDefine(TEXT("FOGMS_PRODUCER"), 1);
+        Environment.SetDefine(TEXT("FOGMS_LUMEN_SOURCE_UNAVAILABLE"), FOGMS_LUMEN_SOURCE_VERIFIED_ENGINE ? 0 : 1);
         Environment.SetDefine(TEXT("FOGMS_ENABLED"), 1);
         Environment.SetDefine(TEXT("FOGMS_BOX_MODE"), 1);
         Environment.SetDefine(TEXT("FOGMS_DEBUG_VIEWS"), 0);

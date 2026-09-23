@@ -1,5 +1,9 @@
 #pragma once
 
+#include "Runtime/Launch/Resources/Version.h"
+// Lumen surface-cache sampling (card buffer layout, LumenSurfaceCacheSampling.ush) is verified for UE 5.8.2 only;
+// other builds compile shader and C++ stubs and use the public fallback radiance (Lumen Bounce fallback).
+#define FOGMS_LUMEN_SOURCE_VERIFIED_ENGINE (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 8 && ENGINE_PATCH_VERSION == 2)
 #include "CoreMinimal.h"
 #include "RenderGraphFwd.h"
 #include "ShaderParameterStruct.h"
