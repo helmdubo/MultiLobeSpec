@@ -51,9 +51,10 @@ namespace
 		TEXT("Transport view reconstruction: 0 previous temporal froxel path; 1 rejected mean-coefficient experiment; 2 coherent froxel segments; 3 Box-anchored ray intervals. Diagnostic, not a transport/lighting quality setting."), ECVF_RenderThreadSafe);
 	TAutoConsoleVariable<int32> FogMS_MaxBoxesPerFrame(TEXT("r.FogMS.MaxBoxesPerFrame"), 4,
 		TEXT("Transport solves per view and frame across all enabled FogMS Boxes, clamped to [1,16]. The packet (overlay) Box is always ")
-		TEXT("requested and counts; the Emissive Injection Boxes follow in priority order (camera inside, then long-queued, then larger ")
+		TEXT("requested and counts; the Emissive Injection Boxes follow in priority order (queued 8+ frames, then camera inside, then larger ")
 		TEXT("on screen, then nearer). A Box past the budget only holds its last solve (r.FogMS.Transport.SolveInterval chain) or is ")
-		TEXT("queued: no pass, its injection field keeps the last J, status 'Queued'. Holds do not count."),
+		TEXT("queued: no pass, its injection field keeps the last J, status 'Queued'. Holds do not count. The Box queued longest (8+ frames) ")
+		TEXT("always solves, even past the budget (at most one extra solve per view and frame), so no Box starves."),
 		ECVF_RenderThreadSafe);
 
 	FAutoConsoleCommand FogMS_DumpSpatialCommand(TEXT("FogMS.DumpSpatial"),
@@ -398,6 +399,10 @@ namespace
 		FTextureRHIRef InjectionTexture;
 		// True after a graph wrote a current J into InjectionTexture; a non-publishing frame clears it.
 		bool bInjectionFieldWritten = false;
+		// Format of the J in InjectionTexture (true: hybrid J_ms + T_sun, false: full J), and of the pending late copy.
+		// A queued frame keeps the field only while the material expects this format.
+		bool bInjectionFieldHybrid = false;
+		bool bLateFieldHybrid = false;
 		// r.FogMS.Transport.AsyncCompute one-frame-late publication (render thread only). PostTLAS queues the async
 		// solve and records the row 22 it will publish; PrePostProcessPass of the same graph copies and uploads it.
 		FVector4f LateField = FVector4f(0, 0, 0, 0);
@@ -461,9 +466,32 @@ namespace
 	// counter, so a Box that changes role never meets an equal revision of another history (hold and status checks).
 	uint64 FogMS_NextPacketRevision = 1;
 
-	// A Box queued this many consecutive frames by r.FogMS.MaxBoxesPerFrame is ordered before every Box the camera is not
-	// inside (OrderInjectionBoxes), so no Box starves when there are more Boxes than the budget.
+	// A Box queued this many consecutive frames by r.FogMS.MaxBoxesPerFrame is starved: it is ordered first
+	// (OrderInjectionBoxes), and the longest-starved Box of a view always solves, even one past the budget.
 	constexpr int32 FogMS_StarvedQueuedFrames = 8;
+	// A Box that leaves the active set (disabled, hidden, refused, injection off) keeps its state this many game frames:
+	// a re-enable in that window reuses it (same BoxId, density atlas, shadow cache, warm start, packet history).
+	constexpr uint64 FogMS_ParkedBoxFrames = 120;
+
+	// Render thread only. Finally released Box states, destroyed once the GPU passed a fence written at release: their
+	// density atlas / shadow cache (and heap descriptors) may still be read by graphs submitted before it.
+	struct FRetiredBoxState
+	{
+		TSharedPtr<FBoxGPUState, ESPMode::ThreadSafe> State;
+		FGPUFenceRHIRef Fence;
+	};
+	TArray<FRetiredBoxState> RetiredBoxStates;
+
+	void CollectRetiredBoxStates()
+	{
+		for (int32 Index = RetiredBoxStates.Num() - 1; Index >= 0; --Index)
+		{
+			const FGPUFenceRHIRef& Fence = RetiredBoxStates[Index].Fence;
+			// A failed fence keeps its state until the GPU-idle shutdown (FFogMSBoxRuntime::Shutdown).
+			if (Fence.IsValid() && Fence->NumPendingWriteCommands.GetValue() == 0 && Fence->Poll())
+				RetiredBoxStates.RemoveAtSwap(Index, 1, EAllowShrinking::No);
+		}
+	}
 
 	class FBoxViewExtension final : public FSceneViewExtensionBase
 	{
@@ -573,13 +601,22 @@ namespace
 				for (AFogMSBoxVolume* Box : OverlayBoxes) Box->SpatialStatus = OverlayProblem;
 			}
 			else if (OverlayBoxes.Num() == 1) Selected = OverlayBoxes[0];
-			// Runtime state of this world's active Boxes. Any other entry (actor destroyed or garbage, disabled, hidden, a
-			// refused overlay Box, or an injection request switched off) is released on the render thread.
+			// Runtime state of this world's active Boxes. An entry whose actor is gone (destroyed or garbage) is released on
+			// the render thread; one of this world that left the active set (disabled, hidden, a refused overlay Box, or an
+			// injection request switched off) is parked: its field is cleared and a re-enable within FogMS_ParkedBoxFrames
+			// reuses it. Parked entries past that window or whose actor is gone are released.
 			for (auto It = Boxes.CreateIterator(); It; ++It)
 			{
 				const AFogMSBoxVolume* Box = It.Key().Get();
 				if (Box && (Box->GetWorld() != World || Box == Selected || InjectionBoxes.Contains(Box))) continue;
-				ReleaseBoxState(MoveTemp(It.Value().GPU));
+				if (Box) ParkBoxState(It.Key(), MoveTemp(It.Value()));
+				else ReleaseBoxState(MoveTemp(It.Value().GPU));
+				It.RemoveCurrent();
+			}
+			for (auto It = ParkedBoxes.CreateIterator(); It; ++It)
+			{
+				if (It.Key().IsValid() && GFrameCounter - It.Value().ParkedFrame <= FogMS_ParkedBoxFrames) continue;
+				ReleaseBoxState(MoveTemp(It.Value().Entry.GPU));
 				It.RemoveCurrent();
 			}
 			if (Selected) FindOrAddBox(Selected);
@@ -595,13 +632,22 @@ namespace
 				InjectionBoxes.RemoveAt(First);
 			}
 			OrderInjectionBoxes(Family, InjectionBoxes);
+			// Status tag " [Box #id]" only with several active Boxes in this world: one Box keeps its former status text.
+			const bool bTagBoxes = (Selected ? 1 : 0) + InjectionBoxes.Num() > 1;
 			// Packet slot: the packet Box, or the empty slot (zero packet: overlay off, fields cleared), exactly as before.
 			const TSharedRef<FBoxGPUState, ESPMode::ThreadSafe> GPU = Selected ? Boxes.FindChecked(Selected).GPU.ToSharedRef() : IdleSlot;
 			FBoxPacket Packet;
 			FFogMSDensityAtlas::FUploadPtr DensityUpload;
 			bool bStreamingOriginAdded = false;
 			if (Selected) FillBoxPacket(Family, World, Selected, &GPU.Get(), true, DirectionToSun, bStreamingOriginAdded, Packet, Problem, DensityUpload);
-			// The packet slot keeps the world-wide density revisions (any Box edit resets it), as before.
+			// The empty slot and an overlay packet Box keep the world-wide density revisions (any Box edit resets them), as
+			// before. An Emissive Injection packet Box keys on its own revision only, like the other injection Boxes below:
+			// moving or editing another Box must not reset its warm start, hold chain and native fog history.
+			if (Selected && Selected->UsesEmissiveInjection())
+			{
+				DensityRevisions.Reset();
+				DensityRevisions.Add(Selected, Selected->GetDensityRevision());
+			}
 			const FBoxRenderSnapshot Snapshot = AdvanceHistory(Previous, Packet, MoveTemp(DensityRevisions), DensityUpload, DirectionToSun, Family);
 			if (!OverlayProblem.IsEmpty()) Problem = Problem.IsEmpty() ? OverlayProblem : OverlayProblem + TEXT(" ") + Problem;
 			if (Problem != Previous.LastProblem)
@@ -610,7 +656,7 @@ namespace
 				Previous.LastProblem = Problem;
 			}
 			TArray<FBoxUpdate> Updates;
-			AddBoxUpdate(Updates, GPU, Selected, Snapshot, DensityUpload, Previous.Revision, true);
+			AddBoxUpdate(Updates, GPU, Selected, Snapshot, DensityUpload, Previous.Revision, true, bTagBoxes);
 			// After the last use of Previous (a null World's entry is itself pruned here).
 			for (auto It = Worlds.CreateIterator(); It; ++It)
 			{
@@ -633,7 +679,7 @@ namespace
 					if (!BoxProblem.IsEmpty()) UE_LOG(LogMultiLobeSpec, Warning, TEXT("%s: %s"), *Box->GetActorNameOrLabel(), *BoxProblem);
 					Entry.History.LastProblem = BoxProblem;
 				}
-				AddBoxUpdate(Updates, Entry.GPU.ToSharedRef(), Box, BoxSnapshot, BoxUpload, Entry.History.Revision, false);
+				AddBoxUpdate(Updates, Entry.GPU.ToSharedRef(), Box, BoxSnapshot, BoxUpload, Entry.History.Revision, false, bTagBoxes);
 			}
 			// The resources below are created and released only through render commands enqueued in game-thread order,
 			// so they are alive when this command runs; only RHI refs are kept (see AddBoxUpdate, the sky gather above).
@@ -647,8 +693,9 @@ namespace
 					ResolvedSky.ProcessedTexture = ProcessedSky->TextureRHI;
 					ResolvedSky.ProcessedSampler = ProcessedSky->SamplerStateRHI;
 				}
+				CollectRetiredBoxStates();
 				// This family's hook list, packet slot first; exactly one listed state holds the packet texture. A state
-				// dropped here (Box released or of another world) is no longer reached by any hook.
+				// dropped here (Box parked, released or of another world) is no longer reached by any hook.
 				for (const TSharedRef<FBoxGPUState, ESPMode::ThreadSafe>& State : List->States)
 				{
 					State->bPacketOwner = false;
@@ -677,13 +724,24 @@ namespace
 			// (OrderInjectionBoxes). Each Box is its own request with its own (view, Box) world state; the solver's transient
 			// buffers are per request and RDG reuses them between Boxes. The packet Box is always requested and counts; once
 			// r.FogMS.MaxBoxesPerFrame solves were added in this graph, a later Box may only hold, else it is queued.
+			// Anti-starvation: the Box queued longest, once starved (FogMS_StarvedQueuedFrames), always solves, even one past
+			// the budget. Otherwise the packet Box plus Boxes the camera is inside could fill the budget every frame (e.g.
+			// MaxBoxesPerFrame 1, SolveInterval 1) and the others would never get a field.
 			const int32 MaxSolves = FMath::Clamp(FogMS_MaxBoxesPerFrame.GetValueOnRenderThread(), 1, 16);
+			const FBoxGPUState* Reserved = nullptr;
+			int32 LongestQueued = FogMS_StarvedQueuedFrames - 1;
+			for (const TSharedRef<FBoxGPUState, ESPMode::ThreadSafe>& GPU : RenderBoxes->States)
+			{
+				const int32 Queued = GPU->QueuedFrames.load(std::memory_order_relaxed);
+				if (!GPU->bPacketOwner && Queued > LongestQueued) { LongestQueued = Queued; Reserved = &GPU.Get(); }
+			}
 			const bool bScoped = RenderBoxes->States.Num() > 1; // One Box: the former RDG event hierarchy, unchanged.
 			int32 Solves = 0;
 			for (const TSharedRef<FBoxGPUState, ESPMode::ThreadSafe>& GPU : RenderBoxes->States)
 			{
 				RDG_EVENT_SCOPE_CONDITIONAL(GraphBuilder, bScoped, "FogMS Box #%u", GPU->BoxId);
-				if (BuildBoxLighting(GraphBuilder, View, GPU, !GPU->bPacketOwner && Solves >= MaxSolves)) ++Solves;
+				const bool bOverBudget = Solves >= MaxSolves && &GPU.Get() != Reserved;
+				if (BuildBoxLighting(GraphBuilder, View, GPU, !GPU->bPacketOwner && bOverBudget)) ++Solves;
 			}
 		}
 
@@ -769,6 +827,7 @@ namespace
 					if (bInjectionCopied)
 					{
 						GPU->bInjectionFieldWritten = true;
+						GPU->bInjectionFieldHybrid = GPU->bLateFieldHybrid;
 						GPU->LateInjectionRenderFrame = GFrameNumberRenderThread;
 						GPU->LateInjectionViewKey = View.GetViewKey();
 					}
@@ -783,6 +842,11 @@ namespace
 			TSharedPtr<FBoxGPUState, ESPMode::ThreadSafe> GPU;
 			// Packet history while this Box is not the packet Box (the packet slot uses the per-world history, Worlds).
 			FWorldPacketState History;
+		};
+		struct FParkedBox
+		{
+			FBoxEntry Entry;
+			uint64 ParkedFrame = 0; // GFrameCounter
 		};
 		// One Box of the family's FogMS_UpdateBox command (game thread -> render thread).
 		struct FBoxUpdate
@@ -803,29 +867,68 @@ namespace
 
 		FBoxEntry& FindOrAddBox(AFogMSBoxVolume* Box)
 		{
-			FBoxEntry& Entry = Boxes.FindOrAdd(Box);
+			if (FBoxEntry* Existing = Boxes.Find(Box)) return *Existing;
+			FBoxEntry& Entry = Boxes.Add(Box);
+			// Re-enabled within FogMS_ParkedBoxFrames: the same state (BoxId, density atlas, shadow cache, warm start).
+			if (FParkedBox* Parked = ParkedBoxes.Find(Box))
+			{
+				Entry = MoveTemp(Parked->Entry);
+				ParkedBoxes.Remove(Box);
+			}
 			if (!Entry.GPU.IsValid()) Entry.GPU = MakeShared<FBoxGPUState, ESPMode::ThreadSafe>(NextBoxId++);
 			return Entry;
+		}
+
+		// Render thread, between graphs: clear the Box's injection field now, in its own graph on the immediate list
+		// (ClearInjectionField: only when this state wrote J into it). Leaves the field in external SRV access.
+		static void ClearInjectionFieldNow(FRHICommandListImmediate& RHICmdList, const TSharedRef<FBoxGPUState, ESPMode::ThreadSafe>& GPU)
+		{
+			if (!GPU->InjectionTexture.IsValid() || !GPU->bInjectionFieldWritten) return;
+			FRDGBuilder GraphBuilder(RHICmdList, RDG_EVENT_NAME("FogMS.ClearBoxField"));
+			ClearInjectionField(GraphBuilder, GPU);
+			GraphBuilder.Execute();
+		}
+
+		void ParkBoxState(const TWeakObjectPtr<AFogMSBoxVolume>& Key, FBoxEntry&& Entry)
+		{
+			if (!Entry.GPU.IsValid()) return;
+			// Render thread, before the family's FogMS_UpdateBox (which drops it from the hook list): break its own hold
+			// chains (and the dump record if it was the packet Box) and clear its field. The volume stays on the actor, so a
+			// later re-enable must not show this J before its next solve (fail closed: native lighting, alpha 0).
+			ENQUEUE_RENDER_COMMAND(FogMS_ParkBox)([State = Entry.GPU.ToSharedRef()](FRHICommandListImmediate& RHICmdList)
+			{
+				FogMS_InvalidateWorldLighting_RenderThread(State->BoxId);
+				ClearInjectionFieldNow(RHICmdList, State);
+				State->bLatePublishQueued = false;
+			});
+			FParkedBox& Parked = ParkedBoxes.Add(Key);
+			Parked.Entry = MoveTemp(Entry);
+			Parked.ParkedFrame = GFrameCounter;
 		}
 
 		static void ReleaseBoxState(TSharedPtr<FBoxGPUState, ESPMode::ThreadSafe>&& State)
 		{
 			if (!State.IsValid()) return;
 			// Render thread, after every earlier command (whose captures kept the state alive until then). The family's own
-			// FogMS_UpdateBox, enqueued after this, drops it from the hook list; its (view, Box) world states go now.
+			// FogMS_UpdateBox, enqueued after this, drops it from the hook list; its (view, Box) world states go now. The state
+			// itself (density atlas, shadow cache, their descriptors) is destroyed only after a GPU fence written here.
 			ENQUEUE_RENDER_COMMAND(FogMS_ReleaseBox)([State = MoveTemp(State)](FRHICommandListImmediate& RHICmdList) mutable
 			{
 				FogMS_ReleaseWorldLightingBox_RenderThread(RHICmdList, State->BoxId);
+				ClearInjectionFieldNow(RHICmdList, State.ToSharedRef()); // Released without parking (actor gone): same rule.
 				State->bPacketOwner = false;
 				State->PacketTexture.Reset();
-				State.Reset();
+				FRetiredBoxState& Retired = RetiredBoxStates.AddDefaulted_GetRef();
+				Retired.Fence = RHICreateGPUFence(TEXT("FogMS.BoxRetired"));
+				if (Retired.Fence.IsValid()) RHICmdList.WriteGPUFence(Retired.Fence);
+				Retired.State = MoveTemp(State);
 			});
 		}
 
 		// The Box scheduler seam (game thread, once per family; the LOD scheduler will replace this function). Orders the
 		// Emissive Injection Boxes other than the packet Box; the render thread requests them in this order and lets the ones
-		// past r.FogMS.MaxBoxesPerFrame solves only hold or queue. Priority: the camera is inside the Box > the Box was queued
-		// FogMS_StarvedQueuedFrames consecutive frames > larger projected bounds (ComputeBoundsScreenSize of the bounding
+		// past r.FogMS.MaxBoxesPerFrame solves only hold or queue. Priority: the Box was queued FogMS_StarvedQueuedFrames
+		// consecutive frames > the camera is inside the Box > larger projected bounds (ComputeBoundsScreenSize of the bounding
 		// sphere) > nearer (distance to the Box surface) > lower runtime id. Largest value over the family's views.
 		void OrderInjectionBoxes(const FSceneViewFamily& Family, TArray<AFogMSBoxVolume*>& InOutBoxes) const
 		{
@@ -867,8 +970,8 @@ namespace
 			}
 			Items.Sort([](const FItem& A, const FItem& B)
 			{
-				if (A.bInside != B.bInside) return A.bInside;
 				if (A.bStarved != B.bStarved) return A.bStarved;
+				if (A.bInside != B.bInside) return A.bInside;
 				if (A.ScreenSize != B.ScreenSize) return A.ScreenSize > B.ScreenSize;
 				if (A.Distance != B.Distance) return A.Distance < B.Distance;
 				return A.Id < B.Id;
@@ -1204,7 +1307,7 @@ namespace
 		// Game thread: status write-back of the last render-thread field status (same revision only), the Box tag, and the
 		// Box's injection volume hand-off; appends the render-thread update of this Box (Box null: the empty packet slot).
 		static void AddBoxUpdate(TArray<FBoxUpdate>& Updates, const TSharedRef<FBoxGPUState, ESPMode::ThreadSafe>& GPU, AFogMSBoxVolume* Selected,
-			const FBoxRenderSnapshot& Snapshot, const FFogMSDensityAtlas::FUploadPtr& DensityUpload, uint64 Revision, bool bPacketOwner)
+			const FBoxRenderSnapshot& Snapshot, const FFogMSDensityAtlas::FUploadPtr& DensityUpload, uint64 Revision, bool bPacketOwner, bool bTag)
 		{
 			const FBoxPacket& Packet = Snapshot.Packet;
 			if (Selected)
@@ -1218,8 +1321,9 @@ namespace
 							Selected->SpatialStatus = GPU->SpatialFieldStatus;
 					}
 				}
-				// Per-Box tag: runtime id (FogMS_WorldLighting state key, "FogMS Box #id" RDG scope, dump "boxId").
-				Selected->SpatialStatus += FString::Printf(TEXT(" [Box #%u%s]"), GPU->BoxId, bPacketOwner ? TEXT("") : TEXT(", injection"));
+				// Per-Box tag with several active Boxes: runtime id (FogMS_WorldLighting state key, "FogMS Box #id" RDG scope,
+				// dump "boxId"). One Box: the former status text, unchanged.
+				if (bTag) Selected->SpatialStatus += FString::Printf(TEXT(" [Box #%u%s]"), GPU->BoxId, bPacketOwner ? TEXT("") : TEXT(", injection"));
 			}
 			// Emissive Injection: hand the Box-owned field to the render thread. The resource is
 			// created and released only through render commands enqueued in game-thread order
@@ -1340,8 +1444,10 @@ namespace
 			// Same-frame: every fallback clears J. Late: only the view that owns the late J (LateInjectionViewKey);
 			// a capture/planar/other family rendered between two of its frames must not erase J before its next fog.
 			const bool bMayClearInjection = !FogMS_TransportPublishesLate(GraphBuilder) || View.GetViewKey() == GPU->LateInjectionViewKey;
-			// This Box's (view, Box) hold chains only; BoxId 0 (the empty packet slot, no Box builds) breaks every chain.
-			if (!bWorldLighting || Packet.Rows[0].W < 0.5f) FogMS_InvalidateWorldLighting_RenderThread(GPU->BoxId);
+			// This Box's own (view, Box) hold chains only. The empty packet slot (BoxId 0) breaks nothing: a Box leaving the
+			// active set breaks its own chains when parked (ParkBoxState), so a preview/thumbnail family without Boxes does
+			// not force the Boxes of other worlds to re-solve.
+			if (GPU->BoxId != 0 && (!bWorldLighting || Packet.Rows[0].W < 0.5f)) FogMS_InvalidateWorldLighting_RenderThread(GPU->BoxId);
 			if (Packet.Rows[0].W < 0.5f || (!bWorldLighting && (Packet.Rows[5].Y != 2 || Packet.Rows[21].X <= 0)))
 			{
 				if (bMayClearInjection) ClearInjectionField(GraphBuilder, GPU);
@@ -1424,6 +1530,10 @@ namespace
 				// Over r.FogMS.MaxBoxesPerFrame and no hold possible: no pass. The injection volume keeps its last J (no clear:
 				// not a failure). Late: that J stays this view's copy, so refresh the copy frame like a late hold does; the
 				// next frame's gap check then does not clear it. The next requested frame solves (hold chain broken).
+				// The kept J must be in the format the material now expects (full vs hybrid, toggled while queued); a hold
+				// checks this in HoldCompatible. Otherwise fail closed: clear it (native lighting until the next solve).
+				if (bInjection && GPU->bInjectionFieldWritten && GPU->bInjectionFieldHybrid != bHybrid)
+					ClearInjectionField(GraphBuilder, GPU);
 				if (bLate && GPU->bInjectionFieldWritten && GPU->LateInjectionViewKey == View.GetViewKey())
 					GPU->LateInjectionRenderFrame = GFrameNumberRenderThread;
 				GPU->QueuedFrames.fetch_add(1, std::memory_order_relaxed);
@@ -1461,6 +1571,7 @@ namespace
 				GPU->LateField = bDescriptorPublished ? FVector4f(static_cast<float>(Result.DescriptorIndex), static_cast<float>(Result.GridSize), 1, 4.0f)
 					: FVector4f(0, 0, 0, 0);
 				GPU->bLatePublishQueued = true;
+				GPU->bLateFieldHybrid = bHybrid;
 			}
 			else if (bPublished)
 			{
@@ -1477,7 +1588,11 @@ namespace
 				// Late: nothing is written yet; PrePostProcessPass sets it when its copy is actually added.
 				// Hold: the volume keeps its J (bAllowHold required it written). Late hold refreshes the copy frame, so the
 				// gap check above treats the hold as this view's publication, not as a skipped copy.
-				if (!bLate) GPU->bInjectionFieldWritten = true;
+				if (!bLate)
+				{
+					GPU->bInjectionFieldWritten = true;
+					GPU->bInjectionFieldHybrid = bHybrid;
+				}
 				else if (Result.bHeld) GPU->LateInjectionRenderFrame = GFrameNumberRenderThread;
 			}
 			else if (bMayClearInjection) ClearInjectionField(GraphBuilder, GPU);
@@ -1574,6 +1689,8 @@ namespace
 		const TSharedRef<FBoxGPUState, ESPMode::ThreadSafe> IdleSlot = MakeShared<FBoxGPUState, ESPMode::ThreadSafe>(0u);
 		// Game thread: per-actor runtime state of the active Boxes of every world, and the next runtime id.
 		TMap<TWeakObjectPtr<AFogMSBoxVolume>, FBoxEntry> Boxes;
+		// Game thread: Boxes that left the active set within FogMS_ParkedBoxFrames (field cleared, state kept for reuse).
+		TMap<TWeakObjectPtr<AFogMSBoxVolume>, FParkedBox> ParkedBoxes;
 		uint32 NextBoxId = 1;
 		// Game thread: packet-slot history per world (the former single-Box history).
 		TMap<TWeakObjectPtr<UWorld>, FWorldPacketState> Worlds;
@@ -1668,16 +1785,19 @@ bool FFogMSBoxRuntime::Prepare(uint32& OutDescriptorIndex, FString& OutError)
 void FFogMSBoxRuntime::Shutdown()
 {
 	const bool bHadRuntime = Extension.IsValid() || PacketTexture.IsValid();
-	// The extension (and with it every per-Box state) goes once the last family holding it has rendered.
-	Extension.Reset();
+	// The global reference goes now; this local one keeps the extension (and its per-Box states: density atlases, shadow
+	// caches) alive until the GPU-idle drain below, as the single state was before. No family is created meanwhile.
+	TSharedPtr<FBoxViewExtension, ESPMode::ThreadSafe> OldExtension = MoveTemp(Extension);
 	ENQUEUE_RENDER_COMMAND(FogMS_ReleaseSpatial)([](FRHICommandListImmediate& RHICmdList)
 	{
-		FogMS_ShutdownWorldLighting_RenderThread(RHICmdList);
+		FogMS_ShutdownWorldLighting_RenderThread(RHICmdList); // Blocks until the GPU is idle.
 		FogMS_ShutdownSpatial_RenderThread(RHICmdList);
+		RetiredBoxStates.Empty();
 	});
 	if (bHadRuntime)
 	{
 		FlushRenderingCommands();
+		OldExtension.Reset();
 		PacketTexture.Reset();
 	}
 	bIndirectPreviewEnabled = false;
