@@ -66,7 +66,8 @@ namespace
 		// Rows 0..4: center high/active, center low/feather, three unit axes/extent.
 		// Row 5: history reset, scattering mode, extra octaves (Octaves) / Lumen Bounce (Transport modes: 0 Auto, 1 Off;
 		// the overlay reads z only as ExtraOctaves under mode 1, so the slot is free in modes 4/5), density animation active.
-		// Row 6: contribution, occlusion, eccentricity, authored sun shadow.
+		// Row 6: contribution, occlusion, eccentricity (Octaves) / Fallback Ground Albedo RGB (Transport modes; the overlay
+		// reads xyz only as the octave factors under mode 1, so the slots are free in modes 4/5), authored sun shadow.
 		// Rows 7..10: density atlas and shape; row 11: size Z and three detail controls.
 		// Row 12: world frequencies f0/f1/f2, world-aligned mode.
 		// Rows 13..15: world phases 0/1/2, with surface shadow enabled/strength/steps in W.
@@ -279,6 +280,12 @@ namespace
 			Packet.Rows[5].Y = static_cast<float>(Actor.ScatteringMode);
 			// Lumen Bounce: part of the history key (a toggle re-solves and resets native fog history once).
 			Packet.Rows[5].Z = Actor.LumenBounce == EFogMSLumenBounce::Off ? 1.0f : 0.0f;
+			// Fallback Ground Albedo (boundary-hit albedo of the public fallback): also part of the history key, like 5.z.
+			// Row 6.w (authored sun shadow) is written after this function. Non-finite channels: the former neutral 0.3.
+			const auto GroundAlbedo = [](float Value) { return FMath::IsFinite(Value) ? FMath::Clamp(Value, 0.0f, 1.0f) : 0.3f; };
+			Packet.Rows[6].X = GroundAlbedo(Actor.FallbackGroundAlbedo.R);
+			Packet.Rows[6].Y = GroundAlbedo(Actor.FallbackGroundAlbedo.G);
+			Packet.Rows[6].Z = GroundAlbedo(Actor.FallbackGroundAlbedo.B);
 			Packet.Rows[16].W = Actor.TransportTolerance;
 			Packet.Rows[21] = FVector4f(1.0f, BoxDiagonal, static_cast<float>(Actor.TransportIterations),
 				Actor.ScatteringMode == EFogMSScatteringMode::Transport ? 6.0f : (Actor.AngularQuality == EFogMSAngularQuality::High96 ? 96.0f : (Actor.AngularQuality == EFogMSAngularQuality::Low16 ? 16.0f : (Actor.AngularQuality == EFogMSAngularQuality::Medium24 ? 24.0f : 48.0f))));
@@ -983,6 +990,8 @@ namespace
 					WorldRequest.Iterations = static_cast<int32>(Packet.Rows[21].Z);
 					WorldRequest.Tolerance = Packet.Rows[16].W;
 					WorldRequest.bLumenBounce = Packet.Rows[5].Z < 0.5f; // Row 5.z: 0 Auto, 1 Off.
+					// Row 6.xyz: Fallback Ground Albedo (Transport modes only).
+					WorldRequest.FallbackGroundAlbedo = FLinearColor(Packet.Rows[6].X, Packet.Rows[6].Y, Packet.Rows[6].Z, 1.0f);
 				}
 				if (bInjection) WorldRequest.InjectionTexture = GPU->InjectionTexture;
 				WorldRequest.bHybridInjection = bHybrid; // Implies bInjection: the request validation needs the field.

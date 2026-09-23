@@ -133,17 +133,64 @@ bool DirectShadow(float3 P,float3 D,float Limit)
     }
     return Q.CommittedStatus()==COMMITTED_TRIANGLE_HIT;
 }
+// Box-medium transmittance from P along D over [0,Limit] (pass-0 sigma_t, cell DDA). P must lie inside the Box: the first
+// cell is clamp(floor(...)), so a start outside would charge the whole outside stretch to that edge cell. The march stops
+// at Limit or where the ray leaves the grid (a directional light's Limit 1e27 thus ends at the Box exit).
+float MediumT(float3 P,float3 D,float Limit)
+{
+    float3 L=Local(P), DL=float3(dot(D,BoxAxisX.xyz),dot(D,BoxAxisY.xyz),dot(D,BoxAxisZ.xyz));
+    int3 C=clamp(int3(floor((L+Extent())/CellSize)),0,GridSize-1);
+    int3 Step=int3(sign(DL));
+    float3 Delta=CellSize/max(abs(DL),1.e-20f);
+    float3 Edge=(float3(C)+float3(DL.x>0,DL.y>0,DL.z>0))*CellSize-Extent();
+    float3 Next=float3(abs(DL.x)>1.e-10f?(Edge.x-L.x)/DL.x:1.e27f,abs(DL.y)>1.e-10f?(Edge.y-L.y)/DL.y:1.e27f,abs(DL.z)>1.e-10f?(Edge.z-L.z)/DL.z:1.e27f);
+    float T=0,Tau=0;
+    LOOP for(uint I=0;I<uint(3*GridSize+3);++I)
+    {
+        float End=min(Limit,min3(Next.x,Next.y,Next.z));
+        Tau+=Coefficients.Load(int4(C,0)).a*max(End-T,0.f);
+        if(End>=Limit) break;
+        bool3 Cross=Next<=End+1.e-4f;
+        C+=int3(Cross)*Step; Next+=float3(Cross)*Delta; T=End;
+        if(any(C<0)||any(C>=GridSize)) break;
+    }
+    return exp(-min(Tau,80.f));
+}
 #if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
+// MediumT for a start anywhere (boundary-ray hits lie inside or outside the Box). Clips the ray to the Box slabs
+// |Local| <= Extent (orthonormal Box axes, D unit, so the local parameter is the world distance) and marches from the
+// entry point. A ray that misses the Box, or leaves it before Limit reaches it, returns 1; a start inside (TEnter 0)
+// is exactly MediumT(P,D,Limit).
+float MediumTAnywhere(float3 P,float3 D,float Limit)
+{
+    float3 L=Local(P), DL=float3(dot(D,BoxAxisX.xyz),dot(D,BoxAxisY.xyz),dot(D,BoxAxisZ.xyz)), E=Extent();
+    float TEnter=0.f,TExit=Limit;
+    UNROLL for(uint A=0;A<3;++A)
+    {
+        if(abs(DL[A])<=1.e-10f)
+        {
+            if(abs(L[A])>E[A]) return 1.f; // parallel to this slab and outside it
+            continue;
+        }
+        float T0=(-E[A]-L[A])/DL[A],T1=(E[A]-L[A])/DL[A];
+        TEnter=max(TEnter,min(T0,T1)); TExit=min(TExit,max(T0,T1));
+    }
+    if(!(TEnter<TExit)) return 1.f;
+    return TEnter>0.f?MediumT(P+D*TEnter,D,Limit-TEnter):MediumT(P,D,Limit);
+}
 // Origin offset (cm) of the fallback sun ray along the hit's geometric normal, against self-intersection of the hit
 // triangle (Ray() TMin is 0.01 cm; translated-world hit positions carry ~0.01-0.1 cm float error at 1-10 km).
 static const float FallbackNormalBias=1.f;
 // Public fallback surface radiance at a boundary-ray hit (FogMSLumenBounce 0; Lumen Bounce Off, or Auto without the
 // 5.8.2 surface-cache source). One Lambert bounce of the atmosphere sun and the sky, no emissive, no local lights:
-//   L_o = FogMSFallbackAlbedo * (E_sun * saturate(N.L) * V_sun + E_sky(N)) / pi
+//   L_o = FogMSFallbackGroundAlbedo * (E_sun * saturate(N.L) * V_sun * T_sun + E_sky(N)) / pi
 // E_sun / pi = 4 * J: FogMS_WorldLight's J is the isotropic in-scattered E_sun / (4*pi) (the light's volumetric intensity
 // and exposure compensation included; the same light data pass 2 uses for Direct). V_sun: one CastShadow-aware ray toward
-// the sun, geometry only (no medium). E_sky / pi = FogMS_WorldSkyIrradianceSH(N) (SH scale of the sky path). Hit and N:
-// translated world, N unit and facing the incoming ray. Always valid.
+// the sun, geometry only. T_sun (FogMSFallbackMedium != 0, r.FogMS.World.FallbackMedium): Box-medium transmittance along
+// that ray (MediumTAnywhere, the pass-0 sigma_t pass 2 marches), 1 otherwise; only where V_sun is 1. The sky term
+// carries no medium or geometry occlusion. E_sky / pi = FogMS_WorldSkyIrradianceSH(N) (SH scale of the sky path).
+// FogMSFallbackGroundAlbedo: the Box's Fallback Ground Albedo (RGB, [0,1]). Hit and N: translated world, N unit and
+// facing the incoming ray. Always valid.
 float3 FallbackSurfaceRadiance(float3 Hit,float3 N)
 {
     float3 Radiance=0;
@@ -152,10 +199,12 @@ float3 FallbackSurfaceRadiance(float3 Hit,float3 N)
         float3 L,J; float Distance; bool Shadow;
         FogMS_WorldLight(uint(FogMSWorldSunLightIndex),Hit,L,Distance,J,Shadow);
         float NoL=saturate(dot(N,L));
-        if(NoL>0&&any(J>0)&&(!Shadow||!DirectShadow(Hit+N*FallbackNormalBias,L,Distance))) Radiance+=4.f*J*NoL;
+        float3 Origin=Hit+N*FallbackNormalBias;
+        if(NoL>0&&any(J>0)&&(!Shadow||!DirectShadow(Origin,L,Distance)))
+            Radiance+=4.f*J*NoL*(FogMSFallbackMedium!=0u?MediumTAnywhere(Origin,L,Distance):1.f);
     }
     Radiance+=FogMS_WorldSkyIrradianceSH(N);
-    Radiance*=FogMSFallbackAlbedo;
+    Radiance*=FogMSFallbackGroundAlbedo;
     return all(isfinite(Radiance))?max(Radiance,0.f):0.f;
 }
 // SectorSolidAngle: solid angle the ray D stands for (4*pi/AngularCount); selects the sky cubemap mip on a miss.
@@ -183,26 +232,6 @@ float3 BoundaryRadiance(float3 P,float3 D,float Limit,float SectorSolidAngle,out
     return FallbackSurfaceRadiance(P+D*H.HitT,N);
 }
 #endif
-float MediumT(float3 P,float3 D,float Limit)
-{
-    float3 L=Local(P), DL=float3(dot(D,BoxAxisX.xyz),dot(D,BoxAxisY.xyz),dot(D,BoxAxisZ.xyz));
-    int3 C=clamp(int3(floor((L+Extent())/CellSize)),0,GridSize-1);
-    int3 Step=int3(sign(DL));
-    float3 Delta=CellSize/max(abs(DL),1.e-20f);
-    float3 Edge=(float3(C)+float3(DL.x>0,DL.y>0,DL.z>0))*CellSize-Extent();
-    float3 Next=float3(abs(DL.x)>1.e-10f?(Edge.x-L.x)/DL.x:1.e27f,abs(DL.y)>1.e-10f?(Edge.y-L.y)/DL.y:1.e27f,abs(DL.z)>1.e-10f?(Edge.z-L.z)/DL.z:1.e27f);
-    float T=0,Tau=0;
-    LOOP for(uint I=0;I<uint(3*GridSize+3);++I)
-    {
-        float End=min(Limit,min3(Next.x,Next.y,Next.z));
-        Tau+=Coefficients.Load(int4(C,0)).a*max(End-T,0.f);
-        if(End>=Limit) break;
-        bool3 Cross=Next<=End+1.e-4f;
-        C+=int3(Cross)*Step; Next+=float3(Cross)*Delta; T=End;
-        if(any(C<0)||any(C>=GridSize)) break;
-    }
-    return exp(-min(Tau,80.f));
-}
 
 [numthreads(64,1,1)]
 void TransportCS(uint3 DispatchId:SV_DispatchThreadID)

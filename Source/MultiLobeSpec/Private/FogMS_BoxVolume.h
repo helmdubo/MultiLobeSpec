@@ -57,7 +57,7 @@ UENUM(BlueprintType)
 enum class EFogMSLumenBounce : uint8
 {
 	Auto = 0 UMETA(DisplayName="Auto", ToolTip="Lumen surface-cache radiance at ray hits when this engine build supports it (exact engine version 5.8.2) and the cache is ready; otherwise the fallback, without disabling Transport."),
-	Off = 1 UMETA(DisplayName="Off", ToolTip="Always the fallback: hit surfaces lit by the sun (ray-traced shadow) times a neutral albedo (r.FogMS.World.FallbackAlbedo), plus SH sky irradiance.")
+	Off = 1 UMETA(DisplayName="Off", ToolTip="Always the fallback: hit surfaces lit by the sun (ray-traced shadow, attenuated by this Box's medium) plus SH sky irradiance, times the Box's Fallback Ground Albedo.")
 };
 
 UENUM(BlueprintType)
@@ -165,8 +165,13 @@ public:
 	float TransportTolerance = -1.0f;
 
 	/** Packet row 5.z in the Transport modes (0 Auto, 1 Off; FFogMSWorldRequest::bLumenBounce). Default Auto keeps row 5.z 0. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="Lumen Bounce", EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Surface radiance where a transport boundary ray hits geometry. Auto: radiance from the Lumen surface cache at the hit when the engine build supports it (exact engine version 5.8.2) and the cache is ready; otherwise the fallback, and Transport stays active. Off: always the fallback: the hit surface lit by the sun with a ray-traced shadow, times a neutral albedo (r.FogMS.World.FallbackAlbedo, default 0.3), plus SH sky irradiance. One bounce, no emissive. The status line reports which one the field used."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="Lumen Bounce", EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Surface radiance where a transport boundary ray hits geometry. Auto: radiance from the Lumen surface cache at the hit when the engine build supports it (exact engine version 5.8.2) and the cache is ready; otherwise the fallback, and Transport stays active. Off: always the fallback: the hit surface lit by the sun with a ray-traced shadow and this Box's medium transmittance toward the sun (r.FogMS.World.FallbackMedium), plus SH sky irradiance, times Fallback Ground Albedo. One bounce, no emissive. The status line reports which one the field used."))
 	EFogMSLumenBounce LumenBounce = EFogMSLumenBounce::Auto;
+
+	/** Packet row 6.xyz in the Transport modes (FFogMSWorldRequest::FallbackGroundAlbedo); the overlay reads row 6.xyz only
+	 * under Octaves. Default 0.3 grey reproduces the former global r.FogMS.World.FallbackAlbedo default. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", HideAlphaChannel, ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Diffuse albedo assumed for the surfaces hit by the solver's boundary rays when the Lumen surface cache is not used (Lumen Bounce Off, or Auto while the cache is unavailable). Set it to this location's ground: fresh snow about 0.8, grass about 0.15, bare soil or rock about 0.2-0.3. An artist input per location, not a guess. Ignored while the status line reports bounce: Lumen. Changing it re-solves the field and resets fog history once."))
+	FLinearColor FallbackGroundAlbedo = FLinearColor(0.3f, 0.3f, 0.3f, 1.0f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Experimental: deliver the transport field to the native volumetric fog through this Box's Volume material (Emissive = sigma_s * J) instead of the bindless overlay. Native voxelization then owns density, jitter and history for this Box; the overlay skips its density/source injection. Requires the material to read FogMS_TransportField / FogMS_InjectionMode."))
 	bool bEmissiveInjection = false;

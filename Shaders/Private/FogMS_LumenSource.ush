@@ -57,9 +57,12 @@
 float FogMSLumenSurfaceCacheDepthBias;
 uint FogMSLumenInstanceMapCount;
 // Transport BoundaryRadiance only (FogMS_Transport.usf passes 1/14; the World producer ignores both): 1 = FogMS_SurfaceRadiance
-// below, 0 = public fallback (dummy Lumen bindings, FogMS_GetFallbackLumenSource). FogMSFallbackAlbedo = r.FogMS.World.FallbackAlbedo.
+// below, 0 = public fallback (dummy Lumen bindings, FogMS_GetFallbackLumenSource). Fallback only: FogMSFallbackGroundAlbedo =
+// the Box's Fallback Ground Albedo (FFogMSWorldRequest::FallbackGroundAlbedo, RGB in [0,1]); FogMSFallbackMedium =
+// r.FogMS.World.FallbackMedium != 0 (Box-medium transmittance on the fallback sun ray).
 uint FogMSLumenBounce;
-float FogMSFallbackAlbedo;
+float3 FogMSFallbackGroundAlbedo;
+uint FogMSFallbackMedium;
 
 #if FOGMS_LUMEN_SOURCE_UNAVAILABLE
 // Stub for engine builds without the verified Lumen surface-cache layout: never valid, the caller's fallback lights the hit.

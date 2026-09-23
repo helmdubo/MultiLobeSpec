@@ -51,10 +51,12 @@ namespace
 		TEXT("Transport solves every N-th frame per view, clamped to [1,8]. Frames in between hold the last publication (resident atlas, ")
 		TEXT("row 22, injection volume) without any pass. Box/settings change, history reset, gap or failure solve at once. 1: every frame. Default 2 (owner decision 2026-09-23): one frame of latency for lights/sky/Lumen changes, like the native fog history."),
 		ECVF_RenderThreadSafe);
-	TAutoConsoleVariable<float> CVarWorldFallbackAlbedo(TEXT("r.FogMS.World.FallbackAlbedo"), 0.3f,
+	TAutoConsoleVariable<int32> CVarWorldFallbackMedium(TEXT("r.FogMS.World.FallbackMedium"), 1,
 		TEXT("Transport boundary rays that hit geometry without the Lumen surface-cache source (Box Lumen Bounce Off, or Auto when the ")
-		TEXT("source is unavailable: engine other than 5.8.2, first frames, reallocation): neutral diffuse albedo of the fallback surface, ")
-		TEXT("radiance = albedo * (sun irradiance * ray-traced visibility + SH sky irradiance) / pi. Clamped to [0,1]. Default 0.3."),
+		TEXT("source is unavailable: engine other than 5.8.2, first frames, reallocation) light the hit with the public fallback, ")
+		TEXT("radiance = Box Fallback Ground Albedo * (sun irradiance * ray-traced visibility * T + SH sky irradiance) / pi. ")
+		TEXT("1 (default): T = transmittance of the Box medium from the hit toward the sun (a floor under a dense cloud is shaded by it). ")
+		TEXT("0: T = 1 (geometry visibility only; the previous fallback). The Lumen branch is unaffected."),
 		ECVF_RenderThreadSafe);
 
 	// Producer only: all inputs are bound (BoxRows, density atlas, RDG textures). Inline RT on PCD3D_SM6 needs
@@ -328,7 +330,7 @@ namespace
 		return Last.Revision == Request.Revision && Last.Directions == Request.Directions && Last.Iterations == Request.Iterations
 			&& Last.Tolerance == Request.Tolerance && Last.Strength == Request.Strength && Last.DirectionToSun == Request.DirectionToSun
 			&& Last.bHybridInjection == Request.bHybridInjection && Last.bLatePublish == Request.bLatePublish
-			&& Last.bLumenBounce == Request.bLumenBounce
+			&& Last.bLumenBounce == Request.bLumenBounce && Last.FallbackGroundAlbedo == Request.FallbackGroundAlbedo
 			&& State.bHoldInjection == Request.InjectionTexture.IsValid() && State.LastIndirectEnabled == IndirectEnabled
 			&& CVarIntValue(TEXT("r.FogMS.Transport.TestReconstruction")) == 0;
 	}
@@ -514,9 +516,13 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 			LumenBounce = FString::Printf(TEXT("fallback (%s)"), Request.bLumenBounce
 				? (LumenReason.IsEmpty() ? TEXT("Lumen source unavailable") : *LumenReason) : TEXT("Lumen Bounce Off"));
 		}
-		const float FallbackAlbedo = CVarWorldFallbackAlbedo.GetValueOnRenderThread();
 		Common.LumenSource.FogMSLumenBounce = bUseLumen ? 1u : 0u;
-		Common.LumenSource.FogMSFallbackAlbedo = FMath::IsFinite(FallbackAlbedo) ? FMath::Clamp(FallbackAlbedo, 0.0f, 1.0f) : 0.3f;
+		// Fallback inputs (BoundaryRadiance reads them only on the fallback branch): the Box's ground albedo per channel,
+		// clamped to [0,1] (non-finite -> 0.3, the former neutral default), and the medium term switch.
+		const auto Albedo = [](float Value) { return FMath::IsFinite(Value) ? FMath::Clamp(Value, 0.0f, 1.0f) : 0.3f; };
+		Common.LumenSource.FogMSFallbackGroundAlbedo = FVector3f(Albedo(Request.FallbackGroundAlbedo.R),
+			Albedo(Request.FallbackGroundAlbedo.G), Albedo(Request.FallbackGroundAlbedo.B));
+		Common.LumenSource.FogMSFallbackMedium = CVarWorldFallbackMedium.GetValueOnRenderThread() != 0 ? 1u : 0u;
 	}
 	else if (!FogMS_GetLumenSource(GraphBuilder, View, Common.LumenSource, Result.Error)) return Result; // World: no fallback.
 	if (!FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Request.Sky, Common.LightSources, SkySource, Result.Error)) return Result;

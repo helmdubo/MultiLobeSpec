@@ -75,10 +75,16 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	bool bAllowHold = true;
 	/** Transport only; AFogMSBoxVolume::LumenBounce (packet row 5.z: 0 Auto -> true, 1 Off -> false). True: boundary rays
 	 * that hit geometry read the Lumen surface cache when FogMS_GetLumenSource succeeds this frame (5.8.2 only), else the
-	 * public fallback r.FogMS.World.FallbackAlbedo * (sun * visibility + SH sky irradiance) / pi. False: always the
-	 * fallback. Neither fails the request. World (non-transport) ignores it and still requires the Lumen source.
+	 * public fallback FallbackGroundAlbedo * (sun * visibility * Box-medium transmittance [r.FogMS.World.FallbackMedium]
+	 * + SH sky irradiance) / pi. False: always the fallback. Neither fails the request. World (non-transport) ignores it
+	 * and still requires the Lumen source.
 	 */
 	bool bLumenBounce = true;
+	/** Transport only; AFogMSBoxVolume::FallbackGroundAlbedo (packet row 6.xyz in the Transport modes). Diffuse albedo of the
+	 * surfaces hit by boundary rays when the public fallback lights them (not the Lumen branch). Each channel is clamped to
+	 * [0,1] by the solver; a non-finite channel uses 0.3. Part of the hold key (with the packet revision).
+	 */
+	FLinearColor FallbackGroundAlbedo = FLinearColor(0.3f, 0.3f, 0.3f, 1.0f);
 	FFogMSWorldRequest() { FMemory::Memzero(BoxRows, sizeof(BoxRows)); }
 };
 

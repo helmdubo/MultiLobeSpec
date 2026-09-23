@@ -45,11 +45,15 @@ BEGIN_SHADER_PARAMETER_STRUCT(FFogMSLumenSourceParameters, )
 	SHADER_PARAMETER(float, FogMSLumenSurfaceCacheDepthBias)
 	SHADER_PARAMETER(uint32, FogMSLumenInstanceMapCount)
 	// Transport boundary hits (FogMS_Transport.usf BoundaryRadiance, passes 1/14; uniform branch, no permutation):
-	// 1 = surface-cache radiance (FogMS_SurfaceRadiance), 0 = public fallback FogMSFallbackAlbedo * (sun + SH sky).
+	// 1 = surface-cache radiance (FogMS_SurfaceRadiance), 0 = public fallback FogMSFallbackGroundAlbedo * (sun * T + SH sky).
 	// Set by the caller after FogMS_GetLumenSource / FogMS_GetFallbackLumenSource (both leave it 0).
 	SHADER_PARAMETER(uint32, FogMSLumenBounce)
-	// r.FogMS.World.FallbackAlbedo clamped to [0,1]: neutral diffuse albedo of a fallback hit surface.
-	SHADER_PARAMETER(float, FogMSFallbackAlbedo)
+	// Fallback only. FFogMSWorldRequest::FallbackGroundAlbedo (the Box's Fallback Ground Albedo), RGB clamped to [0,1]:
+	// diffuse albedo of a fallback hit surface.
+	SHADER_PARAMETER(FVector3f, FogMSFallbackGroundAlbedo)
+	// Fallback only. r.FogMS.World.FallbackMedium != 0: the fallback sun term is multiplied by the Box-medium transmittance
+	// from the hit toward the sun (1 = on, 0 = geometry visibility only).
+	SHADER_PARAMETER(uint32, FogMSFallbackMedium)
 END_SHADER_PARAMETER_STRUCT()
 
 /** Render-thread/PostTLAS adapter for UE 5.8.2 D3D12 SM6 and Nanite RT fallback mode 0.
@@ -64,13 +68,13 @@ END_SHADER_PARAMETER_STRUCT()
  * the renderer-private cast and includes stay in FogMS_LumenSource.cpp. Other views fail with a reason.
  * Engine builds other than 5.8.2 (patch-specific card/page strides) compile a stub that always returns false
  * with the reason "Lumen surface cache layout verified for 5.8.2 only".
- * Leaves FogMSLumenBounce and FogMSFallbackAlbedo zero: the caller selects the branch.
+ * Leaves FogMSLumenBounce, FogMSFallbackGroundAlbedo and FogMSFallbackMedium zero: the caller selects the branch.
  */
 bool FogMS_GetLumenSource(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	FFogMSLumenSourceParameters& OutParameters, FString& OutError);
 
 /** Every engine version. Valid black/empty bindings for every FFogMSLumenSourceParameters resource (empty card
  * scene, instance map count 0), so a shader that keeps the surface-cache code behind a uniform branch still binds
- * valid resources. Reads no renderer-private state. Leaves FogMSLumenBounce and FogMSFallbackAlbedo zero.
+ * valid resources. Reads no renderer-private state. Leaves FogMSLumenBounce and the fallback fields zero.
  */
 void FogMS_GetFallbackLumenSource(FRDGBuilder& GraphBuilder, FFogMSLumenSourceParameters& OutParameters);
