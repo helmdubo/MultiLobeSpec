@@ -5,8 +5,11 @@ Usage: python boxstate.py save [file]   |   python boxstate.py restore [file]   
 import sys, os, json, subprocess
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROPS = ["scattering_mode", "transport_preset", "angular_quality", "transport_iterations", "transport_tolerance",
-         "emissive_injection", "hybrid_single_scattering", "use_manual_animation_time", "manual_animation_time"]
-ENUMS = {"scattering_mode": "FogMSScatteringMode", "transport_preset": "FogMSTransportPreset", "angular_quality": "FogMSAngularQuality"}
+         "emissive_injection", "hybrid_single_scattering", "use_manual_animation_time", "manual_animation_time",
+         "erosion_strength", "erosion_depth", "height_profile", "height_profile_preset", "height_bottom", "height_top",
+         "bottom_softness", "top_softness", "anvil_strength"]
+ENUMS = {"scattering_mode": "FogMSScatteringMode", "transport_preset": "FogMSTransportPreset", "angular_quality": "FogMSAngularQuality",
+         "height_profile_preset": "FogMSHeightProfilePreset"}
 BOX = "b=[a for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors() if a.get_actor_label()=='FogMS - Live Box'][0]"
 
 def py(code):
@@ -34,7 +37,9 @@ else:
     code = "import unreal\n" + BOX + "\n"
     # preset first so the tuple below survives when the preset is Custom; if the preset is not Custom, its tuple wins.
     for p in ["scattering_mode", "transport_preset", "angular_quality", "transport_iterations", "transport_tolerance",
-              "emissive_injection", "hybrid_single_scattering", "manual_animation_time", "use_manual_animation_time"]:
+              "emissive_injection", "hybrid_single_scattering", "manual_animation_time", "use_manual_animation_time",
+              "height_profile_preset", "height_bottom", "height_top", "bottom_softness", "top_softness", "anvil_strength",
+              "height_profile", "erosion_strength", "erosion_depth"]:
         if p not in state: continue
         v = state[p]
         if p in ENUMS: val = "unreal.%s.cast(%d)" % (ENUMS[p], int(v))
