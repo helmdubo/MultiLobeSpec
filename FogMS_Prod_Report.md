@@ -395,6 +395,28 @@ A/B на замороженной плотности (Production; GPU-кадр �
 Шум инструментов: два ensure `EditorViewportClient.cpp: !bCheckMissingOverride || bRemoved` в логе сессии — это
 `editor_set_viewport_realtime(True)` из скрипта замера (override без снятия), к плагину отношения не имеет.
 
+## Раунд 18: Runtime-модули и публичный API рендерера (сборка игровой цели)
+
+Коммиты `649b8ed` (модули), `d33f9bf` + `410ac41` (публичный API). `MultiLobeSpec` и `FogMSRender` — теперь `Runtime`-модули
+с `PlatformAllowList: Win64` (`FogMSRender` на `PostConfigInit` ради маппинга каталога шейдеров); патчер шейдеров движка,
+raw-AO overlay, тост и `FEditorSupportDelegates` — только под `WITH_EDITOR`, в игре их заглушки отказывают; вне редактора Box
+всегда injection-only. Продюсер больше не использует `FViewInfo`: TLAS — `FXRenderingUtils::RayTracing::GetRayTracingSceneViewRDG`,
+binding data — виртуальный `FSceneView::GetInlineRayTracingBindingDataBuffer`, ключ вида/кадр — `FSceneView`/`FSceneViewFamily`,
+цвет SkyLight — `View.SkyLightColor` в шейдере; флаги CastShadow на сегмент собираются из публичных видимых binding’ов
+(`r.FogMS.Transport.PublicHitFlags`, по умолчанию 1; приватный буфер оставлен как 0 для A/B); атлас плотности без
+`-BindlessAll` — обычная RHI-текстура без нативного D3D12-ресурса.
+
+**Проверено:** `RunUAT BuildPlugin -StrictIncludes` теперь собирает три цели — `UnrealEditor` и две `UnrealGame`
+(Development, Shipping) — все `Succeeded` (`Build18.log`); единственная поломка была недостающим `ShaderCompilerCore.h`,
+который раньше приходил транзитивно через приватный `SceneRendering.h`.
+
+**Не проверено:** тождественность поля при `PublicHitFlags 1` против 0 (ожидается совпадение, кроме динамических мешей с
+выключенными RT-тенями — публичный список binding’ов их не содержит при `r.RayTracing.ParallelMeshBatchSetup=1`;
+скрипт `hitflagsab.sh`); поведение в реальной упаковке (остаются блокеры: атлас плотности читает editor-only Source
+текстуры, обязательные cvar `r.RayTracing.Culling=0`/`r.Lumen.AsyncCompute=0`, гейт источника Lumen ровно 5.8.2 —
+в работе). Остающиеся приватные зависимости: источник Lumen (P8), кубмапа неба/список источников (P9/P11), SSFS-постфильтр,
+Spatial-превью — см. `FogMS_Fab_Readiness.md`.
+
 ## Что не сделано / открыто
 
 - Квадратура, ориентированная на солнце: работает после исключения диска и префильтрации неба, включена по умолчанию.
