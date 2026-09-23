@@ -252,6 +252,42 @@ Production-тир, Emissive Injection, `r.FogMS.Transport.AsyncCompute 1`, жи�
 B2 с ≤8 итерациями — кандидат в «Economy»-тир (~1 мс) для сцен, где важна цена, а не абсолютная яркость;
 пока он живёт как отдельный режим `Transport`, в пресет не включён.
 
+## Раунд 12: Box без `-BindlessAll` (injection-only runtime)
+
+Что сделано (коммит `3975e25`, на основе `FogMS_BindlessFree_Research.md`, дополнение 2026-09-23): продюсеры
+(Transport/World) читают атлас плотности обычным SRV-параметром (`FOGMS_BOUND_DENSITY_ATLAS`,
+`FFogMSWorldRequest::DensityAtlas`), а не через индекс кучи; `#error` и heap-читатели оставлены только потребителям
+overlay; гейты продюсера принимают любую bindless-конфигурацию с inline RT (дефолт UE 5.8 — `RayTracing`).
+Без `-BindlessAll` runtime Box регистрирует view extension без текстуры пакета и дескриптора: работает только
+Transport + Emissive Injection (решатель → volume инъекции → Volume-материал Box → штатный туман); резидентный
+атлас, загрузка пакета, межочередные фенсы, A1d/A1e, shadow cache, BoxMode/патч движка пропускаются, остальные режимы
+закрываются отказом с понятным статусом. Загрузка атласа больше не требует bindless-handle.
+
+Проверка (`nobindless_test.sh`, редактор с одними `-d3d12 -sm6`, лог `MainNB12.log`):
+- стартовый лог: `bindless configuration RayTracing, inline RT yes; available modes: injection-only …`;
+- инъекция выключена → статус `Transport needs Emissive Injection or -BindlessAll … Native fog lighting with authored density`;
+- инъекция включена → `Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; …) (injection-only: no BindlessAll; overlay features off)`; с `AsyncCompute 1` — `… one frame late …`;
+- ensure/ошибок RDG, D3D12 и компиляции шейдеров нет.
+
+Картинка при одинаковой камере и фиксированной фазе анимации (manual time 100 с), Production + инъекция, против того
+же режима под `-BindlessAll` (`ref_bindlessall_fresh`):
+
+| Область | Яркость, отношение | PSNR |
+|---|---|---|
+| Передняя грань Box | 1,0008 | 44,5 дБ |
+| Ядро Box | 1,0012 | 49,4 дБ |
+| Пол (слева внизу) | 0,996 | 43,2 дБ |
+| Небо (анимированные облака) | 1,018 | 22 дБ |
+
+Вывод: путь «решатель → инъекция» без `-BindlessAll` даёт ту же картинку; отличается только анимированное небо.
+Первое сравнение (PSNR 18 дБ) было ошибкой методики — эталон снимался в сессии с другой камерой (внутри облака).
+
+Следствия для продукта: (1) в упакованной игре `-BindlessAll` не парсится вообще (`RHI.cpp:1130-1166`, только
+`WITH_EDITOR`), поэтому injection-only — единственный рабочий путь в билде; (2) overlay-функции (ViewIntegration,
+A1d/A1e, shadow cache, SSFS sky disk, overlay-доставка B2/B3, Spatial) остаются «Advanced, editor + -BindlessAll»;
+(3) `FogMS.DumpSpatial` без резидентного атласа поле не выгружает — сравнения делаются по скриншотам с фиксированной фазой.
+Не проверено: длительный прогон в этой конфигурации, PIE/упакованная сборка.
+
 ## Что не сделано / открыто
 
 - Квадратура, ориентированная на солнце: работает после исключения диска и префильтрации неба, включена по умолчанию.
