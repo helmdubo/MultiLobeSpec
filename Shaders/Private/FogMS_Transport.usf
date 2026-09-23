@@ -157,6 +157,49 @@ bool DirectShadow(float3 P,float3 D,float Limit)
     return Q.CommittedStatus()==COMMITTED_TRIANGLE_HIT;
 }
 #if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
+// Origin offset (cm) of the fallback sun ray along the hit's geometric normal, against self-intersection of the hit
+// triangle (Ray() TMin is 0.01 cm; translated-world hit positions carry ~0.01-0.1 cm float error at 1-10 km).
+static const float FallbackNormalBias=1.f;
+// DirectShadow without its r.FogMS.Transport.HitFlagsDebug instrumentation: same query flags, mask and CastShadow rule
+// (bit 29 of ShadowHitData, which every transport pass binds). Passes 1/14 bind no ShadowHitDataAlt / HitFlagsDebugOut,
+// and DirectShadow's runtime debug branch would keep both live, so these passes must not call DirectShadow itself.
+bool FallbackSunShadow(float3 P,float3 D,float Limit)
+{
+    uint NumHitData,HitDataStride;
+    ShadowHitData.GetDimensions(NumHitData,HitDataStride);
+    RayQuery<RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> Q;
+    Q.TraceRayInline(TLAS,RAY_FLAG_NONE,RAY_TRACING_MASK_OPAQUE_SHADOW,Ray(P,D,Limit));
+    while(Q.Proceed())
+    {
+        if(Q.CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE)
+        {
+            uint Index=Q.CandidateInstanceContributionToHitGroupIndex()/RAY_TRACING_NUM_SHADER_SLOTS+Q.CandidateGeometryIndex();
+            if(Index>=NumHitData || (ShadowHitData[Index]&(1u<<29))!=0) Q.CommitNonOpaqueTriangleHit();
+        }
+    }
+    return Q.CommittedStatus()==COMMITTED_TRIANGLE_HIT;
+}
+// Public fallback surface radiance at a boundary-ray hit (FogMSLumenBounce 0; Lumen Bounce Off, or Auto without the
+// 5.8.2 surface-cache source). One Lambert bounce of the atmosphere sun and the sky, no emissive, no local lights:
+//   L_o = FogMSFallbackAlbedo * (E_sun * saturate(N.L) * V_sun + E_sky(N)) / pi
+// E_sun / pi = 4 * J: FogMS_WorldLight's J is the isotropic in-scattered E_sun / (4*pi) (the light's volumetric intensity
+// and exposure compensation included; the same light data pass 2 uses for Direct). V_sun: one CastShadow-aware ray toward
+// the sun, geometry only (no medium). E_sky / pi = FogMS_WorldSkyIrradianceSH(N) (SH scale of the sky path). Hit and N:
+// translated world, N unit and facing the incoming ray. Always valid.
+float3 FallbackSurfaceRadiance(float3 Hit,float3 N)
+{
+    float3 Radiance=0;
+    if(FogMSWorldSunLightIndex>=0&&uint(FogMSWorldSunLightIndex)<FogMS_WorldLightCount())
+    {
+        float3 L,J; float Distance; bool Shadow;
+        FogMS_WorldLight(uint(FogMSWorldSunLightIndex),Hit,L,Distance,J,Shadow);
+        float NoL=saturate(dot(N,L));
+        if(NoL>0&&any(J>0)&&(!Shadow||!FallbackSunShadow(Hit+N*FallbackNormalBias,L,Distance))) Radiance+=4.f*J*NoL;
+    }
+    Radiance+=FogMS_WorldSkyIrradianceSH(N);
+    Radiance*=FogMSFallbackAlbedo;
+    return all(isfinite(Radiance))?max(Radiance,0.f):0.f;
+}
 // SectorSolidAngle: solid angle the ray D stands for (4*pi/AngularCount); selects the sky cubemap mip on a miss.
 float3 BoundaryRadiance(float3 P,float3 D,float Limit,float SectorSolidAngle,out bool Hit,out bool Valid)
 {
@@ -173,7 +216,13 @@ float3 BoundaryRadiance(float3 P,float3 D,float Limit,float SectorSolidAngle,out
     N=normalize(mul(cross(A.LocalPositions[2]-A.LocalPositions[0],A.LocalPositions[1]-A.LocalPositions[0]),(float3x3)H.WorldToObject3x4));
 #endif
     if(dot(N,D)>0) N=-N;
-    return FogMS_SurfaceRadiance(H.InstanceID,P+D*H.HitT,N,Valid);
+    BRANCH if(FogMSLumenBounce!=0u) return FogMS_SurfaceRadiance(H.InstanceID,P+D*H.HitT,N,Valid);
+    // Fallback: always valid. Pass 1 discards boundary radiance under test inputs and r.FogMS.World.Indirect 0 (only the
+    // hit flags are used there; pass 14 is not reached then), so the sun ray is skipped in those cases.
+    if(TestMode>0||IndirectEnabled==0) return 0;
+    // Same normal as the Lumen branch; a missing/degenerate one (no triangle attributes) faces the ray.
+    if(!all(isfinite(N))||dot(N,N)<1.e-12f) N=-D;
+    return FallbackSurfaceRadiance(P+D*H.HitT,N);
 }
 #endif
 float MediumT(float3 P,float3 D,float Limit)

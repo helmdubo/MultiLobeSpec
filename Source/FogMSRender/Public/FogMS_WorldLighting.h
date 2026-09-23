@@ -73,6 +73,12 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	 * is no longer there (e.g. the injection volume was cleared, replaced, or last written for another view).
 	 */
 	bool bAllowHold = true;
+	/** Transport only; AFogMSBoxVolume::LumenBounce (packet row 5.z: 0 Auto -> true, 1 Off -> false). True: boundary rays
+	 * that hit geometry read the Lumen surface cache when FogMS_GetLumenSource succeeds this frame (5.8.2 only), else the
+	 * public fallback r.FogMS.World.FallbackAlbedo * (sun * visibility + SH sky irradiance) / pi. False: always the
+	 * fallback. Neither fails the request. World (non-transport) ignores it and still requires the Lumen source.
+	 */
+	bool bLumenBounce = true;
 	FFogMSWorldRequest() { FMemory::Memzero(BoxRows, sizeof(BoxRows)); }
 };
 
@@ -87,6 +93,9 @@ struct FFogMSWorldResult : FFogMSSpatialResult
 	int32 SolveInterval = 1;
 	/** Sky boundary source of the published solve (r.FogMS.World.SkySource), for status text. Holds repeat the last. */
 	FString SkySource;
+	/** Transport only, for status text: "Lumen" or "fallback (<reason>)" for the surface radiance at boundary-ray hits of
+	 * the published solve. Holds repeat the last. Empty for World (non-transport). */
+	FString LumenBounce;
 };
 
 /** PostTLAS, graphics queue only. Resident atlas: N x (2*N*N).

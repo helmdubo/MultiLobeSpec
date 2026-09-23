@@ -49,6 +49,10 @@
 
 float FogMSLumenSurfaceCacheDepthBias;
 uint FogMSLumenInstanceMapCount;
+// Transport BoundaryRadiance only (FogMS_Transport.usf passes 1/14; the World producer ignores both): 1 = FogMS_SurfaceRadiance
+// below, 0 = public fallback (dummy Lumen bindings, FogMS_GetFallbackLumenSource). FogMSFallbackAlbedo = r.FogMS.World.FallbackAlbedo.
+uint FogMSLumenBounce;
+float FogMSFallbackAlbedo;
 
 // Returns scene-linear outgoing surface radiance (reflected diffuse + emissive).
 // The caller applies medium attenuation and receiver scattering exactly once.

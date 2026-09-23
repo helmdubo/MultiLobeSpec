@@ -52,6 +52,14 @@ enum class EFogMSTransportPreset : uint8
 	Custom = 3 UMETA(DisplayName="Custom", ToolTip="Angular Quality, Transport Iterations and Transport Tolerance are edited directly.")
 };
 
+/** Transport: surface radiance where a boundary ray hits geometry. Packet row 5.z (0 Auto, 1 Off). */
+UENUM(BlueprintType)
+enum class EFogMSLumenBounce : uint8
+{
+	Auto = 0 UMETA(DisplayName="Auto", ToolTip="Lumen surface-cache radiance at ray hits when this engine build supports it (exact engine version 5.8.2) and the cache is ready; otherwise the fallback, without disabling Transport."),
+	Off = 1 UMETA(DisplayName="Off", ToolTip="Always the fallback: hit surfaces lit by the sun (ray-traced shadow) times a neutral albedo (r.FogMS.World.FallbackAlbedo), plus SH sky irradiance.")
+};
+
 UENUM(BlueprintType)
 enum class EFogMSDensityMotionMode : uint8
 {
@@ -155,6 +163,10 @@ public:
 	/** Negative (default -1) keeps r.FogMS.Transport.Tolerance, so actors saved before this property render unchanged. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS|Scattering", meta=(EditCondition="(ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport) && TransportPreset == EFogMSTransportPreset::Custom", ClampMin="-1.0", ClampMax="1.0", UIMin="-1.0", UIMax="0.001", ToolTip="b-relative convergence tolerance of the transport solver (PCG rho against the cold-start rho): the frame's remaining matrix passes are skipped below it. 0 runs all iterations. Negative (-1) uses the global r.FogMS.Transport.Tolerance; a value in [0,1] overrides it for this Box. Changing it keeps the warm start."))
 	float TransportTolerance = -1.0f;
+
+	/** Packet row 5.z in the Transport modes (0 Auto, 1 Off; FFogMSWorldRequest::bLumenBounce). Default Auto keeps row 5.z 0. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="Lumen Bounce", EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Surface radiance where a transport boundary ray hits geometry. Auto: radiance from the Lumen surface cache at the hit when the engine build supports it (exact engine version 5.8.2) and the cache is ready; otherwise the fallback, and Transport stays active. Off: always the fallback: the hit surface lit by the sun with a ray-traced shadow, times a neutral albedo (r.FogMS.World.FallbackAlbedo, default 0.3), plus SH sky irradiance. One bounce, no emissive. The status line reports which one the field used."))
+	EFogMSLumenBounce LumenBounce = EFogMSLumenBounce::Auto;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Experimental: deliver the transport field to the native volumetric fog through this Box's Volume material (Emissive = sigma_s * J) instead of the bindless overlay. Native voxelization then owns density, jitter and history for this Box; the overlay skips its density/source injection. Requires the material to read FogMS_TransportField / FogMS_InjectionMode."))
 	bool bEmissiveInjection = false;

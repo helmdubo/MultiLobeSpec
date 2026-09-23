@@ -198,6 +198,32 @@ float3 FogMS_WorldSkySH(float3 WorldDirection, float SectorSolidAngle)
 	return L0 + Band1 * L1 + Band2 * L2;
 }
 
+// Sky irradiance / pi on a surface with unit normal N (Lambert-convolved SH), in the units FogMS_WorldSky returns:
+// the engine's GetSkySHDiffuse (ReflectionEnvironmentShared.ush:84-103) transcribed on View.SkyIrradianceEnvironmentMap,
+// times View.SkyLightColor * FogMSWorldSkyIntensity, the same scale as FogMS_WorldSky for the SH source (the SH carries the
+// exposure View.SkyLightColor removes, so FogMSWorldSkyUndoRTCExposure never applies). Not included from the engine: its
+// `#define SkyIrradianceEnvironmentMap View.SkyIrradianceEnvironmentMap` would rewrite the View member reads in
+// FogMS_WorldSkySH above for any file that included it first. Zero when the sky path is off (source none / intensity 0).
+// Used by the Transport boundary-hit fallback (FogMS_Transport.usf); outgoing Lambert radiance = albedo * this.
+float3 FogMS_WorldSkyIrradianceSH(float3 N)
+{
+	if (FogMSWorldSkySource == 0u || FogMSWorldSkyIntensity <= 0.0f) return 0.0f;
+	float4 NormalVector = float4(N, 1.0f);
+	float3 Intermediate0, Intermediate1, Intermediate2;
+	Intermediate0.x = dot(View.SkyIrradianceEnvironmentMap[0], NormalVector);
+	Intermediate0.y = dot(View.SkyIrradianceEnvironmentMap[1], NormalVector);
+	Intermediate0.z = dot(View.SkyIrradianceEnvironmentMap[2], NormalVector);
+	float4 vB = NormalVector.xyzz * NormalVector.yzzx;
+	Intermediate1.x = dot(View.SkyIrradianceEnvironmentMap[3], vB);
+	Intermediate1.y = dot(View.SkyIrradianceEnvironmentMap[4], vB);
+	Intermediate1.z = dot(View.SkyIrradianceEnvironmentMap[5], vB);
+	float vC = NormalVector.x * NormalVector.x - NormalVector.y * NormalVector.y;
+	Intermediate2 = View.SkyIrradianceEnvironmentMap[6].xyz * vC;
+	float3 Irradiance = max(0.0f, Intermediate0 + Intermediate1 + Intermediate2);
+	Irradiance *= View.SkyLightColor.rgb * FogMSWorldSkyIntensity;
+	return all(isfinite(Irradiance)) ? max(Irradiance, 0.0f) : 0.0f;
+}
+
 // Cubemap source (FogMSWorldSkySource 1): the former FogMS_WorldSky body, unchanged apart from the final
 // SkyLightColor product, which FogMS_WorldSky now applies for every source.
 float3 FogMS_WorldSkyCubemap(float3 WorldDirection, float SectorSolidAngle)

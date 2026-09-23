@@ -2,11 +2,16 @@
 
 #include "DynamicRHI.h"
 #include "HAL/IConsoleManager.h"
+#include "Runtime/Launch/Resources/Version.h"
+// The surface-cache adapter below reads FLumenSceneData with patch-specific strides: exactly 5.8.2 only. Other
+// builds compile the stub (FogMS_GetLumenSource returns false) and Transport uses the public fallback radiance.
+#define FOGMS_LUMEN_SOURCE_VERIFIED (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 8 && ENGINE_PATCH_VERSION == 2)
+#if FOGMS_LUMEN_SOURCE_VERIFIED
 #include "Lumen/LumenSceneData.h"
+#endif
 #include "PooledRenderTarget.h"
 #include "RenderGraphBuilder.h"
 #include "RenderingThread.h"
-#include "Runtime/Launch/Resources/Version.h"
 #include "SceneRendering.h"
 #include "SystemTextures.h"
 
@@ -35,7 +40,8 @@ bool FogMS_GetLumenSource(FRDGBuilder& GraphBuilder, const FSceneView& SceneView
 	FMemory::Memzero(&OutParameters, sizeof(OutParameters));
 	OutError.Reset();
 
-#if PLATFORM_WINDOWS && ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 8 && ENGINE_PATCH_VERSION == 2
+#if FOGMS_LUMEN_SOURCE_VERIFIED
+#if PLATFORM_WINDOWS
 	const FViewInfo* const ViewInfo = FogMS_AsViewInfo(SceneView);
 	if (!ViewInfo)
 	{
@@ -187,4 +193,46 @@ bool FogMS_GetLumenSource(FRDGBuilder& GraphBuilder, const FSceneView& SceneView
 	OutError = TEXT("Lumen source adapter is supported only on UE 5.8.2 Windows D3D12 SM6.");
 	return false;
 #endif
+#else
+	OutError = TEXT("Lumen surface cache layout verified for 5.8.2 only");
+	return false;
+#endif
 }
+
+void FogMS_GetFallbackLumenSource(FRDGBuilder& GraphBuilder, FFogMSLumenSourceParameters& OutParameters)
+{
+	check(IsInRenderingThread());
+	FMemory::Memzero(&OutParameters, sizeof(OutParameters));
+	// Plugin-owned struct and public system dummies only: no FLumenSceneData / FViewInfo access, every engine version.
+	// Counts are zero and FogMSLumenInstanceMapCount 0 makes FogMS_SurfaceRadiance return before any card lookup even
+	// if it were reached; the transport shader does not reach it (FogMSLumenBounce 0).
+	FFogMSLumenCardScene* Uniforms = GraphBuilder.AllocParameters<FFogMSLumenCardScene>();
+	FMemory::Memzero(Uniforms, sizeof(*Uniforms));
+	FRDGBufferSRVRef EmptyData = GraphBuilder.CreateSRV(GSystemTextures.GetDefaultStructuredBuffer(GraphBuilder, sizeof(FVector4f)));
+	FRDGBufferSRVRef EmptyBytes = GraphBuilder.CreateSRV(GSystemTextures.GetDefaultByteAddressBuffer(GraphBuilder, sizeof(uint32)));
+	FRDGTextureRef Black = GSystemTextures.GetBlackDummy(GraphBuilder);
+	Uniforms->PhysicalAtlasSize = FVector2f(1.0f, 1.0f);
+	Uniforms->InvPhysicalAtlasSize = FVector2f(1.0f, 1.0f);
+	Uniforms->IndirectLightingAtlasDownsampleFactor = 1.0f;
+	Uniforms->CardData = EmptyData;
+	Uniforms->CardPageData = EmptyData;
+	Uniforms->MeshCardsData = EmptyData;
+	Uniforms->HeightfieldData = EmptyData;
+	Uniforms->PrimitiveGroupData = EmptyData;
+	Uniforms->PageTableBuffer = EmptyBytes;
+	Uniforms->SceneInstanceIndexToMeshCardsIndexBuffer = EmptyBytes;
+	Uniforms->AlbedoAtlas = Black;
+	Uniforms->NormalAtlas = Black;
+	Uniforms->EmissiveAtlas = Black;
+	Uniforms->DepthAtlas = Black;
+	OutParameters.FogMSLumenCardScene = GraphBuilder.CreateUniformBuffer(Uniforms);
+	OutParameters.FogMSLumenDirectLightingAtlas = Black;
+	OutParameters.FogMSLumenIndirectLightingAtlas = Black;
+	OutParameters.FogMSLumenFinalLightingAtlas = Black;
+	OutParameters.FogMSLumenDepthAtlas = Black;
+	OutParameters.FogMSLumenOneOverCachedLightingPreExposure = 1.0f;
+	OutParameters.FogMSLumenSurfaceCacheDepthBias = 1.0f;
+	OutParameters.FogMSLumenInstanceMapCount = 0;
+}
+
+#undef FOGMS_LUMEN_SOURCE_VERIFIED

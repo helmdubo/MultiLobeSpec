@@ -51,6 +51,11 @@ namespace
 		TEXT("Transport solves every N-th frame per view, clamped to [1,8]. Frames in between hold the last publication (resident atlas, ")
 		TEXT("row 22, injection volume) without any pass. Box/settings change, history reset, gap or failure solve at once. 1: every frame. Default 2 (owner decision 2026-09-23): one frame of latency for lights/sky/Lumen changes, like the native fog history."),
 		ECVF_RenderThreadSafe);
+	TAutoConsoleVariable<float> CVarWorldFallbackAlbedo(TEXT("r.FogMS.World.FallbackAlbedo"), 0.3f,
+		TEXT("Transport boundary rays that hit geometry without the Lumen surface-cache source (Box Lumen Bounce Off, or Auto when the ")
+		TEXT("source is unavailable: engine other than 5.8.2, first frames, reallocation): neutral diffuse albedo of the fallback surface, ")
+		TEXT("radiance = albedo * (sun irradiance * ray-traced visibility + SH sky irradiance) / pi. Clamped to [0,1]. Default 0.3."),
+		ECVF_RenderThreadSafe);
 
 	// Producer only: all inputs are bound (BoxRows, density atlas, RDG textures). Inline RT on PCD3D_SM6 needs
 	// bindless at least for ray tracing (not Disabled), the engine's own inline-RT condition (D3D12Adapter).
@@ -166,6 +171,8 @@ namespace
 		bool bHoldInjection = false;
 		// Sky boundary source of the last solve (FFogMSWorldResult::SkySource); a hold reports the field it re-offers.
 		FString LastSkySource;
+		// Boundary-hit surface radiance of the last solve (FFogMSWorldResult::LumenBounce), likewise.
+		FString LastLumenBounce;
 		uint32 HoldDescriptorIndex = MAX_uint32;
 		int32 HoldGridSize = 0;
 
@@ -320,6 +327,7 @@ namespace
 		return Last.Revision == Request.Revision && Last.Directions == Request.Directions && Last.Iterations == Request.Iterations
 			&& Last.Tolerance == Request.Tolerance && Last.Strength == Request.Strength && Last.DirectionToSun == Request.DirectionToSun
 			&& Last.bHybridInjection == Request.bHybridInjection && Last.bLatePublish == Request.bLatePublish
+			&& Last.bLumenBounce == Request.bLumenBounce
 			&& State.bHoldInjection == Request.InjectionTexture.IsValid() && State.LastIndirectEnabled == IndirectEnabled
 			&& CVarIntValue(TEXT("r.FogMS.Transport.TestReconstruction")) == 0;
 	}
@@ -489,6 +497,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 			Result.HoldPhase = Held->HoldPhase;
 			Result.SolveInterval = SolveInterval;
 			Result.SkySource = Held->LastSkySource;
+			Result.LumenBounce = Held->LastLumenBounce;
 			// FogMS.DumpSpatial reads the resident atlas, which still holds the published solve.
 			LastValidViewKey = Key;
 			LastValidRenderFrame = GFrameNumberRenderThread;
@@ -499,8 +508,27 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	FFogMSWorldCS::FParameters Common;
 	FMemory::Memzero(&Common, sizeof(Common));
 	FString SkySource; // r.FogMS.World.SkySource in use (status text)
-	if (!FogMS_GetLumenSource(GraphBuilder, View, Common.LumenSource, Result.Error)
-		|| !FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Request.Sky, Common.LightSources, SkySource, Result.Error)) return Result;
+	FString LumenBounce; // Transport: boundary-hit surface radiance in use (status text)
+	if (Request.bTransport)
+	{
+		// Owner decision 2026-09-23: the Lumen bounce degrades instead of disabling Transport. Auto uses the surface cache
+		// when the (5.8.2-only) source succeeds this frame; otherwise, and always for Off, dummy Lumen bindings and the
+		// public fallback in BoundaryRadiance (uniform FogMSLumenBounce 0). Off never touches the private Lumen state.
+		FString LumenReason;
+		const bool bUseLumen = Request.bLumenBounce && FogMS_GetLumenSource(GraphBuilder, View, Common.LumenSource, LumenReason);
+		if (bUseLumen) LumenBounce = TEXT("Lumen");
+		else
+		{
+			FogMS_GetFallbackLumenSource(GraphBuilder, Common.LumenSource);
+			LumenBounce = FString::Printf(TEXT("fallback (%s)"), Request.bLumenBounce
+				? (LumenReason.IsEmpty() ? TEXT("Lumen source unavailable") : *LumenReason) : TEXT("Lumen Bounce Off"));
+		}
+		const float FallbackAlbedo = CVarWorldFallbackAlbedo.GetValueOnRenderThread();
+		Common.LumenSource.FogMSLumenBounce = bUseLumen ? 1u : 0u;
+		Common.LumenSource.FogMSFallbackAlbedo = FMath::IsFinite(FallbackAlbedo) ? FMath::Clamp(FallbackAlbedo, 0.0f, 1.0f) : 0.3f;
+	}
+	else if (!FogMS_GetLumenSource(GraphBuilder, View, Common.LumenSource, Result.Error)) return Result; // World: no fallback.
+	if (!FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Request.Sky, Common.LightSources, SkySource, Result.Error)) return Result;
 	FRHICommandListImmediate& RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
 	++WorldAccessSerial;
 	CollectWorldViews(Key, RHICmdList);
@@ -663,6 +691,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	State.LastRequest.Sky.ProcessedTexture.SafeRelease(); // Nor the sky light's processed cubemap.
 	State.LastRequest.Sky.ProcessedSampler.SafeRelease();
 	State.LastSkySource = SkySource;
+	State.LastLumenBounce = LumenBounce;
 	State.LastIndirectEnabled = Common.IndirectEnabled;
 	if (Request.bTransport)
 	{
@@ -690,6 +719,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	Result.Valid = true;
 	Result.SolveInterval = SolveInterval;
 	Result.SkySource = SkySource;
+	Result.LumenBounce = LumenBounce;
 	LastValidViewKey = Key;
 	LastValidRenderFrame = GFrameNumberRenderThread;
 	bLastBuildValid = true;
