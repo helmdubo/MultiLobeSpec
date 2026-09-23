@@ -286,7 +286,16 @@ Transport + Emissive Injection (решатель → volume инъекции →
 `WITH_EDITOR`), поэтому injection-only — единственный рабочий путь в билде; (2) overlay-функции (ViewIntegration,
 A1d/A1e, shadow cache, SSFS sky disk, overlay-доставка B2/B3, Spatial) остаются «Advanced, editor + -BindlessAll»;
 (3) `FogMS.DumpSpatial` без резидентного атласа поле не выгружает — сравнения делаются по скриншотам с фиксированной фазой.
-Не проверено: длительный прогон в этой конфигурации, PIE/упакованная сборка.
+Не проверено: длительный прогон в этой конфигурации, упакованная сборка (Simulate-in-Editor — см. раунд 13).
+
+### Раунд 13: автозапуск runtime (без кнопки)
+
+Коммит после `9cf4f86`: `AFogMSBoxVolume::BeginPlay` (игра/PIE) и разовый запуск на первом тике в редакторе без
+`-BindlessAll` вызывают `EnableLiveBox` для включённого Transport-Box с инъекцией; с `-BindlessAll` в редакторе кнопка
+остаётся (там применяется патч шейдеров движка). Проверка (`pie_test.py`, редактор без `-BindlessAll`, `MainNB13.log`):
+включение инъекции в редакторе → через 2 с статус `Active … (injection-only …)` без нажатия кнопки; Simulate-in-Editor →
+Box игрового мира `FogMSBoxVolume_0` активен через `BeginPlay`; ensure/ошибок нет. PIE как отдельный процесс и
+упакованная сборка не проверялись.
 
 ## Что не сделано / открыто
 
