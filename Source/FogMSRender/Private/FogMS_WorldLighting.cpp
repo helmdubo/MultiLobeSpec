@@ -43,8 +43,12 @@ namespace
 {
 	constexpr int32 WorldSize = 32;
 	constexpr int32 WorldOrderCount = 3;
-	constexpr int32 MaxWorldViews = 8;
-	constexpr uint64 RetireAfterCalls = 120;
+	// States are per (view, Box): up to r.FogMS.MaxBoxesPerFrame (16) Boxes x a couple of views. A state holds a 2 MB
+	// warm-start atlas (pooled) and, for the packet Box with BindlessAll only, a 2 MB resident atlas. The LRU cap never
+	// evicts a state used in the current render frame (it grows past the cap instead).
+	constexpr int32 MaxWorldViews = 32;
+	// Age retirement in render frames (formerly 120 build calls; with several Boxes per view calls no longer map to frames).
+	constexpr uint32 RetireAfterFrames = 120;
 	TAutoConsoleVariable<int32> CVarWorldIndirect(TEXT("r.FogMS.World.Indirect"), 1,
 		TEXT("World source diagnostic: 0 direct source only, 1 sky + Lumen surface radiance. Does not change native light components."), ECVF_RenderThreadSafe);
 	TAutoConsoleVariable<int32> CVarSolveInterval(TEXT("r.FogMS.Transport.SolveInterval"), 2,
@@ -149,6 +153,8 @@ namespace
 		bool bAllocationAttempted = false;
 		uint32 LastFrameIndex = 0;
 		uint64 LastUse = 0;
+		// GFrameNumberRenderThread of the last use (build, hold, or a late pair offered to this frame's consumers).
+		uint32 LastUseRenderFrame = 0;
 		FFogMSWorldRequest LastRequest;
 		int32 LastIndirectEnabled = 1;
 		int32 LastTransportTest = 0;
@@ -249,6 +255,15 @@ namespace
 		RetiredViews.Add(MoveTemp(Item));
 	}
 
+	// State key: view key (high 32 bits), Box id (31 bits), transport bit. FSceneView::GetViewKey() is
+	// State->GetViewKey() (SceneView.cpp:1238-1242): the same key as ViewState->GetViewKey().
+	uint64 WorldStateKey(uint32 ViewKey, uint32 BoxId, bool bTransport)
+	{
+		return (uint64(ViewKey) << 32) | (uint64(BoxId & 0x7fffffffu) << 1) | (bTransport ? 1u : 0u);
+	}
+	uint32 WorldStateViewKey(uint64 Key) { return uint32(Key >> 32); }
+	uint32 WorldStateBoxId(uint64 Key) { return uint32(Key & 0xffffffffu) >> 1; }
+
 	void CollectWorldViews(uint64 CurrentKey, FRHICommandListImmediate& RHICmdList)
 	{
 		for (int32 Index = RetiredViews.Num() - 1; Index >= 0; --Index)
@@ -259,7 +274,7 @@ namespace
 		}
 		for (auto It = WorldViews.CreateIterator(); It; ++It)
 		{
-			if (It.Key() != CurrentKey && WorldAccessSerial - It.Value()->LastUse > RetireAfterCalls)
+			if (It.Key() != CurrentKey && GFrameNumberRenderThread - It.Value()->LastUseRenderFrame > RetireAfterFrames)
 			{
 				RetireView(MoveTemp(It.Value()), RHICmdList);
 				It.RemoveCurrent();
@@ -267,14 +282,22 @@ namespace
 		}
 		if (!WorldViews.Contains(CurrentKey) && WorldViews.Num() >= MaxWorldViews)
 		{
+			// Never evict a state used in this render frame: another Box of this graph may have published from it
+			// (resident descriptor in row 22, pending late copy). If every state is current, grow past the cap.
 			uint64 OldestKey = 0;
 			uint64 OldestUse = MAX_uint64;
 			for (const auto& Item : WorldViews)
 			{
-				if (Item.Value->LastUse < OldestUse) { OldestKey = Item.Key; OldestUse = Item.Value->LastUse; }
+				if (Item.Value->LastUseRenderFrame != GFrameNumberRenderThread && Item.Value->LastUse < OldestUse)
+				{
+					OldestKey = Item.Key; OldestUse = Item.Value->LastUse;
+				}
 			}
-			RetireView(MoveTemp(WorldViews.FindChecked(OldestKey)), RHICmdList);
-			WorldViews.Remove(OldestKey);
+			if (OldestUse != MAX_uint64)
+			{
+				RetireView(MoveTemp(WorldViews.FindChecked(OldestKey)), RHICmdList);
+				WorldViews.Remove(OldestKey);
+			}
 		}
 	}
 
@@ -291,7 +314,8 @@ namespace
 			&& FMath::IsFinite(Request.RangeCm) && Request.RangeCm > 0.0f && (Request.bTransport || Request.RangeCm <= 2000.0f)
 			&& FMath::IsFinite(Request.PhaseG) && FMath::Abs(Request.PhaseG) <= 1.0e-6f
 			&& Request.Steps >= 1 && Request.Steps <= 32 && (Request.bTransport ? (Request.Directions == 6 || Request.Directions == 16 || Request.Directions == 24 || Request.Directions == 48 || Request.Directions == 96) : Request.Directions == 12)
-			&& (!Request.bTransport || (Request.Iterations >= 1 && Request.Iterations <= 64 && FMath::IsFinite(Request.Tolerance)));
+			&& (!Request.bTransport || (Request.Iterations >= 1 && Request.Iterations <= 64 && FMath::IsFinite(Request.Tolerance)))
+			&& Request.BoxId < (1u << 31); // state key field width (WorldStateKey)
 	}
 
 	// Render-thread only. The warm-start / hold gates run every frame: cache the console objects by literal address
@@ -335,21 +359,26 @@ namespace
 			&& CVarIntValue(TEXT("r.FogMS.Transport.TestReconstruction")) == 0;
 	}
 
-	uint64 TransportViewKey(const FSceneView& View)
+	uint64 TransportViewKey(const FSceneView& View, uint32 BoxId)
 	{
 		// Same key as FogMS_BuildWorldLighting (FViewInfo::ViewState is FSceneView::State).
-		return (uint64(View.GetViewKey()) << 1) | 1u;
+		return WorldStateKey(View.GetViewKey(), BoxId, true);
 	}
 }
 
-// Late Transport publication handed from PostTLASBuild to PrePostProcessPass of the SAME render graph.
-// The RDG blackboard lives exactly as long as its graph, so a later graph never sees these references.
+// Late Transport publications handed from PostTLASBuild to PrePostProcessPass of the SAME render graph, one entry per
+// (view, Box) built late in this graph. The RDG blackboard lives exactly as long as its graph, so a later graph never
+// sees these references.
 struct FFogMSLateTransportPublish
 {
-	uint64 Key = 0;
-	FRDGTextureRef Work = nullptr;      // transient atlas written on async compute
-	FRDGTextureRef FieldBack = nullptr; // transient injection field written on async compute (pass 17)
-	FTextureRHIRef Field;               // Box-owned injection volume, copy destination
+	struct FEntry
+	{
+		uint64 Key = 0;
+		FRDGTextureRef Work = nullptr;      // transient atlas written on async compute
+		FRDGTextureRef FieldBack = nullptr; // transient injection field written on async compute (pass 17)
+		FTextureRHIRef Field;               // Box-owned injection volume, copy destination
+	};
+	TArray<FEntry, TInlineAllocator<4>> Entries;
 };
 RDG_REGISTER_BLACKBOARD_STRUCT(FFogMSLateTransportPublish)
 
@@ -357,14 +386,15 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 {
 	check(IsInRenderingThread());
 	FFogMSWorldResult Result;
-	bLastBuildValid = false;
+	// FogMS.DumpSpatial follows the packet Box only; other Boxes built in the same graph leave its record alone.
+	if (Request.bResidentAtlas) bLastBuildValid = false;
 	const bool bLate = Request.bTransport && Request.bLatePublish;
 	// SolveInterval hold chain: read and break it before any early return, so only a call that publishes (or holds)
 	// again can continue it. A hold restores bLateAtlasValid only when it was valid here (the copy it re-offers exists).
 	bool bPriorHoldValid = false, bPriorLateAtlasValid = false;
 	if (Request.bTransport)
 	{
-		if (TUniquePtr<FWorldViewState>* Found = WorldViews.Find(TransportViewKey(SceneView)))
+		if (TUniquePtr<FWorldViewState>* Found = WorldViews.Find(TransportViewKey(SceneView, Request.BoxId)))
 		{
 			bPriorHoldValid = (*Found)->bHoldValid;
 			bPriorLateAtlasValid = (*Found)->bLateAtlasValid;
@@ -374,7 +404,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	if (bLate)
 	{
 		// Before any early return: this graph's own PrePostProcessPass copy is the only way back to a valid atlas.
-		if (TUniquePtr<FWorldViewState>* Found = WorldViews.Find(TransportViewKey(SceneView))) (*Found)->bLateAtlasValid = false;
+		if (TUniquePtr<FWorldViewState>* Found = WorldViews.Find(TransportViewKey(SceneView, Request.BoxId))) (*Found)->bLateAtlasValid = false;
 	}
 #if RHI_RAYTRACING
 	if (!GDynamicRHI || GDynamicRHI->GetInterfaceType() != ERHIInterfaceType::D3D12
@@ -424,10 +454,13 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	}
 	// Resident atlas + bindless descriptor feed only the overlay consumers (BindlessAll). Without BindlessAll the
 	// solve reaches fog only through the Emissive Injection volume, so a request without one has no consumer.
-	const bool bResident = IsResidentAtlasAvailable(SceneView.GetShaderPlatform());
+	// Only the packet Box (bResidentAtlas) has overlay consumers; every other Box reaches fog through its volume alone.
+	const bool bResident = Request.bResidentAtlas && IsResidentAtlasAvailable(SceneView.GetShaderPlatform());
 	if (!bResident && !(Request.bTransport && Request.InjectionTexture.IsValid()))
 	{
-		Result.Error = TEXT("Without -BindlessAll only Transport with Emissive Injection is available (the overlay consumers of the resident atlas need -BindlessAll).");
+		Result.Error = IsResidentAtlasAvailable(SceneView.GetShaderPlatform())
+			? TEXT("Only the overlay (packet) Box has the resident atlas; any other Box needs Transport with Emissive Injection.")
+			: TEXT("Without -BindlessAll only Transport with Emissive Injection is available (the overlay consumers of the resident atlas need -BindlessAll).");
 		return Result;
 	}
 	static const IConsoleVariable* const Culling = IConsoleManager::Get().FindConsoleVariable(TEXT("r.RayTracing.Culling"));
@@ -456,7 +489,8 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 		return Result;
 	}
 	// FSceneView::GetViewKey() is State->GetViewKey() (SceneView.cpp:1238-1242): the same key as ViewState->GetViewKey().
-	const uint64 Key = (uint64(View.GetViewKey()) << 1) | (Request.bTransport ? 1u : 0u);
+	// One state per (view, Box): two Boxes in one view never share warm start, hold chain or late publication.
+	const uint64 Key = WorldStateKey(View.GetViewKey(), Request.BoxId, Request.bTransport);
 	const int32 SolveInterval = Request.bTransport ? FMath::Clamp(CVarSolveInterval.GetValueOnRenderThread(), 1, 8) : 1;
 	if (SolveInterval > 1)
 	{
@@ -472,6 +506,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 			&& WarmStartValid(*Held, Request) && HoldCompatible(*Held, Request, IndirectEnabled))
 		{
 			Held->LastUse = ++WorldAccessSerial;
+			Held->LastUseRenderFrame = GFrameNumberRenderThread;
 			++Held->HoldPhase;
 			Held->bHoldValid = true;
 			Held->HoldRenderFrame = GFrameNumberRenderThread;
@@ -492,11 +527,22 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 			Result.SkySource = Held->LastSkySource;
 			Result.LumenBounce = Held->LastLumenBounce;
 			// FogMS.DumpSpatial reads the resident atlas, which still holds the published solve.
-			LastValidViewKey = Key;
-			LastValidRenderFrame = GFrameNumberRenderThread;
-			bLastBuildValid = true;
+			if (Request.bResidentAtlas)
+			{
+				LastValidViewKey = Key;
+				LastValidRenderFrame = GFrameNumberRenderThread;
+				bLastBuildValid = true;
+			}
 			return Result;
 		}
+	}
+	if (Request.bHoldOnly)
+	{
+		// Scheduler (r.FogMS.MaxBoxesPerFrame): over budget and no hold possible. No pass and no state change beyond the
+		// hold chain broken above (the next requested frame solves). The caller keeps the injection field as is.
+		Result.bQueued = true;
+		Result.Error = TEXT("Queued by r.FogMS.MaxBoxesPerFrame.");
+		return Result;
 	}
 	FFogMSWorldCS::FParameters Common;
 	FMemory::Memzero(&Common, sizeof(Common));
@@ -531,8 +577,16 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	CollectWorldViews(Key, RHICmdList);
 	TUniquePtr<FWorldViewState>& StatePtr = WorldViews.FindOrAdd(Key);
 	if (!StatePtr) StatePtr = MakeUnique<FWorldViewState>();
+	else if (StatePtr->bAllocationAttempted && !bResident)
+	{
+		// This Box lost the packet-Box role (bResidentAtlas false now): retire its resident atlas behind a GPU fence
+		// and start a fresh non-resident state, so no stale descriptor is ever returned or held for it.
+		RetireView(MoveTemp(StatePtr), RHICmdList);
+		StatePtr = MakeUnique<FWorldViewState>();
+	}
 	FWorldViewState& State = *StatePtr;
 	State.LastUse = WorldAccessSerial;
+	State.LastUseRenderFrame = GFrameNumberRenderThread;
 	// Injection-only (no BindlessAll): no resident atlas, no descriptor; State.Texture stays null.
 	if (bResident && !State.EnsureResource(Request.bTransport)) { Result.Error = State.AllocationError; return Result; }
 	Common.View = View.ViewUniformBuffer;
@@ -656,7 +710,10 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	{
 		// Late: no graphics pass of this hook touches an async output. The resident atlas and the Box volume keep
 		// the previous copy through lights/Lumen/fog; FogMS_PublishWorldLightingLate copies in PrePostProcessPass.
-		FFogMSLateTransportPublish& Late = GraphBuilder.Blackboard.GetOrCreate<FFogMSLateTransportPublish>();
+		// One entry per (view, Box); a second build of the same key in this graph replaces its entry.
+		FFogMSLateTransportPublish& LateList = GraphBuilder.Blackboard.GetOrCreate<FFogMSLateTransportPublish>();
+		LateList.Entries.RemoveAll([Key](const FFogMSLateTransportPublish::FEntry& Entry) { return Entry.Key == Key; });
+		FFogMSLateTransportPublish::FEntry& Late = LateList.Entries.AddDefaulted_GetRef();
 		Late.Key = Key;
 		Late.Work = Work;
 		Late.FieldBack = FieldBack;
@@ -709,21 +766,43 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	Result.SolveInterval = SolveInterval;
 	Result.SkySource = SkySource;
 	Result.LumenBounce = LumenBounce;
-	LastValidViewKey = Key;
-	LastValidRenderFrame = GFrameNumberRenderThread;
-	bLastBuildValid = true;
+	if (Request.bResidentAtlas)
+	{
+		LastValidViewKey = Key;
+		LastValidRenderFrame = GFrameNumberRenderThread;
+		bLastBuildValid = true;
+	}
 #else
 	Result.Error = TEXT("World lighting requires RHI ray tracing support.");
 #endif
 	return Result;
 }
 
-void FogMS_InvalidateWorldLighting_RenderThread()
+void FogMS_InvalidateWorldLighting_RenderThread(uint32 BoxId)
 {
 	check(IsInRenderingThread());
-	bLastBuildValid = false;
+	// BoxId 0 (the Box runtime's empty packet slot, when no Box builds anything): every Box, as before.
+	if (BoxId == 0 || WorldStateBoxId(LastValidViewKey) == BoxId) bLastBuildValid = false;
 	// The caller stopped publishing (Box off, mode change) and cleared row 22 / the injection field: never hold across.
-	for (auto& Item : WorldViews) Item.Value->bHoldValid = false;
+	for (auto& Item : WorldViews)
+	{
+		if (BoxId == 0 || WorldStateBoxId(Item.Key) == BoxId) Item.Value->bHoldValid = false;
+	}
+}
+
+void FogMS_ReleaseWorldLightingBox_RenderThread(FRHICommandListImmediate& RHICmdList, uint32 BoxId)
+{
+	check(IsInRenderingThread());
+	if (BoxId == 0) return;
+	if (WorldStateBoxId(LastValidViewKey) == BoxId) bLastBuildValid = false;
+	// Called between graphs (a render command), so no blackboard entry of this Box is pending. The resident atlas (packet
+	// Box, BindlessAll) stays alive until a fence after all earlier graphics work; PreviousAtlas returns to the pool.
+	for (auto It = WorldViews.CreateIterator(); It; ++It)
+	{
+		if (WorldStateBoxId(It.Key()) != BoxId) continue;
+		RetireView(MoveTemp(It.Value()), RHICmdList);
+		It.RemoveCurrent();
+	}
 }
 
 bool FogMS_TransportPublishesLate(const FRDGBuilder& GraphBuilder)
@@ -731,38 +810,44 @@ bool FogMS_TransportPublishesLate(const FRDGBuilder& GraphBuilder)
 	return FogMS_TransportAsync(GraphBuilder);
 }
 
-bool FogMS_GetLateTransportField(const FSceneView& View, const FVector4f* BoxRows, uint32& OutDescriptorIndex, int32& OutGridSize)
+bool FogMS_GetLateTransportField(const FSceneView& View, uint32 BoxId, const FVector4f* BoxRows, uint32& OutDescriptorIndex, int32& OutGridSize)
 {
 	check(IsInRenderingThread());
 	OutDescriptorIndex = MAX_uint32;
 	OutGridSize = WorldSize;
 	if (!BoxRows || !View.State) return false;
-	// A live state of the CURRENT view key: only a build for another key can retire a state (CollectWorldViews),
-	// so the descriptor stays allocated through this graph. Its atlas is Box-local: offer it only for the bounds
-	// it was solved in (LastRequest; built from rows 0..4 exactly as BoxRuntime does). Otherwise fail closed.
-	const TUniquePtr<FWorldViewState>* Found = WorldViews.Find(TransportViewKey(View));
+	// A live state of the CURRENT (view, Box) key. Marked used in this render frame below, so no build of another
+	// key in this graph can retire it (CollectWorldViews never evicts a current state): the descriptor stays
+	// allocated through this graph. Its atlas is Box-local: offer it only for the bounds it was solved in
+	// (LastRequest; built from rows 0..4 exactly as BoxRuntime does). Otherwise fail closed.
+	TUniquePtr<FWorldViewState>* Found = WorldViews.Find(TransportViewKey(View, BoxId));
 	if (!Found || !(*Found)->bLateAtlasValid || !(*Found)->Texture.IsValid() || (*Found)->DescriptorIndex >= (1u << 24)
 		|| GFrameNumberRenderThread - (*Found)->LateCopyRenderFrame > 1u) return false;
 	const FFogMSWorldRequest& Last = (*Found)->LastRequest;
 	if (!Last.bTransport || Last.CenterWS != FVector(BoxRows[0]) + FVector(BoxRows[1])
 		|| Last.AxisX != FVector3f(BoxRows[2]) || Last.AxisY != FVector3f(BoxRows[3]) || Last.AxisZ != FVector3f(BoxRows[4])
 		|| Last.Extent != FVector3f(BoxRows[2].W, BoxRows[3].W, BoxRows[4].W)) return false;
+	(*Found)->LastUseRenderFrame = GFrameNumberRenderThread;
 	OutDescriptorIndex = (*Found)->DescriptorIndex;
 	return true;
 }
 
-bool FogMS_PublishWorldLightingLate(FRDGBuilder& GraphBuilder, const FSceneView& View, bool& bOutInjectionCopied)
+bool FogMS_PublishWorldLightingLate(FRDGBuilder& GraphBuilder, const FSceneView& View, uint32 BoxId, bool& bOutInjectionCopied)
 {
 	check(IsInRenderingThread());
 	bOutInjectionCopied = false;
-	FFogMSLateTransportPublish* Late = GraphBuilder.Blackboard.GetMutable<FFogMSLateTransportPublish>();
-	if (!Late || !Late->Work || Late->Key != TransportViewKey(View)) return false;
-	TUniquePtr<FWorldViewState>* Found = WorldViews.Find(Late->Key);
-	const FRDGTextureRef Work = Late->Work, FieldBack = Late->FieldBack;
-	const FTextureRHIRef Field = Late->Field;
+	FFogMSLateTransportPublish* LateList = GraphBuilder.Blackboard.GetMutable<FFogMSLateTransportPublish>();
+	if (!LateList) return false;
+	const uint64 Key = TransportViewKey(View, BoxId);
+	const int32 EntryIndex = LateList->Entries.IndexOfByPredicate([Key](const FFogMSLateTransportPublish::FEntry& Entry) { return Entry.Key == Key; });
+	if (EntryIndex == INDEX_NONE) return false;
 	// Consume once per graph whatever happens below.
-	Late->Work = Late->FieldBack = nullptr;
-	Late->Field.SafeRelease();
+	const FFogMSLateTransportPublish::FEntry Late = LateList->Entries[EntryIndex];
+	LateList->Entries.RemoveAt(EntryIndex);
+	if (!Late.Work) return false;
+	TUniquePtr<FWorldViewState>* Found = WorldViews.Find(Late.Key);
+	const FRDGTextureRef Work = Late.Work, FieldBack = Late.FieldBack;
+	const FTextureRHIRef Field = Late.Field;
 	// Injection-only (no BindlessAll): the state has no resident atlas; only the injection field is copied.
 	if (!Found || (!(*Found)->Texture.IsValid() && !(FieldBack && Field.IsValid()))) return false;
 	FWorldViewState& State = **Found;
@@ -826,8 +911,8 @@ bool FogMS_DumpWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList, 
 	const bool Saved = FFileHelper::SaveArrayToFile(Bytes, *(PathPrefix + TEXT(".rgba32f")));
 	const FFogMSWorldRequest& Last = State.LastRequest;
 	const FString AnimationMetadata = FString::Printf(
-		TEXT(",\"revision\":%llu,\"animationActive\":%s,\"historyReset\":%s,\"densityPhase0\":[%.9g,%.9g,%.9g],\"densityPhase1\":[%.9g,%.9g,%.9g],\"densityPhase2\":[%.9g,%.9g,%.9g]"),
-		static_cast<unsigned long long>(Last.Revision), Last.BoxRows[5].W > .5f ? TEXT("true") : TEXT("false"),
+		TEXT(",\"boxId\":%u,\"revision\":%llu,\"animationActive\":%s,\"historyReset\":%s,\"densityPhase0\":[%.9g,%.9g,%.9g],\"densityPhase1\":[%.9g,%.9g,%.9g],\"densityPhase2\":[%.9g,%.9g,%.9g]"),
+		Last.BoxId, static_cast<unsigned long long>(Last.Revision), Last.BoxRows[5].W > .5f ? TEXT("true") : TEXT("false"),
 		Last.ResetHistory ? TEXT("true") : TEXT("false"),
 		Last.BoxRows[13].X, Last.BoxRows[13].Y, Last.BoxRows[13].Z,
 		Last.BoxRows[14].X, Last.BoxRows[14].Y, Last.BoxRows[14].Z,
@@ -840,7 +925,7 @@ bool FogMS_DumpWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList, 
 			TEXT("\"viewKey\":%u,\"renderFrame\":%u,\"dumpRenderFrame\":%u,\"sourceProducedRenderFrame\":%u,\"iterations\":%d,\"directions\":%d,\"transport_scheme\":\"%s\",")
 			TEXT("\"test\":%d,\"testTau\":%.9g,\"testAlbedo\":%.9g,\"testGeometry\":%d,\"testBoundary\":%d,\"cellSizeCm\":[%.9g,%.9g,%.9g]%s}\n"),
 			Saved ? TEXT("true") : TEXT("false"), WorldSize, Layers * WorldSize * WorldSize, WorldSize, Bytes.Num(),
-			uint32(LastValidViewKey >> 1), LastValidRenderFrame, GFrameNumberRenderThread, LastValidRenderFrame, State.LastRequest.Iterations, State.LastRequest.Directions,
+			WorldStateViewKey(LastValidViewKey), LastValidRenderFrame, GFrameNumberRenderThread, LastValidRenderFrame, State.LastRequest.Iterations, State.LastRequest.Directions,
 			State.LastRequest.Directions == 6 ? TEXT("formal_six") : TEXT("upwind_half_gauss"),
 			State.LastTransportTest, State.LastTransportTau, State.LastTransportAlbedo, State.LastTransportGeometry, State.LastTransportBoundary,
 			State.LastRequest.Extent.X * (2.0 / WorldSize), State.LastRequest.Extent.Y * (2.0 / WorldSize), State.LastRequest.Extent.Z * (2.0 / WorldSize), *AnimationMetadata);
@@ -875,7 +960,7 @@ bool FogMS_DumpWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList, 
 			TEXT("\"test\":%d,\"testTau\":%.9g,\"testAlbedo\":%.9g,\"testGeometry\":%d,\"testBoundary\":%d,\"cellSizeCm\":[%.9g,%.9g,%.9g],\"finite\":%s,\"minRadiance\":%.9g,\"maxRelativeCellResidual\":%.9g,")
 			TEXT("\"missingSurfaceBoundarySamples\":%u,\"missingAngularBoundarySamples\":%u,\"diffuseIncoming\":%.17g,\"diffuseOutgoing\":%.17g,\"diffuseAbsorbed\":%.17g,\"directScatteringSource\":%.17g,\"relativeFluxDefect\":%.17g%s}\n"),
 			Saved ? TEXT("true") : TEXT("false"), WorldSize, Layers * WorldSize * WorldSize, WorldSize, Bytes.Num(),
-			uint32(LastValidViewKey >> 1), LastValidRenderFrame, GFrameNumberRenderThread, LastValidRenderFrame, State.LastRequest.Iterations, State.LastRequest.Directions,
+			WorldStateViewKey(LastValidViewKey), LastValidRenderFrame, GFrameNumberRenderThread, LastValidRenderFrame, State.LastRequest.Iterations, State.LastRequest.Directions,
 			State.LastRequest.Directions == 6 ? TEXT("formal_six") : TEXT("upwind_half_gauss"),
 			State.LastTransportTest, State.LastTransportTau, State.LastTransportAlbedo, State.LastTransportGeometry, State.LastTransportBoundary,
 			State.LastRequest.Extent.X * (2.0 / WorldSize), State.LastRequest.Extent.Y * (2.0 / WorldSize), State.LastRequest.Extent.Z * (2.0 / WorldSize),
@@ -890,7 +975,7 @@ bool FogMS_DumpWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList, 
 		TEXT("\"viewKey\":%u,\"viewFrame\":%u,\"renderFrame\":%u,\"dumpRenderFrame\":%u,\"sourceProducedRenderFrame\":%u,")
 		TEXT("\"revision\":%llu,\"rangeCm\":%.9g,\"strength\":%.9g,\"steps\":16,\"directions\":12,\"orders\":3,\"indirectEnabled\":%d}\n"),
 		Saved ? TEXT("true") : TEXT("false"), WorldSize, 2 * WorldSize * WorldSize, WorldSize, Bytes.Num(),
-		uint32(LastValidViewKey >> 1), State.LastFrameIndex, LastValidRenderFrame, GFrameNumberRenderThread, LastValidRenderFrame,
+		WorldStateViewKey(LastValidViewKey), State.LastFrameIndex, LastValidRenderFrame, GFrameNumberRenderThread, LastValidRenderFrame,
 		static_cast<unsigned long long>(State.LastRequest.Revision), State.LastRequest.RangeCm,
 		State.LastRequest.Strength, State.LastIndirectEnabled);
 	FFileHelper::SaveStringToFile(Metadata, *(PathPrefix + TEXT(".json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);

@@ -85,6 +85,22 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	 * [0,1] by the solver; a non-finite channel uses 0.3. Part of the hold key (with the packet revision).
 	 */
 	FLinearColor FallbackGroundAlbedo = FLinearColor(0.3f, 0.3f, 0.3f, 1.0f);
+	/** Stable runtime id of the requesting Box (never reused while the process runs; 0 is reserved, see
+	 * FogMS_InvalidateWorldLighting_RenderThread). Per-view state (warm start, SolveInterval hold chain, resident atlas,
+	 * late publication) is keyed by (view, BoxId, transport), so several Boxes can be requested in one view and graph.
+	 * Must stay below 2^31.
+	 */
+	uint32 BoxId = 0;
+	/** True only for the one Box whose field feeds the overlay consumers (the packet Box): with BindlessAll it gets the
+	 * resident atlas + bindless descriptor, and FogMS.DumpSpatial dumps it. False (every other Box): Transport with
+	 * InjectionTexture only; no resident atlas or descriptor is created and DescriptorIndex stays MAX_uint32.
+	 */
+	bool bResidentAtlas = true;
+	/** Transport only; scheduler (r.FogMS.MaxBoxesPerFrame): this Box is over this frame's solve budget. Only an
+	 * r.FogMS.Transport.SolveInterval hold may be returned; otherwise the call adds no pass, writes nothing and returns
+	 * bQueued (the caller keeps the injection field as is). Validation failures still fail as usual.
+	 */
+	bool bHoldOnly = false;
 	FFogMSWorldRequest() { FMemory::Memzero(BoxRows, sizeof(BoxRows)); }
 };
 
@@ -95,6 +111,9 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 struct FFogMSWorldResult : FFogMSSpatialResult
 {
 	bool bHeld = false;
+	/** bHoldOnly request that could not hold: no pass, nothing written, Valid false. Not a failure: the caller keeps
+	 * the injection field it last published and must not clear it. */
+	bool bQueued = false;
 	int32 HoldPhase = 0;
 	int32 SolveInterval = 1;
 	/** Sky boundary source of the published solve (r.FogMS.World.SkySource), for status text. Holds repeat the last. */
@@ -104,7 +123,8 @@ struct FFogMSWorldResult : FFogMSSpatialResult
 	FString LumenBounce;
 };
 
-/** PostTLAS, graphics queue only. Resident atlas: N x (2*N*N).
+/** PostTLAS, graphics queue only. One call per Box and view; several Boxes may be requested in one graph, each with its
+ * own (view, Request.BoxId) state. Resident atlas (packet Box only, Request.bResidentAtlas): N x (2*N*N).
  * Without BindlessAll only Transport + InjectionTexture is accepted: no resident atlas or descriptor is created
  * (Result.Texture null, DescriptorIndex MAX_uint32); the field reaches fog through InjectionTexture alone.
  * Lower half: additional incident radiance, including per-order damping.
@@ -117,19 +137,24 @@ FOGMSRENDER_API FFogMSWorldResult FogMS_BuildWorldLighting(
  * the solver's own predicate). The caller then sets bLatePublish and defers every graphics consumer of the solve.
  */
 FOGMSRENDER_API bool FogMS_TransportPublishesLate(const FRDGBuilder& GraphBuilder);
-/** Render thread, before this graph's late copy. The resident Transport atlas of this view when the previous
+/** Render thread, before this graph's late copy. The resident Transport atlas of this view and Box when the previous
  * graph completed its late copy (FogMS_PublishWorldLightingLate) or held that copy (SolveInterval hold) for the
- * same Box bounds (BoxRows 0..4).
+ * same Box bounds (BoxRows 0..4). Only the packet Box (bResidentAtlas) has one; any other Box gets false.
  * False otherwise: the caller must publish no field (fail closed).
  */
-FOGMSRENDER_API bool FogMS_GetLateTransportField(const FSceneView& View, const FVector4f* BoxRows, uint32& OutDescriptorIndex, int32& OutGridSize);
-/** PrePostProcessPass of the graph whose PostTLAS build set bLatePublish. Graphics copies: transient atlas ->
- * resident atlas (only when one exists, i.e. BindlessAll) and, when requested, transient field -> InjectionTexture,
- * each left in external SRV access. False when this graph has no pending late publication for this view or
- * nothing was copied (nothing is written).
+FOGMSRENDER_API bool FogMS_GetLateTransportField(const FSceneView& View, uint32 BoxId, const FVector4f* BoxRows, uint32& OutDescriptorIndex, int32& OutGridSize);
+/** PrePostProcessPass of the graph whose PostTLAS build set bLatePublish for this Box. Graphics copies: transient
+ * atlas -> resident atlas (only when one exists, i.e. BindlessAll packet Box) and, when requested, transient field ->
+ * InjectionTexture, each left in external SRV access. The graph's blackboard holds one pending entry per (view, Box);
+ * this call consumes the one of BoxId. False when there is none for this view and Box or nothing was copied.
  */
-FOGMSRENDER_API bool FogMS_PublishWorldLightingLate(FRDGBuilder& GraphBuilder, const FSceneView& View, bool& bOutInjectionCopied);
+FOGMSRENDER_API bool FogMS_PublishWorldLightingLate(FRDGBuilder& GraphBuilder, const FSceneView& View, uint32 BoxId, bool& bOutInjectionCopied);
 FOGMSRENDER_API void FogMS_ShutdownWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList);
-FOGMSRENDER_API void FogMS_InvalidateWorldLighting_RenderThread();
-/** Returns false when there is no current world-mode producer; caller may dump legacy. */
+/** Breaks the SolveInterval hold chain of every view state of BoxId (0: of every Box, the former behaviour). */
+FOGMSRENDER_API void FogMS_InvalidateWorldLighting_RenderThread(uint32 BoxId = 0);
+/** Render thread, between graphs. The Box is gone (destroyed, disabled, hidden or no longer active): retire every
+ * per-view state of BoxId (resident atlas behind a GPU fence, warm-start atlas back to the pool). */
+FOGMSRENDER_API void FogMS_ReleaseWorldLightingBox_RenderThread(FRHICommandListImmediate& RHICmdList, uint32 BoxId);
+/** Returns false when there is no current world-mode producer; caller may dump legacy.
+ * Dumps the packet Box only (the request with bResidentAtlas): the only Box with a resident atlas. */
 FOGMSRENDER_API bool FogMS_DumpWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList, const FString& PathPrefix);

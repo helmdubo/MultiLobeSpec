@@ -119,7 +119,12 @@ public:
 	virtual void PostEditMove(bool bFinished) override;
 #endif
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ToolTip="Enable this box as the live A1 region. Changes apply live after Enable Live Box has compiled the shaders. Use one enabled box per world."))
+	/** Several Boxes: any number of enabled Transport Boxes with Emissive Injection run at once, each solving into its own
+	 * field (r.FogMS.MaxBoxesPerFrame solves per view and frame, the rest hold or queue); at most one enabled Box without
+	 * Emissive Injection (the overlay path). Limits: a Box's rays and sun transmittance ignore every other Box's medium;
+	 * overlapping Boxes add their injected emissive (double lighting where they overlap); the overlay delivery and its
+	 * features (A1d/A1e, shadow cache, SSFS sky disk, FogMS.DumpSpatial) serve one Box only. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ToolTip="Enable this box as the live FogMS region. Changes apply live after Enable Live Box has compiled the shaders (automatic for Emissive Injection without -BindlessAll). Several Boxes: any number of enabled Transport Boxes with Emissive Injection run at once, each solving into its own field (r.FogMS.MaxBoxesPerFrame solves per view and frame; the others hold their last solve or wait, status 'Queued'); at most one enabled Box without Emissive Injection (the overlay path). Limits: a Box's rays and its sun transmittance do not see other Boxes' density; overlapping Boxes add their injected light (double lighting in the overlap, avoid overlaps); the overlay delivery and its features (authored/surface sun shadow, shadow cache, SSFS sky disk, FogMS.DumpSpatial) serve one Box only."))
 	bool bEnabled = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ClampMin="0.0", UIMin="0.0", Units="cm", ToolTip="Feather distance in world centimetres. Changes apply live after Enable Live Box has compiled the shaders."))
