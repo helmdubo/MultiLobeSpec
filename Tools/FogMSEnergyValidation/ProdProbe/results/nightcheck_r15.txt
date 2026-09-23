@@ -1,0 +1,10 @@
+SUN_ROT0 [-15.95448112487792, 20.580078124999996, 53.30691909790036]
+pitch -40.0 | box  233.9 | sky  227.3 | floor  105.6 | Active B3 isotropic transport (16 directions, tol 1.00e-06; 
+pitch -20.0 | box  224.8 | sky  215.5 | floor   83.6 | Active B3 isotropic transport (16 directions, tol 1.00e-06; 
+pitch  -8.0 | box  213.7 | sky  199.9 | floor   52.8 | Active B3 isotropic transport (16 directions, tol 1.00e-06; 
+pitch  -3.0 | box  197.7 | sky  184.3 | floor   41.8 | Active B3 isotropic transport (16 directions, tol 1.00e-06; 
+pitch  +0.0 | box  182.3 | sky  171.5 | floor   38.8 | Active B3 isotropic transport (16 directions, tol 1.00e-06; 
+pitch  +3.0 | box  172.2 | sky  165.3 | floor   38.7 | Active B3 isotropic transport (16 directions, tol 1.00e-06; 
+pitch  +8.0 | box  171.0 | sky  164.0 | floor   38.8 | Active B3 isotropic transport (16 directions, tol 1.00e-06; 
+--- box/sky ratio by pitch: ['-40:1.03', '-20:1.04', '-8:1.07', '-3:1.07', '+0:1.06', '+3:1.04', '+8:1.04']
+DONE

@@ -1,0 +1,36 @@
+SAVED E:/GITHUB/MultiLobeSpec/MultiLobeSpec/.claude/worktrees/volumetric-fog-multiple-scattering-audit-494905/Tools/FogM
+"output": "FROZEN overlay\r\n"
+== hf_1a | == hf_1a: GPU frame 20.66 ms, 538 events | FogMS transport/world (B2/B3)                    2.11 ms | maxres 0.0716659203
+"output": "RUN=1a FLAGS=1 Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+--- HitFlagsDebug log, run 1a (PublicHitFlags 1)
+HitFlagsDebug frame 889 (queued 887), shadowing with public (PublicHitFlags 1): public 1 entries (4 bytes), private 1 entries (4 bytes)
+HitFlagsDebug bindings walked 1, highest index 0, bCastRayTracedShadows=false 0, dynamic 0 (no shadow 0), hidden 0, index written twice 0 (conflicting CastShadow 0)
+HitFlagsDebug written indices 1: bit29 clear public 0 / private 0 (CPU expected 0, public upload mismatches 0); written past the private end 0; private bit27(dynamic) != binding 0
+HitFlagsDebug CastShadow differs at 0 written indices and 0 elsewhere (unwritten indices with private bit29 clear: 0)
+HitFlagsDebug GPU pass 2: 0 shadow-ray candidate evaluations disagree on bit 29 (private vs public)
+== hf_0 | == hf_0: GPU frame 21.27 ms, 546 events | FogMS transport/world (B2/B3)                    2.10 ms | maxres 0.0413788557
+"output": "RUN=0 FLAGS=0 Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+--- HitFlagsDebug log, run 0 (PublicHitFlags 0)
+HitFlagsDebug frame 1377 (queued 1375), shadowing with private (PublicHitFlags 0): public 1 entries (4 bytes), private 1 entries (4 bytes)
+HitFlagsDebug bindings walked 1, highest index 0, bCastRayTracedShadows=false 0, dynamic 0 (no shadow 0), hidden 0, index written twice 0 (conflicting CastShadow 0)
+HitFlagsDebug written indices 1: bit29 clear public 0 / private 0 (CPU expected 0, public upload mismatches 0); written past the private end 0; private bit27(dynamic) != binding 0
+HitFlagsDebug CastShadow differs at 0 written indices and 0 elsewhere (unwritten indices with private bit29 clear: 0)
+HitFlagsDebug GPU pass 2: 0 shadow-ray candidate evaluations disagree on bit 29 (private vs public)
+== hf_1b | == hf_1b: GPU frame 21.08 ms, 545 events | FogMS transport/world (B2/B3)                    2.09 ms | maxres 0.0641465858
+"output": "RUN=1b FLAGS=1 Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+--- HitFlagsDebug log, run 1b (PublicHitFlags 1)
+HitFlagsDebug frame 1865 (queued 1863), shadowing with public (PublicHitFlags 1): public 1 entries (4 bytes), private 1 entries (4 bytes)
+HitFlagsDebug bindings walked 1, highest index 0, bCastRayTracedShadows=false 0, dynamic 0 (no shadow 0), hidden 0, index written twice 0 (conflicting CastShadow 0)
+HitFlagsDebug written indices 1: bit29 clear public 0 / private 0 (CPU expected 0, public upload mismatches 0); written past the private end 0; private bit27(dynamic) != binding 0
+HitFlagsDebug CastShadow differs at 0 written indices and 0 elsewhere (unwritten indices with private bit29 clear: 0)
+HitFlagsDebug GPU pass 2: 0 shadow-ray candidate evaluations disagree on bit 29 (private vs public)
+--- noise floor: public (1a) vs public (1b)
+hf_1a vs hf_1b: rel L2 0.0143 | weighted mean rel diff 0.0133 | mean lum ratio 1.0144 | bright-half mean |dJ|/J 0.0128
+--- field: public (1a) vs private (0)
+hf_1a vs hf_0: rel L2 0.0113 | weighted mean rel diff 0.0101 | mean lum ratio 1.0108 | bright-half mean |dJ|/J 0.0099
+--- field: public (1b) vs private (0)
+hf_1b vs hf_0: rel L2 0.0034 | weighted mean rel diff 0.0031 | mean lum ratio 0.9964 | bright-half mean |dJ|/J 0.0029
+screenshot noise floor public 1a vs 1b: PSNR 30.9 dB | mean ratio 1.0044
+screenshot public 1a vs private: PSNR 34.6 dB | mean ratio 1.0069
+screenshot public 1b vs private: PSNR 31.5 dB | mean ratio 1.0025
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',

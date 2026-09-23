@@ -1,0 +1,19 @@
+SAVED E:/GITHUB/MultiLobeSpec/MultiLobeSpec/.claude/worktrees/volumetric-fog-multiple-scattering-audit-494905/Tools/FogM
+"output": "FROZEN overlay\r\n"
+"output": "SET AUTO\r\n"
+== lum_auto | == lum_auto: GPU frame 18.35 ms, 518 events | FogMS transport/world (B2/B3)                    2.08 ms | maxres 0.0805945545
+"output": "LumenBounce=AUTO Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]\r\n"
+"output": "SET OFF\r\n"
+== lum_off | == lum_off: GPU frame 18.36 ms, 518 events | FogMS transport/world (B2/B3)                    2.06 ms | maxres 0
+"output": "LumenBounce=OFF Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: fallback (Lumen Bounce Off); see convergence diagnostics) [sky: processed capture (public)]\r\n"
+"output": "SET AUTO\r\n"
+== lum_auto2 | == lum_auto2: GPU frame 17.96 ms, 518 events | FogMS transport/world (B2/B3)                    2.08 ms | maxres 0.0627472252
+"output": "LumenBounce=AUTO Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]\r\n"
+--- noise floor: auto vs auto2
+lum_auto vs lum_auto2: rel L2 0.0001 | weighted mean rel diff 0.0000 | mean lum ratio 1.0000 | bright-half mean |dJ|/J 0.0000
+--- field: off (fallback) vs auto (Lumen)
+lum_off vs lum_auto: rel L2 0.0462 | weighted mean rel diff 0.0230 | mean lum ratio 1.0325 | bright-half mean |dJ|/J 0.0203
+front face  off vs auto: PSNR  29.9 dB ratio 1.0507 | noise auto2 vs auto: PSNR  50.0 dB ratio 1.0004
+core        off vs auto: PSNR  30.7 dB ratio 1.0512 | noise auto2 vs auto: PSNR  50.4 dB ratio 1.0005
+floor       off vs auto: PSNR  52.2 dB ratio 1.0001 | noise auto2 vs auto: PSNR  52.0 dB ratio 1.0000
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',

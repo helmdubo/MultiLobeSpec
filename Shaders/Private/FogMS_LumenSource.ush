@@ -21,6 +21,12 @@
 #endif
 
 // Rewrite only this include's symbols; the C++ side owns its UB registration.
+#ifndef FOGMS_LUMEN_SOURCE_UNAVAILABLE
+#define FOGMS_LUMEN_SOURCE_UNAVAILABLE 0
+#endif
+// The engine's surface-cache sampling include and its card layout are verified for 5.8.2 only (C++ gate
+// FOGMS_LUMEN_SOURCE_VERIFIED_ENGINE sets this define); other builds compile the stub below and use the fallback.
+#if !FOGMS_LUMEN_SOURCE_UNAVAILABLE
 #define LumenCardScene FogMSLumenCardScene
 #define DirectLightingAtlas FogMSLumenDirectLightingAtlas
 #define IndirectLightingAtlas FogMSLumenIndirectLightingAtlas
@@ -46,10 +52,26 @@
 #undef IndirectLightingAtlas
 #undef DirectLightingAtlas
 #undef LumenCardScene
+#endif // !FOGMS_LUMEN_SOURCE_UNAVAILABLE
 
 float FogMSLumenSurfaceCacheDepthBias;
 uint FogMSLumenInstanceMapCount;
+// Transport BoundaryRadiance only (FogMS_Transport.usf passes 1/14; the World producer ignores both): 1 = FogMS_SurfaceRadiance
+// below, 0 = public fallback (dummy Lumen bindings, FogMS_GetFallbackLumenSource). Fallback only: FogMSFallbackGroundAlbedo =
+// the Box's Fallback Ground Albedo (FFogMSWorldRequest::FallbackGroundAlbedo, RGB in [0,1]); FogMSFallbackMedium =
+// r.FogMS.World.FallbackMedium != 0 (Box-medium transmittance on the fallback sun ray).
+uint FogMSLumenBounce;
+float3 FogMSFallbackGroundAlbedo;
+uint FogMSFallbackMedium;
 
+#if FOGMS_LUMEN_SOURCE_UNAVAILABLE
+// Stub for engine builds without the verified Lumen surface-cache layout: never valid, the caller's fallback lights the hit.
+float3 FogMS_SurfaceRadiance(uint GPUSceneInstanceIndex, float3 TranslatedWorldPosition, float3 WorldNormal, out bool Valid)
+{
+	Valid = false;
+	return 0.0f;
+}
+#else
 // Returns scene-linear outgoing surface radiance (reflected diffuse + emissive).
 // The caller applies medium attenuation and receiver scattering exactly once.
 // A geometric hit without a card remains an occluding hit with Valid=false;
@@ -76,3 +98,4 @@ float3 FogMS_SurfaceRadiance(uint GPUSceneInstanceIndex, float3 TranslatedWorldP
 	Valid = Sample.bValid && all(isfinite(Sample.Radiance));
 	return Valid ? max(Sample.Radiance, 0.0f) : 0.0f;
 }
+#endif // FOGMS_LUMEN_SOURCE_UNAVAILABLE

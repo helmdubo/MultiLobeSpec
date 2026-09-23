@@ -19,10 +19,13 @@ uint FogMS_DebugMode()
 }
 
 #if FOGMS_BOX_MODE
-#if FOGMS_BOX_DATA_ROWS != 24
-#error FogMS light fields require the matching twenty-four-row Box runtime and overlay.
+#if FOGMS_BOX_DATA_ROWS != 32
+#error FogMS light fields require the matching thirty-two-row Box runtime and overlay.
 #endif
-#if !UE_BINDLESS_ENABLED || !PLATFORM_SUPPORTS_BINDLESS
+// Consumers (engine fog/lighting stages via the overlay) read the Box packet through the heap
+// descriptor FOGMS_BOX_DATA_SRV and need BindlessAll. Producers (plugin RDG passes) read the
+// bound BoxRows[] uniform below and never take the heap branch, so they carry no such requirement.
+#if !FOGMS_PRODUCER && (!UE_BINDLESS_ENABLED || !PLATFORM_SUPPORTS_BINDLESS)
 #error Live FogMS Box requires the D3D12 SM6 BindlessAll shader configuration.
 #endif
 float4 FogMS_BoxRow(uint Row)

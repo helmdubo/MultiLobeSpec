@@ -1,0 +1,24 @@
+SAVED E:/GITHUB/MultiLobeSpec/MultiLobeSpec/.claude/worktrees/volumetric-fog-multiple-scattering-audit-494905/Tools/FogM
+"output": "FROZEN hybrid=True\r\n"
+== int_n1 | == int_n1: GPU frame 18.52 ms, 402 events | FogMS transport/world (B2/B3)                    0.36 ms | maxres 0.0364463255
+"output": "N=1 Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; one frame late; see convergence diagnostics)\r\n"
+== int_n1_b: GPU frame 15.70 ms, 405 events   FogMS transport/world (B2/B3)                    0.37 ms 
+
+== int_n2 | == int_n2: GPU frame 14.81 ms, 393 events | FogMS transport/world (B2/B3)                    0.00 ms | maxres 0.0418637805
+"output": "N=2 Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; one frame late; solve every 2 frames; see convergence diagnostics)\r\n"
+== int_n2_b: GPU frame 14.73 ms, 397 events   FogMS transport/world (B2/B3)                    0.00 ms 
+
+== int_n4 | == int_n4: GPU frame 14.19 ms, 396 events | FogMS transport/world (B2/B3)                    0.00 ms | maxres 0.032778386
+"output": "N=4 Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; one frame late; solve every 4 frames; see convergence diagnostics)\r\n"
+== int_n4_b: GPU frame 13.85 ms, 396 events   FogMS transport/world (B2/B3)                    0.00 ms 
+
+== int_n1 | == int_n1: GPU frame 15.58 ms, 409 events | FogMS transport/world (B2/B3)                    0.34 ms | maxres 0.0177866872
+"output": "N=1 Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; one frame late; see convergence diagnostics)\r\n"
+== int_n1_b: GPU frame 16.93 ms, 412 events   FogMS transport/world (B2/B3)                    0.38 ms 
+
+--- screenshot PSNR vs N=1 (box front face / core)
+int_n2   front face  PSNR  26.8 dB | mean ratio 1.0100
+int_n2   core        PSNR  46.4 dB | mean ratio 1.0018
+int_n4   front face  PSNR  27.2 dB | mean ratio 0.9990
+int_n4   core        PSNR  44.2 dB | mean ratio 0.9950
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',

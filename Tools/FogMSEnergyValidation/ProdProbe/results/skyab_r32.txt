@@ -1,0 +1,45 @@
+SAVED E:/GITHUB/MultiLobeSpec/MultiLobeSpec/.claude/worktrees/volumetric-fog-multiple-scattering-audit-494905/Tools/FogM
+SkyLight real_time_capture before: True
+"output": "FROZEN overlay\r\n"
+"output": "RTC set True\r\n"
+== sky_rtcTrue_s0 | == sky_rtcTrue_s0: GPU frame 18.97 ms, 535 events | FogMS transport/world (B2/B3)                    3.04 ms | maxres 0.0127941286
+"output": "RTC=True SRC=0 Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average]\r\n"
+== sky_rtcTrue_s2 | == sky_rtcTrue_s2: GPU frame 20.62 ms, 537 events | FogMS transport/world (B2/B3)                    3.01 ms | maxres 0.00216059107
+"output": "RTC=True SRC=2 Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average]\r\n"
+== sky_rtcTrue_s3 | == sky_rtcTrue_s3: GPU frame 20.41 ms, 542 events | FogMS transport/world (B2/B3)                    2.68 ms | maxres 0.00603196863
+"output": "RTC=True SRC=3 Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: SH (fallback: processed capture requested, none ready)]\r\n"
+== sky_rtcTrue_s4 | == sky_rtcTrue_s4: GPU frame 20.64 ms, 542 events | FogMS transport/world (B2/B3)                    3.03 ms | maxres 0.00952083152
+"output": "RTC=True SRC=4 Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: SH]\r\n"
+== sky_rtcTrue_s0b | == sky_rtcTrue_s0b: GPU frame 19.34 ms, 535 events | FogMS transport/world (B2/B3)                    3.02 ms | maxres 0.0194130056
+"output": "RTC=True SRC=0b Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average]\r\n"
+--- fields vs auto (0), RTC=True
+0b   sky_rtcTrue_s0b vs sky_rtcTrue_s0: rel L2 0.0115 | weighted mean rel diff 0.0021 | mean lum ratio 1.0002 | bright-half mean |dJ|/J 0.0026
+2    sky_rtcTrue_s2 vs sky_rtcTrue_s0: rel L2 0.0008 | weighted mean rel diff 0.0004 | mean lum ratio 0.9995 | bright-half mean |dJ|/J 0.0004
+3    sky_rtcTrue_s3 vs sky_rtcTrue_s0: rel L2 0.3474 | weighted mean rel diff 0.3306 | mean lum ratio 1.3721 | bright-half mean |dJ|/J 0.3264
+4    sky_rtcTrue_s4 vs sky_rtcTrue_s0: rel L2 0.3563 | weighted mean rel diff 0.3383 | mean lum ratio 1.3830 | bright-half mean |dJ|/J 0.3332
+screenshot RTC=True source 0b vs auto: PSNR  21.9 dB | mean ratio 0.9942
+screenshot RTC=True source 2  vs auto: PSNR  22.8 dB | mean ratio 1.0059
+screenshot RTC=True source 3  vs auto: PSNR  19.4 dB | mean ratio 1.0850
+screenshot RTC=True source 4  vs auto: PSNR  19.5 dB | mean ratio 1.0872
+"output": "RTC set False\r\n"
+== sky_rtcFalse_s0 | == sky_rtcFalse_s0: GPU frame 18.99 ms, 527 events | FogMS transport/world (B2/B3)                    2.71 ms | maxres 0.00690146955
+"output": "RTC=False SRC=0 Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]\r\n"
+== sky_rtcFalse_s2 | == sky_rtcFalse_s2: GPU frame 20.10 ms, 527 events | FogMS transport/world (B2/B3)                    3.38 ms | maxres 0.00898955669
+"output": "RTC=False SRC=2 Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average]\r\n"
+== sky_rtcFalse_s3 | == sky_rtcFalse_s3: GPU frame 18.92 ms, 527 events | FogMS transport/world (B2/B3)                    2.69 ms | maxres 0.0127505781
+"output": "RTC=False SRC=3 Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]\r\n"
+== sky_rtcFalse_s4 | == sky_rtcFalse_s4: GPU frame 19.24 ms, 529 events | FogMS transport/world (B2/B3)                    3.03 ms | maxres 0.00575538632
+"output": "RTC=False SRC=4 Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: SH]\r\n"
+== sky_rtcFalse_s0b | == sky_rtcFalse_s0b: GPU frame 19.32 ms, 529 events | FogMS transport/world (B2/B3)                    2.68 ms | maxres 0.0164840836
+"output": "RTC=False SRC=0b Active B3 isotropic transport (16 directions, tol 1.00e-06; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]\r\n"
+--- fields vs auto (0), RTC=False
+0b   sky_rtcFalse_s0b vs sky_rtcFalse_s0: rel L2 0.0089 | weighted mean rel diff 0.0016 | mean lum ratio 1.0001 | bright-half mean |dJ|/J 0.0019
+2    sky_rtcFalse_s2 vs sky_rtcFalse_s0: rel L2 0.2598 | weighted mean rel diff 0.2392 | mean lum ratio 0.7311 | bright-half mean |dJ|/J 0.2229
+3    sky_rtcFalse_s3 vs sky_rtcFalse_s0: rel L2 0.0002 | weighted mean rel diff 0.0000 | mean lum ratio 1.0000 | bright-half mean |dJ|/J 0.0000
+4    sky_rtcFalse_s4 vs sky_rtcFalse_s0: rel L2 0.0848 | weighted mean rel diff 0.0748 | mean lum ratio 1.0363 | bright-half mean |dJ|/J 0.0695
+screenshot RTC=False source 0b vs auto: PSNR  13.1 dB | mean ratio 0.9666
+screenshot RTC=False source 2  vs auto: PSNR  20.4 dB | mean ratio 0.9334
+screenshot RTC=False source 3  vs auto: PSNR  22.2 dB | mean ratio 1.0042
+screenshot RTC=False source 4  vs auto: PSNR  21.7 dB | mean ratio 1.0271
+"output": "RTC restored True\r\n"
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',

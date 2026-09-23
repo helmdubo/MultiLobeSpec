@@ -1,0 +1,21 @@
+"output": "BEFORE Transport needs Emissive Injection or -BindlessAll (injection-only: no BindlessAll). Native fog lighting with authored density.\r\n"
+"output": "ENABLE_LIVE_BOX Transport needs Emissive Injection or -BindlessAll (injection-only: no BindlessAll; overlay features off). Native fog lighting.\r\n"
+"output": "INJ_OFF\r\n"
+"output": "STATUS_INJ_OFF Transport needs Emissive Injection or -BindlessAll (injection-only: no BindlessAll). Native fog lighting with authored density.\r\n"
+"output": "INJ_ON\r\n"
+"output": "STATUS_INJ_ON Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; see convergence diagnostics) (injection-only: no BindlessAll; overlay features off) | Bypassed: requires -BindlessAll (injection-only: no BindlessAll; overlay features off).\r\n"
+== nobindless_inj | == nobindless_inj: GPU frame 10.05 ms, 527 events | FogMS transport/world (B2/B3)                    2.66 ms | metrics {} | shot yes
+"output": "STATUS_ASYNC Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; one frame late; see convergence diagnostics) (injection-only: no BindlessAll; overlay features off)\r\n"
+== nobindless_inj_async | == nobindless_inj_async: GPU frame 9.61 ms, 390 events | FogMS transport/world (B2/B3)                    0.30 ms | metrics {} | shot yes
+--- screenshot PSNR vs BindlessAll reference (box front face)
+nobindless_inj         PSNR 18.4 dB | mean ratio 0.8929
+nobindless_inj_async   PSNR 19.8 dB | mean ratio 0.9108
+--- log: bindless summary / errors
+[2026.09.23-05.15.27:123][  0]LogD3D12RHI: Bindless is supported. MaxNonSamplerDescriptors: 1000000, MaxSamplerDescriptors: 2048
+[2026.09.23-05.15.27:123][  0]LogD3D12RHI: D3D12 ray tracing tier 1.1 and bindless resources are supported.
+[2026.09.23-05.15.27:123][  0]LogD3D12RHI: Bindless is enabled (Configuration=RayTracing). Initializing allocators with 32768 Resource and 2048 Sampler descriptors
+[2026.09.23-05.15.32:190][  0]LogFogMSRHICompatibility: FogMS: bindless configuration RayTracing, inline RT yes; available modes: injection-only (Transport + Emissive Injection via the Box Volume material; overlay featur
+[2026.09.23-05.16.22:945][121]LogMultiLobeSpec: Display: FogMS Box: injection-only runtime (no BindlessAll): Transport + Emissive Injection via the Box Volume material; overlay features (A1d/A1e, shadow cache, ViewIntegr
+[2026.09.23-05.16.22:947][121]LogMultiLobeSpec: Display: FogMS requested: enabled=1 steps=64 march_cm=0 max_cm=2000000 exclude_global=0 extinction_scale=1 debug_views=1 error=The live Box overlay (BoxMode 1) requires -Bi
+0
+"output": "RESTORED\r\n"

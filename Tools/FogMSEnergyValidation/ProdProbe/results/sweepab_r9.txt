@@ -1,0 +1,20 @@
+"output": "FROZEN Active B3 isotropic transport (48 directions, tol 1.00e-08; see convergence diagnostics)\r\n"
+== sweep_256 | == sweep_256: GPU frame 11.54 ms, 532 events | FogMS transport/world (B2/B3)                    2.35 ms | maxres 0.0484130755
+       0.659 ms  FogMS B3 16 ordinate wavefronts
+       0.376 ms  FogMS B3 16 ordinate wavefronts
+       0.338 ms  FogMS B3 16 ordinate wavefronts
+== sweep_512 | == sweep_512: GPU frame 11.69 ms, 532 events | FogMS transport/world (B2/B3)                    2.23 ms | maxres 0.0378590077
+       0.615 ms  FogMS B3 16 ordinate wavefronts
+       0.326 ms  FogMS B3 16 ordinate wavefronts
+       0.315 ms  FogMS B3 16 ordinate wavefronts
+== sweep_1024 | == sweep_1024: GPU frame 11.68 ms, 532 events | FogMS transport/world (B2/B3)                    2.20 ms | maxres 0.0289050415
+       0.598 ms  FogMS B3 16 ordinate wavefronts
+       0.315 ms  FogMS B3 16 ordinate wavefronts
+       0.314 ms  FogMS B3 16 ordinate wavefronts
+== sweep_256 | == sweep_256: GPU frame 11.80 ms, 532 events | FogMS transport/world (B2/B3)                    2.34 ms | maxres 0.0200673323
+       0.647 ms  FogMS B3 16 ordinate wavefronts
+       0.374 ms  FogMS B3 16 ordinate wavefronts
+       0.340 ms  FogMS B3 16 ordinate wavefronts
+--- field check (must be identical)
+sweep_1024 vs sweep_256: rel L2 0.0000 | weighted mean rel diff 0.0000 | mean lum ratio 1.0000 | bright-half mean |dJ|/J 0.0000
+"output": "RESTORED Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"

@@ -1,0 +1,21 @@
+SAVED E:/GITHUB/MultiLobeSpec/MultiLobeSpec/.claude/worktrees/volumetric-fog-multiple-scattering-audit-494905/Tools/FogM
+SkyLight real_time_capture before: True
+"output": "RTC off False\r\n"
+"output": "FROZEN overlay, defaults: Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]\r\n"
+== ident_a | == ident_a: GPU frame 16.48 ms, 527 events | FogMS transport/world (B2/B3)                    2.10 ms | maxres 0.119346648
+== ident_b | == ident_b: GPU frame 16.77 ms, 527 events | FogMS transport/world (B2/B3)                    2.10 ms | maxres 0.158269495
+--- field vs round-25 reference (/e/GITHUB/MultiLobeSpec/MultiLobeSpec/.claude/worktrees/volumetric-fog-multiple-scattering-audit-494905/Tools/FogMSEnergyValidation/ProdProbe/measure/sky_rtcFalse_s0)
+a    ident_a vs sky_rtcFalse_s0: rel L2 0.0539 | weighted mean rel diff 0.0515 | mean lum ratio 0.9448 | bright-half mean |dJ|/J 0.0493
+b    ident_b vs sky_rtcFalse_s0: rel L2 0.0539 | weighted mean rel diff 0.0515 | mean lum ratio 0.9448 | bright-half mean |dJ|/J 0.0493
+--- noise floor (a vs b, same round)
+a/b  ident_a vs ident_b: rel L2 0.0002 | weighted mean rel diff 0.0000 | mean lum ratio 1.0000 | bright-half mean |dJ|/J 0.0000
+--- erosion 0.5 / stratus profile smoke (field must CHANGE; status must stay Active)
+"output": "erosion set\r\n"
+== ident_erosion | == ident_erosion: GPU frame 16.31 ms, 527 events | FogMS transport/world (B2/B3)                    2.05 ms | maxres 0.00230875332
+erosion vs a ident_erosion vs ident_a: rel L2 0.2061 | weighted mean rel diff 0.1294 | mean lum ratio 1.0526 | bright-half mean |dJ|/J 0.1089
+"output": "stratus set 0.4000000059604645 0.6000000238418579\r\n"
+== ident_stratus | == ident_stratus: GPU frame 15.64 ms, 527 events | FogMS transport/world (B2/B3)                    1.96 ms | maxres 0.0017574759
+stratus vs a ident_stratus vs ident_a: rel L2 0.3840 | weighted mean rel diff 0.2489 | mean lum ratio 1.1687 | bright-half mean |dJ|/J 0.1641
+"output": "profile off\r\n"
+"output": "RTC restored True\r\n"
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',

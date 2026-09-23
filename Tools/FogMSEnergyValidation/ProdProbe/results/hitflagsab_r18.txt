@@ -1,0 +1,12 @@
+SAVED E:/GITHUB/MultiLobeSpec/MultiLobeSpec/.claude/worktrees/volumetric-fog-multiple-scattering-audit-494905/Tools/FogM
+"output": "FROZEN overlay\r\n"
+== hf_1 | == hf_1: GPU frame 21.48 ms, 535 events | FogMS transport/world (B2/B3)                    2.12 ms | maxres 0.0333168022
+"output": "FLAGS=1 Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+== hf_0 | == hf_0: GPU frame 22.48 ms, 542 events | FogMS transport/world (B2/B3)                    5.03 ms | maxres 0.0281440318
+"output": "FLAGS=0 Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+== hf_1 | == hf_1: GPU frame 19.10 ms, 537 events | FogMS transport/world (B2/B3)                    2.50 ms | maxres 0.0207009073
+"output": "FLAGS=1 Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+--- field: public (1) vs private (0)
+hf_1 vs hf_0: rel L2 0.0120 | weighted mean rel diff 0.0128 | mean lum ratio 0.9872 | bright-half mean |dJ|/J 0.0130
+screenshot public vs private: PSNR 27.3 dB | mean ratio 0.9883
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',

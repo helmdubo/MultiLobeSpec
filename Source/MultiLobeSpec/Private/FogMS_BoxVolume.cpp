@@ -6,7 +6,9 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
+#include "DynamicRHI.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/TextureRenderTargetVolume.h"
 #include "Engine/VolumeTexture.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
@@ -17,6 +19,7 @@
 #include "MultiLobeSpec.h"
 #include "Serialization/CustomVersion.h"
 #include "Serialization/Archive.h"
+#include "ShaderPlatformConfig.h"
 #include "Templates/UnrealTemplate.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -25,6 +28,33 @@ namespace
 	const FGuid FogMS_MotionVersionGuid(0xD9F49C37, 0xBE184764, 0xA270B431, 0x3E0D958A);
 	constexpr int32 FogMS_DirectionalMotionVersion = 1;
 	FCustomVersionRegistration FogMS_MotionVersion(FogMS_MotionVersionGuid, FogMS_DirectionalMotionVersion, TEXT("FogMSDirectionalMotion"));
+	// Must equal the transport grid (TransportGridSize in FogMS_Transport.cpp, WorldSize in
+	// FogMS_WorldLighting.cpp); the producer rejects any other field size.
+	constexpr int32 FogMS_TransportFieldSize = 32;
+
+	struct FFogMSTransportTier
+	{
+		EFogMSAngularQuality AngularQuality;
+		int32 Iterations;
+		float Tolerance;
+
+		bool Matches(EFogMSAngularQuality Quality, int32 InIterations, float InTolerance) const
+		{
+			return AngularQuality == Quality && Iterations == InIterations && Tolerance == InTolerance;
+		}
+	};
+
+	/** Measured production tiers (frozen scene, warm start). False for Custom. */
+	bool FogMS_GetTransportTier(EFogMSTransportPreset Preset, FFogMSTransportTier& OutTier)
+	{
+		switch (Preset)
+		{
+		case EFogMSTransportPreset::Production: OutTier = { EFogMSAngularQuality::Low16, 16, 1.0e-6f }; return true;
+		case EFogMSTransportPreset::High: OutTier = { EFogMSAngularQuality::Balanced48, 16, 1.0e-8f }; return true;
+		case EFogMSTransportPreset::Cinematic: OutTier = { EFogMSAngularQuality::High96, 64, 1.0e-14f }; return true;
+		default: return false;
+		}
+	}
 
 	bool FogMS_IsFinitePositiveVector(const FVector& Value)
 	{
@@ -120,19 +150,77 @@ namespace
 		return World && !Actor.IsHidden();
 	}
 
+	// Same predicate as BoxRuntime: the engine-shader overlay (r.FogMS.BoxMode 1) needs BindlessAll. Without it
+	// only the injection-only runtime exists (Transport -> Emissive Injection volume -> this Box's Volume material).
+	// The overlay is built by the editor-only shader patcher, so outside the editor (cooked game, -game) this is
+	// always false and the Box is injection-only even when the RHI runs BindlessAll.
+	bool FogMS_IsBindlessAllConfiguration()
+	{
+#if WITH_EDITOR
+		return GIsEditor && FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform)
+			&& FShaderPlatformConfig::GetBindlessConfiguration(GMaxRHIShaderPlatform) == ERHIBindlessConfiguration::All;
+#else
+		return false;
+#endif
+	}
+
 	void FogMS_ApplyBoxMode(const int32 BoxMode)
 	{
-		IConsoleVariable* EnableVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Enable"));
-		IConsoleVariable* BoxModeVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.BoxMode"));
-		if (!EnableVariable || !BoxModeVariable)
+#if WITH_EDITOR
+		if (GIsEditor)
 		{
-			UE_LOG(LogMultiLobeSpec, Error, TEXT("FogMS Box Volume: r.FogMS.Enable or r.FogMS.BoxMode is unavailable; the mode was not applied."));
+			IConsoleVariable* EnableVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Enable"));
+			IConsoleVariable* BoxModeVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.BoxMode"));
+			if (!EnableVariable || !BoxModeVariable)
+			{
+				UE_LOG(LogMultiLobeSpec, Error, TEXT("FogMS Box Volume: r.FogMS.Enable or r.FogMS.BoxMode is unavailable; the mode was not applied."));
+				return;
+			}
+
+			EnableVariable->Set(1, ECVF_SetByConsole);
+			BoxModeVariable->Set(BoxMode, ECVF_SetByConsole);
+			FMultiLobeSpecModule::Get().ApplyFromSettings();
 			return;
 		}
+#endif
+		UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS Box Volume: r.FogMS.BoxMode %d needs the editor-only engine-shader overlay; not applied outside the editor."), BoxMode);
+	}
 
-		EnableVariable->Set(1, ECVF_SetByConsole);
-		BoxModeVariable->Set(BoxMode, ECVF_SetByConsole);
-		FMultiLobeSpecModule::Get().ApplyFromSettings();
+	// Game worlds (bApplyRequiredRenderSettings): the two renderer requirements of the transport/world solver checked by
+	// FogMS_WorldViewProblem and FogMS_BuildWorldLighting (engine defaults 3 and 1). ECVF_SetByGameSetting ranks above
+	// constructor defaults and scalability, but below project settings, [SystemSettings]/ini, device profiles,
+	// ConsoleVariables.ini, the command line and the console: an explicit project value wins and is only reported (the
+	// Set is skipped so the engine logs no priority warning). Not restored at EndPlay: a game-process setting.
+	void FogMS_ApplyRequiredRenderSettings(const AFogMSBoxVolume& Box)
+	{
+		struct FRequiredSetting
+		{
+			const TCHAR* Name;
+			int32 Value;
+		};
+		static const FRequiredSetting RequiredSettings[] =
+		{
+			{ TEXT("r.RayTracing.Culling"), 0 },
+			{ TEXT("r.Lumen.AsyncCompute"), 0 },
+		};
+		FString Summary;
+		for (const FRequiredSetting& Setting : RequiredSettings)
+		{
+			IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Setting.Name);
+			if (!Variable)
+			{
+				Summary += FString::Printf(TEXT(" %s unavailable;"), Setting.Name);
+				continue;
+			}
+			const int32 Previous = Variable->GetInt();
+			const EConsoleVariableFlags PreviousSetBy = static_cast<EConsoleVariableFlags>(Variable->GetFlags() & ECVF_SetByMask);
+			if (Previous != Setting.Value && PreviousSetBy <= ECVF_SetByGameSetting) Variable->Set(Setting.Value, ECVF_SetByGameSetting);
+			const int32 Current = Variable->GetInt();
+			Summary += FString::Printf(TEXT(" %s %d -> %d (previous SetBy%s)%s;"), Setting.Name, Previous, Current,
+				GetConsoleVariableSetByName(PreviousSetBy),
+				Current == Setting.Value ? TEXT("") : TEXT(" kept: higher-priority project/ini/command-line value, Transport stays off"));
+		}
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS %s: Apply Required Render Settings (SetByGameSetting):%s"), *Box.GetName(), *Summary);
 	}
 }
 
@@ -215,6 +303,13 @@ void AFogMSBoxVolume::Serialize(FArchive& Ar)
 void AFogMSBoxVolume::PostLoad()
 {
 	Super::PostLoad();
+	// A preset never silently changes a loaded look. Actors saved before TransportPreset existed
+	// load the default Production with their own saved fields (and TransportTolerance -1 = cvar,
+	// which no preset uses): whenever the saved tuple differs from the preset's, keep the fields
+	// and switch to Custom. A matching tuple (saved by a preset) keeps its preset.
+	FFogMSTransportTier Tier;
+	if (FogMS_GetTransportTier(TransportPreset, Tier) && !Tier.Matches(AngularQuality, TransportIterations, TransportTolerance))
+		TransportPreset = EFogMSTransportPreset::Custom;
 	UpdateDensity();
 }
 
@@ -222,6 +317,38 @@ void AFogMSBoxVolume::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	UpdateDensity();
+	AutoStartRuntime();
+}
+
+void AFogMSBoxVolume::BeginPlay()
+{
+	Super::BeginPlay();
+	// Standalone game worlds only (packaged, -game): PIE and editor worlds keep the editor path (Enable Indirect Preview).
+	// Only an enabled Box whose mode needs the world producer (Transport, World) changes these global settings.
+	const UWorld* World = GetWorld();
+	if (bApplyRequiredRenderSettings && bEnabled && World && World->WorldType == EWorldType::Game
+		&& (FogMS_IsTransportMode(ScatteringMode) || ScatteringMode == EFogMSScatteringMode::WorldSpace))
+		FogMS_ApplyRequiredRenderSettings(*this);
+	// Game/PIE worlds have no Details button. An enabled Transport Box with Emissive Injection starts its runtime
+	// itself: injection-only registers the view extension only; with BindlessAll (editor PIE) this is the button's path.
+	if (bEnabled && UsesEmissiveInjection()) EnableLiveBox();
+}
+
+void AFogMSBoxVolume::AutoStartRuntime()
+{
+	// Injection-only configuration (no BindlessAll): starting the runtime changes no global state (no BoxMode cvar,
+	// no engine-shader patch), so an enabled injection Box does it once on its first tick, also in the editor world.
+	// With BindlessAll the editor keeps the explicit Enable Live Box step (it applies the overlay patch).
+	if (bRuntimeAutoStarted || !bEnabled || !UsesEmissiveInjection() || FogMS_IsBindlessAllConfiguration()) return;
+	if (HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || !GetWorld() || GetWorld()->IsPreviewWorld()) return;
+	bRuntimeAutoStarted = true;
+	EnableLiveBox();
+}
+
+void AFogMSBoxVolume::Destroyed()
+{
+	ReleaseTransportField();
+	Super::Destroyed();
 }
 
 bool AFogMSBoxVolume::ShouldTickIfViewportsOnly() const
@@ -229,9 +356,94 @@ bool AFogMSBoxVolume::ShouldTickIfViewportsOnly() const
 	return true;
 }
 
+bool AFogMSBoxVolume::EnsureTransportField()
+{
+	if (!IsValid(TransportField))
+	{
+		UTextureRenderTargetVolume* Field = NewObject<UTextureRenderTargetVolume>(this,
+			MakeUniqueObjectName(this, UTextureRenderTargetVolume::StaticClass(), TEXT("FogMS_TransportField")), RF_Transient);
+		// bSupportsUAV makes CreateResource set bCanCreateUAV, i.e. TexCreate_UAV on the RHI texture.
+		Field->bSupportsUAV = true;
+		Field->bHDR = true;
+		Field->bForceLinearGamma = true;
+		// Alpha 0 marks "no current field": the material falls back to native albedo lighting.
+		Field->ClearColor = FLinearColor::Transparent;
+		Field->Filter = TF_Bilinear;
+		Field->Init(FogMS_TransportFieldSize, FogMS_TransportFieldSize, FogMS_TransportFieldSize, PF_FloatRGBA);
+		Field->UpdateResourceImmediate(true);
+		TransportField = Field;
+		bHasMaterialState = false;
+	}
+	return TransportField->GetResource() != nullptr;
+}
+
+void AFogMSBoxVolume::ReleaseTransportField()
+{
+	if (!TransportField) return;
+	TransportField = nullptr;
+	if (IsValid(DensityMID))
+	{
+		// A null texture value cannot clear an existing MID override. Clear all overrides;
+		// the next active UpdateDensity re-applies every parameter (bHasMaterialState=false).
+		DensityMID->ClearParameterValues();
+	}
+	bHasMaterialState = false;
+	// The UObject is released by GC (UTexture::BeginDestroy fences the resource). The render
+	// thread holds its own FTextureRHIRef until the next Box packet replaces it.
+}
+
+void AFogMSBoxVolume::ApplyTransportPreset()
+{
+	// BoxRuntime packs these three fields; a non-Custom preset owns them. Idempotent.
+	FFogMSTransportTier Tier;
+	if (!FogMS_GetTransportTier(TransportPreset, Tier)) return;
+	AngularQuality = Tier.AngularQuality;
+	TransportIterations = Tier.Iterations;
+	TransportTolerance = Tier.Tolerance;
+}
+
+void AFogMSBoxVolume::ApplyHeightProfilePreset()
+{
+	// Design table (FogMS_DensityAuthoring_Design.md section 3): B, T, SB, ST, A.
+	float Values[5];
+	switch (HeightProfilePreset)
+	{
+	case EFogMSHeightProfilePreset::Stratus: Values[0] = 0.40f; Values[1] = 0.60f; Values[2] = 0.05f; Values[3] = 0.10f; Values[4] = 0.0f; break;
+	case EFogMSHeightProfilePreset::Cumulus: Values[0] = 0.10f; Values[1] = 0.70f; Values[2] = 0.02f; Values[3] = 0.45f; Values[4] = 0.0f; break;
+	case EFogMSHeightProfilePreset::Cumulonimbus: Values[0] = 0.05f; Values[1] = 0.98f; Values[2] = 0.02f; Values[3] = 0.10f; Values[4] = 0.6f; break;
+	case EFogMSHeightProfilePreset::ValleyFog: Values[0] = 0.0f; Values[1] = 0.35f; Values[2] = 0.0f; Values[3] = 0.30f; Values[4] = 0.0f; break;
+	default: return;
+	}
+	HeightBottom = Values[0];
+	HeightTop = Values[1];
+	BottomSoftness = Values[2];
+	TopSoftness = Values[3];
+	AnvilStrength = Values[4];
+	bHeightProfile = true;
+}
+
 #if WITH_EDITOR
 void AFogMSBoxVolume::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
+	// Before Super: its construction rerun reaches UpdateDensity, which would overwrite a direct
+	// edit (Details, Python set_editor_property) of a preset-owned field with the preset's value.
+	const FName Name = PropertyChangedEvent.GetPropertyName();
+	if (TransportPreset != EFogMSTransportPreset::Custom
+		&& (Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, AngularQuality)
+			|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, TransportIterations)
+			|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, TransportTolerance)))
+		TransportPreset = EFogMSTransportPreset::Custom;
+	// Height profile preset: editor-only apply on its own change; a direct edit of one of its values selects None.
+	if (Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, HeightProfilePreset))
+		ApplyHeightProfilePreset();
+	else if (Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, HeightBottom)
+		|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, HeightTop)
+		|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, BottomSoftness)
+		|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, TopSoftness)
+		|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, AnvilStrength))
+		HeightProfilePreset = EFogMSHeightProfilePreset::None;
+	// Also here, not only in UpdateDensity: Blueprint defaults (archetypes) skip UpdateDensity.
+	ApplyTransportPreset();
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	UpdateDensity();
 }
@@ -315,12 +527,19 @@ bool AFogMSBoxVolume::EvaluateDirectionalMotion(double Time, const FVector& Velo
 bool AFogMSBoxVolume::FDensityState::HasSameDensityParameters(const FDensityState& Other) const
 {
 	return bUseNativeDensity == Other.bUseNativeDensity
+		&& bEmissiveInjection == Other.bEmissiveInjection && bHybridInjection == Other.bHybridInjection
+		&& InjectionField == Other.InjectionField
 		&& Texture == Other.Texture && TextureResource == Other.TextureResource
 		&& ChannelMask == Other.ChannelMask && TileScaleValue == Other.TileScaleValue
 		&& bWorldAligned == Other.bWorldAligned && WorldFrequencies == Other.WorldFrequencies
 		&& ThresholdValue == Other.ThresholdValue && SoftnessValue == Other.SoftnessValue
 		&& DetailStrengthValue == Other.DetailStrengthValue && DetailScaleValue == Other.DetailScaleValue
 		&& DetailSecondOctaveValue == Other.DetailSecondOctaveValue
+		&& ErosionStrengthValue == Other.ErosionStrengthValue && ErosionDepthValue == Other.ErosionDepthValue
+		&& ErosionMask == Other.ErosionMask
+		&& bHeightProfile == Other.bHeightProfile && HeightBottomValue == Other.HeightBottomValue
+		&& HeightTopValue == Other.HeightTopValue && BottomSoftnessValue == Other.BottomSoftnessValue
+		&& TopSoftnessValue == Other.TopSoftnessValue && AnvilStrengthValue == Other.AnvilStrengthValue
 		&& DensityValue == Other.DensityValue && Albedo == Other.Albedo
 		&& WorldExtent == Other.WorldExtent && Feather == Other.Feather && TextureOffset == Other.TextureOffset;
 }
@@ -362,6 +581,12 @@ void AFogMSBoxVolume::UpdateDensity()
 {
 	if (bUpdatingDensity || HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || IsActorBeingDestroyed()) return;
 	TGuardValue<bool> UpdateGuard(bUpdatingDensity, true);
+	// OnConstruction, PostLoad, PostEditChangeProperty, Tick and BoxRuntime (right before it
+	// packs the transport controls) all pass here: the packet always sees the preset's values,
+	// also after a Blueprint/runtime write that bypassed PostEditChangeProperty.
+	ApplyTransportPreset();
+	// Mode or switch change away from Emissive Injection: drop the field and its MID binding.
+	if (TransportField && !UsesEmissiveInjection()) ReleaseTransportField();
 	if (WindDirectionComponent) WindDirectionComponent->SetVisibility(DensityMotionMode == EFogMSDensityMotionMode::Directional);
 
 	FDensityState State;
@@ -414,6 +639,20 @@ void AFogMSBoxVolume::UpdateDensity()
 			|| !FMath::IsFinite(DetailSecondOctave) || DetailSecondOctave < 0.0f || DetailSecondOctave > 1.0f)
 		{
 			Problem = TEXT("Detail Strength and Second Octave must be finite in [0,1], and Detail Scale in [0.1,32].");
+		}
+		else if (!FMath::IsFinite(ErosionStrength) || ErosionStrength < 0.0f || ErosionStrength > 1.0f
+			|| !FMath::IsFinite(ErosionDepth) || ErosionDepth < 0.01f || ErosionDepth > 1.0f
+			|| static_cast<uint8>(ErosionChannel) > static_cast<uint8>(EFogMSErosionChannel::A))
+		{
+			Problem = TEXT("Erosion Strength must be finite in [0,1], Erosion Depth in [0.01,1], and Erosion Channel G, B or A.");
+		}
+		else if (bHeightProfile && (!FMath::IsFinite(HeightBottom) || !FMath::IsFinite(HeightTop)
+			|| HeightBottom < 0.0f || HeightTop > 1.0f || HeightBottom >= HeightTop
+			|| !FMath::IsFinite(BottomSoftness) || BottomSoftness < 0.0f || BottomSoftness > 1.0f
+			|| !FMath::IsFinite(TopSoftness) || TopSoftness < 0.0f || TopSoftness > 1.0f
+			|| !FMath::IsFinite(AnvilStrength) || AnvilStrength < 0.0f || AnvilStrength > 1.0f))
+		{
+			Problem = TEXT("Height Profile requires finite 0 <= Height Bottom < Height Top <= 1, and Bottom/Top Softness and Anvil Strength in [0,1].");
 		}
 		else if (bWorldAlignedTexture && !FogMS_MakeWorldMapping(BoxComponent->GetComponentLocation(), TextureOffsetWorld, WorldTextureSize, DetailScale,
 			WorldFrequencies, WorldPhase0, WorldPhase1, WorldPhase2))
@@ -511,9 +750,20 @@ void AFogMSBoxVolume::UpdateDensity()
 					}
 				}
 				State.bActive = true;
+				// Emissive Injection: native voxelization owns sigma_t and receives sigma_s*J as
+				// emissive; the Box packet marks row 23.w = 5 (hybrid: 6) so the overlay adds neither.
+				// Falls back to the overlay path (MID density 0) if the field has no resource.
+				const bool bInjection = bEnabled && UsesEmissiveInjection() && EnsureTransportField();
 				// Keep authored density valid for the B2 atlas while avoiding duplicate
 				// native voxelization. Leaving Transport restores the authored value.
-				State.bUseNativeDensity = !bEnabled || !FogMS_IsTransportMode(ScatteringMode);
+				// Without BindlessAll no overlay injects density (row 23.w 4), so Transport without injection keeps
+				// the native MID density: the Box stays visible, lit natively (fail closed).
+				State.bUseNativeDensity = !bEnabled || !FogMS_IsTransportMode(ScatteringMode) || bInjection
+					|| !FogMS_IsBindlessAllConfiguration();
+				State.bEmissiveInjection = bInjection;
+				// Hybrid: native fog keeps single scattering; the field carries J_ms and T_sun (packet row 23.w = 6).
+				State.bHybridInjection = bInjection && bHybridSingleScattering;
+				State.InjectionField = bInjection ? TransportField.Get() : nullptr;
 				State.Texture = DensityTexture.Get();
 				State.TextureResource = DensityTexture->GetResource();
 				State.ChannelMask = FLinearColor(0, 0, 0, 0);
@@ -529,6 +779,20 @@ void AFogMSBoxVolume::UpdateDensity()
 				State.DetailStrengthValue = DetailStrength;
 				State.DetailScaleValue = DetailScale;
 				State.DetailSecondOctaveValue = DetailSecondOctave;
+				State.ErosionStrengthValue = ErosionStrength;
+				State.ErosionDepthValue = ErosionDepth;
+				State.ErosionMask = FLinearColor(0, 0, 0, 0);
+				State.ErosionMask.Component(1 + static_cast<int32>(ErosionChannel)) = 1.0f;
+				// Profile off keeps the neutral defaults, so editing a disabled profile changes nothing.
+				State.bHeightProfile = bHeightProfile;
+				if (bHeightProfile)
+				{
+					State.HeightBottomValue = HeightBottom;
+					State.HeightTopValue = HeightTop;
+					State.BottomSoftnessValue = BottomSoftness;
+					State.TopSoftnessValue = TopSoftness;
+					State.AnvilStrengthValue = AnvilStrength;
+				}
 				State.DensityValue = Density;
 				State.Albedo = FLinearColor(DensityAlbedo.R, DensityAlbedo.G, DensityAlbedo.B, 1.0f);
 				State.WorldExtent = ExtentValue;
@@ -564,10 +828,27 @@ void AFogMSBoxVolume::UpdateDensity()
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailStrength"), State.DetailStrengthValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailScale"), State.DetailScaleValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailSecondOctave"), State.DetailSecondOctaveValue);
+					// S1/S2 (material node FogMS_Extinction, Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py).
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_ErosionStrength"), State.ErosionStrengthValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_ErosionDepth"), State.ErosionDepthValue);
+					DensityMID->SetVectorParameterValue(TEXT("FogMS_ErosionMask"), State.ErosionMask);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightProfile"), State.bHeightProfile ? 1.0f : 0.0f);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightBottom"), State.HeightBottomValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightTop"), State.HeightTopValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightBottomSoftness"), State.BottomSoftnessValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightTopSoftness"), State.TopSoftnessValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightAnvilStrength"), State.AnvilStrengthValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_Density"), State.bUseNativeDensity ? State.DensityValue : 0.0f);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_Albedo"), State.Albedo);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldExtent"), State.WorldExtent);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DensityFeather"), State.Feather);
+					// Material contract: valid = Field.a >= 0.5 (cleared field: 0), Emissive = valid*Field.rgb*Albedo*sigma_t.
+					// Mode 1 (full field, J, a = 1): BaseColor = Albedo*(1 - valid). Mode 2 (hybrid, J_ms, a = 0.5 + 0.5*T_sun):
+					// BaseColor = Albedo*lerp(1, saturate(2*Field.a - 1), valid), native single scattering darkened by T_sun.
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_InjectionMode"),
+						State.bEmissiveInjection ? (State.bHybridInjection ? 2.0f : 1.0f) : 0.0f);
+					if (State.bEmissiveInjection)
+						DensityMID->SetTextureParameterValue(TEXT("FogMS_TransportField"), TransportField);
 					LastMaterialState = State;
 					bHasMaterialState = true;
 				}
@@ -691,6 +972,27 @@ void AFogMSBoxVolume::ResumeDensityAnimation()
 
 void AFogMSBoxVolume::EnableLiveBox()
 {
+	if (!FogMS_IsBindlessAllConfiguration())
+	{
+		// No BindlessAll: never set r.FogMS.BoxMode 1 or apply the engine-shader patch (its consumers need the heap).
+		// Register only the injection-only runtime; Prepare reports the overlay as unavailable in OutError by design.
+		uint32 UnusedDescriptor = MAX_uint32;
+		FString OverlayNote;
+		if (!FFogMSBoxRuntime::Prepare(UnusedDescriptor, OverlayNote))
+		{
+			SpatialStatus = OverlayNote;
+			UE_LOG(LogMultiLobeSpec, Error, TEXT("FogMS Box: %s"), *OverlayNote);
+			return;
+		}
+		// The runtime overwrites this every frame; this is the immediate feedback of the button.
+		SpatialStatus = UsesEmissiveInjection()
+			? TEXT("Waiting for current-frame isotropic transport (injection-only: no BindlessAll; overlay features off)")
+			: (FogMS_IsTransportMode(ScatteringMode)
+				? TEXT("Transport needs Emissive Injection or -BindlessAll (injection-only: no BindlessAll; overlay features off). Native fog lighting.")
+				: TEXT("This Scattering Mode requires -BindlessAll (injection-only: no BindlessAll; overlay features off). Native fog lighting."));
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Box: injection-only runtime (no BindlessAll): Transport + Emissive Injection via the Box Volume material; overlay features (A1d/A1e, shadow cache, ViewIntegration, SSFS sky disk, debug views) off."));
+		return;
+	}
 	FogMS_ApplyBoxMode(1);
 }
 

@@ -1,0 +1,19 @@
+"output": "FROZEN\r\n"
+== tier_ref96 | == tier_ref96: GPU frame 49.20 ms, 904 events | FogMS transport/world (B2/B3)                   40.16 ms | maxres 3.38521977e-06
+"output": "TOL 1e-6\r\n"
+== tier_b3_16 | == tier_b3_16: GPU frame 10.35 ms, 532 events | FogMS transport/world (B2/B3)                    2.21 ms | maxres 0.0783518776
+== tier_b3_24 | == tier_b3_24: GPU frame 11.35 ms, 524 events | FogMS transport/world (B2/B3)                    2.83 ms | maxres 0.0631885305
+== tier_b2 | == tier_b2: GPU frame 10.10 ms, 523 events | FogMS transport/world (B2/B3)                    1.66 ms | maxres 0.000289154355
+== tier_b2_it8 | == tier_b2_it8: GPU frame 9.01 ms, 459 events | FogMS transport/world (B2/B3)                    1.04 ms | maxres 0.00891462527
+"output": "STATUS Active B2 isotropic transport (6 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+--- field vs reference (96/64, tol 1e-14)
+tier_b3_16 vs tier_ref96: rel L2 0.0215 | weighted mean rel diff 0.0159 | mean lum ratio 0.9924 | bright-half mean |dJ|/J 0.0156
+tier_b3_24 vs tier_ref96: rel L2 0.0124 | weighted mean rel diff 0.0094 | mean lum ratio 0.9960 | bright-half mean |dJ|/J 0.0092
+tier_b2 vs tier_ref96: rel L2 0.1604 | weighted mean rel diff 0.1247 | mean lum ratio 1.1134 | bright-half mean |dJ|/J 0.1268
+tier_b2_it8 vs tier_ref96: rel L2 0.1604 | weighted mean rel diff 0.1247 | mean lum ratio 1.1134 | bright-half mean |dJ|/J 0.1268
+--- image PSNR vs reference (box front face)
+tier_b3_16   PSNR 43.4 dB | mean ratio 1.0037
+tier_b3_24   PSNR 48.1 dB | mean ratio 0.9997
+tier_b2      PSNR 34.8 dB | mean ratio 1.0167
+tier_b2_it8  PSNR 35.6 dB | mean ratio 1.0057
+"output": "RESTORED\r\n"

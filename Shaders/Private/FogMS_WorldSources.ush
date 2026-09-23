@@ -3,15 +3,33 @@
 // Include after Common.ush. Pair with FFogMSWorldSourcesParameters in the parent
 // shader's parameter struct. All positions/distances are translated world / cm.
 // No native ForwardLightStruct / ReflectionStruct or shader permutation required.
+// Sky View LUT helpers (SkyViewLutParamsToUv, GetSkyViewLutReferential, CM_TO_SKY_UNIT). Public engine include; the
+// global compute ComputeVolumetricFog includes it the same way (VolumetricFog.usf:13 -> HeightFogCommon.ush). Only
+// View UB members are read here (no Atmosphere / SkyAtmosphere UB binding needed).
+#include "/Engine/Private/SkyAtmosphereCommon.ush"
 uint FogMSWorldNumLights;
 float FogMSWorldDistanceBiasSqr;
 StructuredBuffer<float4> FogMSWorldLights;
 TextureCube FogMSWorldSkyTexture;
 SamplerState FogMSWorldSkySampler;
-TextureCube FogMSWorldSkyBlendTexture;
-SamplerState FogMSWorldSkyBlendSampler;
-float3 FogMSWorldSkyColor;
-float FogMSWorldSkyBlend;
+// Sky volumetric scattering intensity; FogMS_WorldSky multiplies it by View.SkyLightColor (View UB).
+float FogMSWorldSkyIntensity;
+// FFogMSWorldSourcesParameters::FogMSWorldSkyBlend / BlendTexture / BlendSampler are no longer read: only the removed
+// private sky path set a blend (the public capture has none).
+float FogMSWorldSkyMipBias;
+// 0 none, 1 cubemap (public processed capture), 2 Sky View LUT, 3 sky SH (chosen by r.FogMS.World.SkySource; not its values).
+uint FogMSWorldSkySource;
+// 1: multiply by View.RealTimeReflectionCapturePreExposure (sky light RTC on, source not RTC-exposed; see FogMS_WorldSources.cpp).
+float FogMSWorldSkyUndoRTCExposure;
+// Sky View LUT only: rgb LowerHemisphereColor, a coverage (0 off) over world z < 0.
+float4 FogMSWorldSkyLowerHemisphere;
+// Sky View LUT only: taps per sector average (r.FogMS.World.SkyLutSamples, 1..13; 1 = point sample).
+uint FogMSWorldSkyLutSamples;
+float3 FogMSWorldSunDirection;
+float FogMSWorldSunExcludeCos;
+// Index into FogMSWorldLights of the atmosphere sun (Scene.AtmosphereLights[0]); -1 when it is not in the
+// list. Transport pass 2 (hybrid injection) uses it to write the per-cell sun transmittance T_sun.
+int FogMSWorldSunLightIndex;
 
 uint FogMS_WorldLightCount()
 {
@@ -79,17 +97,212 @@ void FogMS_WorldLight(uint Index, float3 TranslatedPosition, out float3 Directio
 	CastShadow = SpotFalloffShadow.w > 0.5f && MaxDistance > 0.01f;
 }
 
-// Escaped sky rays ONLY: radiance, no phase / sigma / View.PreExposure. Native
-// View.SkyLightColor removes RTC cached exposure; C++ folds sky volumetric
-// intensity exactly once. Do not apply this factor to surface GI or emissive hits.
-float3 FogMS_WorldSky(float3 WorldDirection)
+// Sky View LUT source: atmosphere radiance toward WorldDirection in "processed sky texture" units.
+// Same lookup as the engine's SkyAtmosphereViewLuminance material node (MaterialTemplate.ush:2378-2402, perspective
+// branch) and the FastSky path of RenderSkyAtmosphere (SkyAtmosphere.usf:1004-1032). The main-view LUT stores luminance
+// * View.PreExposure (RenderSkyViewLutCS: OutputPreExposure = View.PreExposure outside captures, SkyAtmosphere.usf:264,
+// 603, 1407); the engine consumers multiply by SkyAtmosphereSkyLuminanceFactor and OneOverPreExposure. The RTC renders
+// the same atmosphere with the same SkyLuminanceFactor (SkyAtmosphere.usf:971) into its capture, so this is the RTC's
+// cloud-free sky radiance (evaluated at the camera height instead of the capture position). No sun disc: the LUT holds
+// scattered light only (the disc is added per pixel, SkyAtmosphere.usf:973) and captures omit it (SkyAtmosphere.usf:361).
+float3 FogMS_WorldSkyViewLut(float3 WorldDirection)
 {
-	float3 Radiance = FogMSWorldSkyTexture.SampleLevel(FogMSWorldSkySampler, WorldDirection, 0).rgb;
-	if (FogMSWorldSkyBlend > 0.0f)
+	float3x3 LocalReferencial = GetSkyViewLutReferential(View.SkyViewLutReferential);
+	float ViewHeight = View.SkyPlanetTranslatedWorldCenterAndViewHeight.w * CM_TO_SKY_UNIT;
+	float3 WorldPosLocal = float3(0.0f, 0.0f, ViewHeight);
+	float3 WorldDirLocal = mul(LocalReferencial, WorldDirection);
+	float ViewZenithCosAngle = WorldDirLocal.z;
+	float2 Sol = RayIntersectSphere(WorldPosLocal, WorldDirLocal, float4(0.0f, 0.0f, 0.0f, View.SkyAtmosphereBottomRadiusKm));
+	const bool IntersectGround = any(Sol > 0.0f);
+	float2 Uv;
+	SkyViewLutParamsToUv(IntersectGround, ViewZenithCosAngle, WorldDirLocal, ViewHeight, View.SkyAtmosphereBottomRadiusKm, View.SkyViewLutSizeAndInvSize, Uv);
+	float3 Radiance = Texture2DSampleLevel(View.SkyViewLutTexture, View.SkyViewLutTextureSampler, Uv, 0.0f).rgb;
+	Radiance *= View.SkyAtmosphereSkyLuminanceFactor.rgb * View.OneOverPreExposure;
+	// RTC lower hemisphere composite, dst = src.rgb + dst * src.a with src = (Color * a, 1 - a) in capture exposure
+	// (ReflectionEnvironmentShaders.usf:446-453), i.e. lerp(sky, Color, a) once the exposure is removed.
+	if (WorldDirection.z < 0.0f && FogMSWorldSkyLowerHemisphere.a > 0.0f)
+		Radiance = lerp(Radiance, FogMSWorldSkyLowerHemisphere.rgb, FogMSWorldSkyLowerHemisphere.a);
+	return Radiance;
+}
+
+// Sector average of the Sky View LUT (r.FogMS.World.SkyLutSamples = FogMSWorldSkyLutSamples, 1..13): equal-weight mean of
+// the centre direction, min(N-1, 8) directions on the rim of the sector cone (half-angle theta, Omega = 2*pi*(1-cos theta),
+// theta <= pi/2 like the cubemap mip) and the remaining min(N-9, 4) at theta/2. N = 1 or SectorSolidAngle == 0: the
+// point sample. The tangent frame depends only on the ordinate direction (Duff et al. 2017 branchless ONB) and the ring
+// azimuths are fixed, so the result is deterministic per ordinate (no per-frame jitter). Each tap applies the lower
+// hemisphere composite by its own direction. Equal weights over-weight the rim relative to a uniform cap average.
+float3 FogMS_WorldSkyViewLutSector(float3 WorldDirection, float SectorSolidAngle)
+{
+	uint Samples = clamp(FogMSWorldSkyLutSamples, 1u, 13u);
+	float3 Sum = FogMS_WorldSkyViewLut(WorldDirection);
+	if (Samples <= 1u || SectorSolidAngle <= 0.0f) return Sum;
+	float CosTheta = clamp(1.0f - SectorSolidAngle / (2.0f * PI), 0.0f, 1.0f);
+	float SinTheta = sqrt(saturate(1.0f - CosTheta * CosTheta));
+	float Theta = acos(CosTheta);
+	float CosHalf = cos(0.5f * Theta);
+	float SinHalf = sin(0.5f * Theta);
+	float3 N = WorldDirection;
+	float Sign = N.z >= 0.0f ? 1.0f : -1.0f;
+	float A = -1.0f / (Sign + N.z);
+	float B = N.x * N.y * A;
+	float3 T = float3(1.0f + Sign * N.x * N.x * A, Sign * B, -Sign * N.x);
+	float3 Bt = float3(B, Sign + N.y * N.y * A, -N.y);
+	uint Rim = min(Samples - 1u, 8u);
+	uint Inner = Samples - 1u - Rim;
+	for (uint I = 0u; I < Rim; ++I)
 	{
-		float3 Destination = FogMSWorldSkyBlendTexture.SampleLevel(FogMSWorldSkyBlendSampler, WorldDirection, 0).rgb;
-		Radiance = lerp(Radiance, Destination, FogMSWorldSkyBlend);
+		float Phi = (2.0f * PI) * float(I) / float(Rim);
+		Sum += FogMS_WorldSkyViewLut(normalize(N * CosTheta + (T * cos(Phi) + Bt * sin(Phi)) * SinTheta));
 	}
-	Radiance *= FogMSWorldSkyColor;
+	for (uint J = 0u; J < Inner; ++J)
+	{
+		// Offset by half a step so the inner taps sit between the rim taps.
+		float Phi = (2.0f * PI) * (float(J) + 0.5f) / float(Inner);
+		Sum += FogMS_WorldSkyViewLut(normalize(N * CosHalf + (T * cos(Phi) + Bt * sin(Phi)) * SinHalf));
+	}
+	return Sum / float(Samples);
+}
+
+// Sky SH source: radiance reconstructed from View.SkyIrradianceEnvironmentMap (7 float4, packed by
+// SetupSkyIrradianceEnvironmentMapConstantsFromSkyIrradiance, ReflectionEnvironment.cpp:727-775, and on the GPU for RTC,
+// ReflectionEnvironmentShaders.usf:965-998, from an SH3 projection of the cubemap radiance, usf:908-910). The packing
+// folds the clamped-cosine (Lambert) convolution into the coefficients: band l carries Y_l * A_l / pi with
+// A_l / pi = 1, 2/3, 1/4 (Coefficient0..4), so GetSkySHDiffuse (ReflectionEnvironmentShared.ush:84-103) returns
+// irradiance / pi. Here the band weights are divided out (band 1 * 3/2, band 2 * 4) to recover the radiance SH3.
+// Band 0 and the constant part of Y20 share row .w (C0*V0 - C3*V6); row B.z = 3*C3*V6 separates them.
+// The sector average replaces the Lambert filter: the mean of P_l over a cap of half-angle theta is 1, (1+c)/2 and
+// c(1+c)/2 for l = 0, 1, 2 (c = cos(theta)); SectorSolidAngle 0 gives the point value.
+// APPROXIMATION: SH3 cannot hold the aureole or any feature narrower than ~60 degrees (smeared over the sky); the
+// un-windowed radiance reconstruction rings and can go negative (clamped at 0 by FogMS_WorldSky). Units are those of the
+// cubemap it was projected from (RTC: capture exposure; static: none), so View.SkyLightColor applies unchanged.
+float3 FogMS_WorldSkySH(float3 WorldDirection, float SectorSolidAngle)
+{
+	float CosTheta = SectorSolidAngle > 0.0f ? clamp(1.0f - SectorSolidAngle / (2.0f * PI), 0.0f, 1.0f) : 1.0f;
+	float Band1 = 1.5f * 0.5f * (1.0f + CosTheta);
+	float Band2 = 4.0f * 0.5f * CosTheta * (1.0f + CosTheta);
+	float3 N = WorldDirection;
+	float4 VB = N.xyzz * N.yzzx;
+	float VC = N.x * N.x - N.y * N.y;
+	float4 M0 = View.SkyIrradianceEnvironmentMap[0];
+	float4 M1 = View.SkyIrradianceEnvironmentMap[1];
+	float4 M2 = View.SkyIrradianceEnvironmentMap[2];
+	float4 B0 = View.SkyIrradianceEnvironmentMap[3];
+	float4 B1 = View.SkyIrradianceEnvironmentMap[4];
+	float4 B2 = View.SkyIrradianceEnvironmentMap[5];
+	float3 Q = View.SkyIrradianceEnvironmentMap[6].xyz;
+	float3 Y20Constant = float3(B0.z, B1.z, B2.z) / 3.0f; // C3 * V6 per channel
+	float3 L0 = float3(M0.w, M1.w, M2.w) + Y20Constant;
+	float3 L1 = float3(dot(M0.xyz, N), dot(M1.xyz, N), dot(M2.xyz, N));
+	float3 L2 = float3(dot(B0, VB), dot(B1, VB), dot(B2, VB)) - Y20Constant + Q * VC;
+	return L0 + Band1 * L1 + Band2 * L2;
+}
+
+// Sky irradiance / pi on a surface with unit normal N (Lambert-convolved SH), in the units FogMS_WorldSky returns:
+// the engine's GetSkySHDiffuse (ReflectionEnvironmentShared.ush:84-103) transcribed on View.SkyIrradianceEnvironmentMap,
+// times View.SkyLightColor * FogMSWorldSkyIntensity, the same scale as FogMS_WorldSky for the SH source (the SH carries the
+// exposure View.SkyLightColor removes, so FogMSWorldSkyUndoRTCExposure never applies). Not included from the engine: its
+// `#define SkyIrradianceEnvironmentMap View.SkyIrradianceEnvironmentMap` would rewrite the View member reads in
+// FogMS_WorldSkySH above for any file that included it first. Zero when the sky path is off (source none / intensity 0).
+// Used by the Transport boundary-hit fallback (FogMS_Transport.usf); outgoing Lambert radiance = albedo * this.
+float3 FogMS_WorldSkyIrradianceSH(float3 N)
+{
+	if (FogMSWorldSkySource == 0u || FogMSWorldSkyIntensity <= 0.0f) return 0.0f;
+	float4 NormalVector = float4(N, 1.0f);
+	float3 Intermediate0, Intermediate1, Intermediate2;
+	Intermediate0.x = dot(View.SkyIrradianceEnvironmentMap[0], NormalVector);
+	Intermediate0.y = dot(View.SkyIrradianceEnvironmentMap[1], NormalVector);
+	Intermediate0.z = dot(View.SkyIrradianceEnvironmentMap[2], NormalVector);
+	float4 vB = NormalVector.xyzz * NormalVector.yzzx;
+	Intermediate1.x = dot(View.SkyIrradianceEnvironmentMap[3], vB);
+	Intermediate1.y = dot(View.SkyIrradianceEnvironmentMap[4], vB);
+	Intermediate1.z = dot(View.SkyIrradianceEnvironmentMap[5], vB);
+	float vC = NormalVector.x * NormalVector.x - NormalVector.y * NormalVector.y;
+	Intermediate2 = View.SkyIrradianceEnvironmentMap[6].xyz * vC;
+	float3 Irradiance = max(0.0f, Intermediate0 + Intermediate1 + Intermediate2);
+	Irradiance *= View.SkyLightColor.rgb * FogMSWorldSkyIntensity;
+	return all(isfinite(Irradiance)) ? max(Irradiance, 0.0f) : 0.0f;
+}
+
+// Cubemap source (FogMSWorldSkySource 1): the former FogMS_WorldSky body, unchanged apart from the final
+// SkyLightColor product, which FogMS_WorldSky now applies for every source.
+float3 FogMS_WorldSkyCubemap(float3 WorldDirection, float SectorSolidAngle)
+{
+	// The captured cubemap contains the sun disc (HDRI source) or at least the Mie aureole. Direct sun is already accounted by
+	// FogMS_WorldLight with shadows; a sector-weighted quadrature ordinate hitting the
+	// disc double counts it. Inside the exclusion cone, sample the sky at the cone
+	// boundary instead (same great circle through the sun). ExcludeCos = 2 (no sun,
+	// or r.FogMS.World.SunExcludeDegrees 0) never triggers, so the result is unchanged.
+	float3 SampleDirection = WorldDirection;
+	float CosToSun = dot(WorldDirection, FogMSWorldSunDirection);
+	if (FogMSWorldSunExcludeCos < 1.0f && CosToSun > FogMSWorldSunExcludeCos)
+	{
+		float3 Sun = FogMSWorldSunDirection;
+		float3 Perp = WorldDirection - CosToSun * Sun;
+		if (dot(Perp, Perp) < 1.0e-8f)
+		{
+			// Direction coincides with the sun: any unit vector orthogonal to it,
+			// built from the sun's smallest-magnitude axis so the cross product is nonzero.
+			float3 AbsSun = abs(Sun);
+			float3 Axis = (AbsSun.x <= AbsSun.y && AbsSun.x <= AbsSun.z) ? float3(1, 0, 0)
+				: (AbsSun.y <= AbsSun.z ? float3(0, 1, 0) : float3(0, 0, 1));
+			Perp = cross(Sun, Axis);
+		}
+		float CosA = FogMSWorldSunExcludeCos;
+		float SinA = sqrt(saturate(1.0f - CosA * CosA));
+		SampleDirection = normalize(Sun * CosA + normalize(Perp) * SinA);
+	}
+	// Sector-matched mip, computed after the sun-disc substitution above so the
+	// filtered footprint is centred on the substituted (cone boundary) direction.
+	float Mip = 0.0f;
+	if (SectorSolidAngle > 0.0f)
+	{
+		// Half-angle of the spherical cap with the sector's solid angle: Omega = 2*pi*(1-cos(theta)).
+		// The argument clamp keeps theta in [0, pi/2] (Omega <= 2*pi, a hemisphere).
+		float Theta = acos(clamp(1.0f - SectorSolidAngle / (2.0f * PI), 0.0f, 1.0f));
+		uint Width, Height, Levels;
+		FogMSWorldSkyTexture.GetDimensions(0u, Width, Height, Levels);
+		// One cube face spans 90 degrees, so a mip-0 texel subtends ~(pi/2)/Width.
+		// Mip m has texels 2^m times wider; match the cone diameter 2*theta.
+		float TexelAngle = (0.5f * PI) / max(float(Width), 1.0f);
+		Mip = clamp(log2(max(2.0f * Theta / TexelAngle, 1.0f)) + FogMSWorldSkyMipBias, 0.0f, float(max(Levels, 1u) - 1u));
+	}
+	return FogMSWorldSkyTexture.SampleLevel(FogMSWorldSkySampler, SampleDirection, Mip).rgb;
+}
+
+// Escaped sky rays ONLY: radiance, no phase / sigma / View.PreExposure. Native
+// View.SkyLightColor removes RTC cached exposure; it is read here from the bound View
+// uniform buffer and multiplied by the sky volumetric intensity exactly once. Do not apply this factor to surface GI or emissive hits.
+// Every FogMSWorldSkySource yields SourceRadiance * View.SkyLightColor * FogMSWorldSkyIntensity, SourceRadiance in
+// processed-sky-texture units; FogMSWorldSkyUndoRTCExposure restores the RTC exposure that View.SkyLightColor divides
+// out, for sources that never carried it (Sky View LUT, public static capture while RTC is on).
+// 1 cubemap: SectorSolidAngle > 0: WorldDirection stands for a whole quadrature sector of that
+// solid angle (4*pi/AngularCount). The cubemap is then sampled at the mip whose
+// texel footprint matches the sector cone, so the ordinate sees the sector-average
+// radiance instead of a point sample of a peaky region (the sun aureole). The sky
+// light's processed cubemap mips are GGX-prefiltered (specular convolution by
+// roughness), which is an acceptable approximation of a sector average here.
+// SectorSolidAngle == 0 is the mip-0 point sample (FogMSWorldSkyMipBias not applied).
+// The sun-exclusion cone applies to this source only.
+// 2 Sky View LUT: equal-weight mean of FogMSWorldSkyLutSamples taps over the sector cone (FogMS_WorldSkyViewLutSector;
+// 1 = point sample); no exclusion cone.
+// 3 SH: band-limited, sector-averaged analytically (FogMS_WorldSkySH); no exclusion cone.
+float3 FogMS_WorldSky(float3 WorldDirection, float SectorSolidAngle)
+{
+	if (FogMSWorldSkySource == 0u || FogMSWorldSkyIntensity <= 0.0f) return 0.0f;
+	// The shader-side SkyAtmosphere predicate (View.SkyAtmospherePresentInScene, SceneRendering.cpp:1564-1566) should
+	// agree with the CPU choice; if not, the LUT binding is the black dummy (SceneRendering.cpp:1726): use SH instead.
+	const bool bViewLut = FogMSWorldSkySource == 2u && View.SkyAtmospherePresentInScene > 0.0f;
+	float3 Radiance;
+	if (FogMSWorldSkySource == 1u) Radiance = FogMS_WorldSkyCubemap(WorldDirection, SectorSolidAngle);
+	else if (bViewLut) Radiance = FogMS_WorldSkyViewLutSector(WorldDirection, SectorSolidAngle);
+	else Radiance = FogMS_WorldSkySH(WorldDirection, SectorSolidAngle);
+	// Never set for the SH (it carries the exposure View.SkyLightColor removes).
+	if (FogMSWorldSkyUndoRTCExposure > 0.5f && (FogMSWorldSkySource == 1u || bViewLut))
+		Radiance *= View.RealTimeReflectionCapturePreExposure;
+	// Same product as the former CPU FogMSWorldSkyColor = SkyLightColor.rgb * intensity (per channel, fp32).
+	Radiance *= View.SkyLightColor.rgb * FogMSWorldSkyIntensity;
 	return all(isfinite(Radiance)) ? max(Radiance, 0.0f) : 0.0f;
 }
+
+// Point sample (mip 0); identical to the pre-sector behaviour.
+float3 FogMS_WorldSky(float3 WorldDirection) { return FogMS_WorldSky(WorldDirection, 0.0f); }

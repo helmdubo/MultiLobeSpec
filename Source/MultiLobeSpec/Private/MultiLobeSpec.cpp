@@ -12,9 +12,11 @@
 #include "Misc/CoreDelegates.h"
 #include "HAL/IConsoleManager.h"
 #include "Engine/Engine.h"
+#if WITH_EDITOR
 #include "EditorSupportDelegates.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/Notifications/SNotificationList.h"
+#endif
 
 DEFINE_LOG_CATEGORY(LogMultiLobeSpec);
 IMPLEMENT_MODULE(FMultiLobeSpecModule, MultiLobeSpec)
@@ -40,6 +42,10 @@ namespace
 	}
 }
 
+// Engine-shader overlay (MLS BRDF/micro-shadow, FogMS A1/BoxMode 1): editor only. A game target (cooked, no
+// engine shader sources, no shader compiler) compiles this out; the FogMS Box there is injection-only
+// (FogMS_BoxVolume.cpp BeginPlay -> FFogMSBoxRuntime::Prepare), which needs neither the overlay nor these commands.
+#if WITH_EDITOR
 static FString MLS_GetOverlayDir(const FMLSShaderConfig& Cfg)
 {
 	const FString BuildId = FMultiLobeShaderPatcher::GetOverlayBuildId(Cfg);
@@ -88,12 +94,14 @@ static bool MLS_CheckRawMaterialVisibilityTransportPrerequisites(FString& OutErr
 	UE_LOG(LogMultiLobeSpec, Log, TEXT("Raw MaterialAO overlay transport supports r.GBufferDiffuseSampleOcclusion=%d."), SampleMask->GetInt());
 	return true;
 }
+#endif // WITH_EDITOR
 
 void FMultiLobeSpecModule::StartupModule()
 {
+#if WITH_EDITOR
 	if (!GIsEditor)
 	{
-		UE_LOG(LogMultiLobeSpec, Log, TEXT("Non-editor run — plugin inactive."));
+		UE_LOG(LogMultiLobeSpec, Log, TEXT("Non-editor run: engine-shader overlay and MLS/FogMS console tools inactive; the FogMS Box injection-only runtime starts from the actor."));
 		return;
 	}
 
@@ -194,13 +202,24 @@ void FMultiLobeSpecModule::StartupModule()
 	const FMLSShaderConfig Config = MLS_ConfigFromSettings();
 	if (Config.bEnabled || Config.TonemapMode != 0 || Config.FogMS.bEnabled) ApplyAndRecompile();
 	else SetRuntimeDebugView(0, false);
+#else
+	UE_LOG(LogMultiLobeSpec, Log, TEXT("Game build: engine-shader overlay compiled out; the FogMS Box injection-only runtime starts from the actor."));
+#endif
 }
 
 bool FMultiLobeSpecModule::ApplyFromSettings()
 {
-	const FMLSShaderConfig Config = MLS_ConfigFromSettings();
-	if (Config.bEnabled || Config.TonemapMode != 0 || Config.FogMS.bEnabled) return ApplyAndRecompile();
-	DisableAndRecompile();
+#if WITH_EDITOR
+	// StartupModule initializes the overlay only in the editor (-game with editor binaries returns early there).
+	if (GIsEditor)
+	{
+		const FMLSShaderConfig Config = MLS_ConfigFromSettings();
+		if (Config.bEnabled || Config.TonemapMode != 0 || Config.FogMS.bEnabled) return ApplyAndRecompile();
+		DisableAndRecompile();
+		return !bOverlayActive;
+	}
+#endif
+	// No editor: no overlay can exist, so there is nothing to apply or restore (e.g. Restore Standard Lumen succeeds).
 	return !bOverlayActive;
 }
 
@@ -212,6 +231,7 @@ void FMultiLobeSpecModule::ShutdownModule()
 	RuntimeViewExtension.Reset();
 }
 
+#if WITH_EDITOR
 bool FMultiLobeSpecModule::ApplyInternal(FString& OutError)
 {
 	const FMLSShaderConfig Config = MLS_ConfigFromSettings();
@@ -462,3 +482,31 @@ void FMultiLobeSpecModule::TriggerRecompile()
 	FlushShaderFileCache();
 	if (GEngine) GEngine->Exec(nullptr, TEXT("RECOMPILESHADERS CHANGED"));
 }
+#else // WITH_EDITOR
+
+bool FMultiLobeSpecModule::ApplyAndRecompile()
+{
+	UE_LOG(LogMultiLobeSpec, Warning, TEXT("MLS/FogMS engine-shader overlay is editor-only; nothing applied in a game build."));
+	return false;
+}
+
+void FMultiLobeSpecModule::DisableAndRecompile()
+{
+}
+
+bool FMultiLobeSpecModule::SetRuntimeDebugView(int32, bool)
+{
+	return false;
+}
+
+void FMultiLobeSpecModule::LogCapabilities() const
+{
+	UE_LOG(LogMultiLobeSpec, Display, TEXT("MLS capability manifest: engine-shader overlay is editor-only (game build)."));
+}
+
+void FMultiLobeSpecModule::LogStatus() const
+{
+	UE_LOG(LogMultiLobeSpec, Display, TEXT("MLS.Status: game build; engine-shader overlay compiled out. FogMS Box runs injection-only."));
+}
+
+#endif // WITH_EDITOR

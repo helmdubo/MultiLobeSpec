@@ -1,0 +1,9 @@
+EDITOR_BEFORE | Transport needs Emissive Injection or -BindlessAll (injection-only: no BindlessAll). Native fog lighting with authored density.
+SET injection on, no EnableLiveBox call
+EDITOR t=2s | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; see convergence diagnostics) (injection-only: no BindlessAll; overlay feature
+SIE start | requested
+SIE t=8s | GAME_WORLD FogMS_Box ||  || PIE_BOX FogMSBoxVolume_0 | True | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; see convergence diagnostics) (injection-only: no BindlessAll; overlay features off)
+SIE end | in_pie True
+
+end requested
+RESTORE | RESTORED Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; see convergence diagnostics) (injection-only: no BindlessAll; overlay features off)

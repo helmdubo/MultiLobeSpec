@@ -2,33 +2,49 @@
 	"FileVersion": 3,
 	"Version": 53,
 	"VersionName": "0.15.3",
-	"FriendlyName": "MultiLobeSpec Activision Micro-Shadow (Legacy Overlay)",
-	"Description": "UE 5.7 legacy deferred shader overlay: independently gated dual-lobe GGX and Activision/CoD:WWII direct material micro-shadowing, explicit indirect MaterialAO policies, Poisson/GTAO visibility baking, and experimental Generic VNDF research mode. No engine fork.",
+	"FriendlyName": "FogMS Volumetric Fog Multiple Scattering (MultiLobeSpec)",
+	"Description": "UE 5.8, Win64 D3D12 SM6 with hardware ray tracing. FogMS Box volume: multiple scattering and self-shadowing for native Volumetric Fog, delivered through Emissive Injection in the Box's Volume material (runtime and packaged games; no engine modification, no -BindlessAll). Editor-only research tools: MultiLobeSpec shader overlay (dual-lobe GGX, material micro-shadowing, visibility baking) and the bindless FogMS overlay modes.",
 	"Category": "Rendering",
 	"CreatedBy": "Mimirhead",
+	"EngineVersion": "5.8.0",
 	"CanContainContent": true,
 	"IsBetaVersion": true,
+	"SupportedTargetPlatforms": [
+		"Win64"
+	],
 	"Modules": [
 		{
 			"Name": "FogMSRender",
-			"Type": "Editor",
-			"LoadingPhase": "PostConfigInit"
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit",
+			"PlatformAllowList": [
+				"Win64"
+			]
 		},
 		{
 			"Name": "MultiLobeSpec",
-			"Type": "Editor",
-			"LoadingPhase": "PostEngineInit"
+			"Type": "Runtime",
+			"LoadingPhase": "PostEngineInit",
+			"PlatformAllowList": [
+				"Win64"
+			]
 		},
 		{
 			"Name": "MultiLobeSpecEditor",
 			"Type": "Editor",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64"
+			]
 		}
 	],
 	"Plugins": [
 		{
 			"Name": "EditorScriptingUtilities",
-			"Enabled": true
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
 		}
 	]
 }

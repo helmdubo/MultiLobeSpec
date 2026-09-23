@@ -3,7 +3,7 @@
 #include "/Engine/Private/Common.ush"
 #include "/Engine/Shared/RayTracingDefinitions.h"
 
-float4 BoxRows[24];
+float4 BoxRows[FOGMS_BOX_DATA_ROWS];
 #include "/Plugin/FogMS/Private/FogMS_Indirect.ush"
 
 #if FOGMS_WORLD_PASS == 1
@@ -108,7 +108,8 @@ float3 WorldEnvironment(float3 P,float3 D,out float Distance,out bool MissingCar
 	Distance=SourceTraceDistance; MissingCard=false;
 	FTraceRayInlineContext Context=CreateTraceRayInlineContext();
 	FTraceRayInlineResult Hit=TraceRayInline(TLAS,RAY_FLAG_FORCE_OPAQUE,RAY_TRACING_MASK_OPAQUE,WorldRay(P,D,Distance),Context);
-	if(!Hit.IsHit()) return FogMS_WorldSky(D);
+	// 64 equal-solid-angle Fibonacci rays (WorldIncidentDirection): each stands for 4*pi/64 sr.
+	if(!Hit.IsHit()) return FogMS_WorldSky(D,4.f*PI/64.f);
 	Distance=Hit.HitT;
 	float3 N=0;
 #if PLATFORM_SUPPORTS_INLINE_RAY_TRACING_TRIANGLE_NORMALS

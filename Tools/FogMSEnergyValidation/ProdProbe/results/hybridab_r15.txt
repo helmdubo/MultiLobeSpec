@@ -1,0 +1,23 @@
+SAVED E:/GITHUB/MultiLobeSpec/MultiLobeSpec/.claude/worktrees/volumetric-fog-multiple-scattering-audit-494905/Tools/FogM
+"output": "FROZEN\r\n"
+== hyb_overlay | == hyb_overlay: GPU frame 24.64 ms, 527 events | FogMS transport/world (B2/B3)                    2.10 ms | maxres 0.043650113
+"output": "OVERLAY Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diagnostics)\r\n"
+"output": "FULL\r\n"
+== hyb_full | == hyb_full: GPU frame 23.14 ms, 529 events | FogMS transport/world (B2/B3)                    2.13 ms | maxres 0.0869804621
+"output": "FULL Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; see convergence diagnostics)\r\n"
+"output": "HYBRID\r\n"
+== hyb_hybrid | == hyb_hybrid: GPU frame 18.02 ms, 529 events | FogMS transport/world (B2/B3)                    2.37 ms | maxres 0.0612076484
+"output": "HYBRID Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; see convergence diagnostics)\r\n"
+== hyb_hybrid_async | == hyb_hybrid_async: GPU frame 15.58 ms, 394 events | FogMS transport/world (B2/B3)                    0.48 ms | maxres 0.0912625268
+"output": "HYBRID_ASYNC Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; one frame late; see convergence diagnostics)\r\n"
+--- screenshot comparison inside the Box (front face / core), reference = overlay
+hyb_full          front face  PSNR  27.8 dB | mean ratio 0.9991
+hyb_full          core        PSNR  36.7 dB | mean ratio 1.0007
+hyb_full          floor       PSNR  50.4 dB | mean ratio 0.9999
+hyb_hybrid        front face  PSNR  25.7 dB | mean ratio 0.9833
+hyb_hybrid        core        PSNR  31.1 dB | mean ratio 0.9906
+hyb_hybrid        floor       PSNR  45.3 dB | mean ratio 1.0009
+hyb_hybrid_async  front face  PSNR  25.4 dB | mean ratio 0.9875
+hyb_hybrid_async  core        PSNR  31.4 dB | mean ratio 0.9914
+hyb_hybrid_async  floor       PSNR  48.2 dB | mean ratio 1.0014
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',

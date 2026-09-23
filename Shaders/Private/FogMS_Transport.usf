@@ -1,7 +1,12 @@
-// B2: conservative six-ordinate, cell-average formal transport. No frame history.
+// B2: conservative six-ordinate, cell-average formal transport. Optional PCG warm start from the previous atlas (no temporal blend).
 #include "/Engine/Private/Common.ush"
 #include "/Engine/Shared/RayTracingDefinitions.h"
-float4 BoxRows[24];
+// Hybrid injection permutation (FTransportCS, passes 2 and 17 only): pass 2 also writes the per-cell
+// atmosphere-sun transmittance and uncollided sun term; pass 17 publishes (J - Direct_sun, 0.5 + 0.5*T_sun*k). Other passes: 0.
+#ifndef FOGMS_TRANSPORT_HYBRID
+#define FOGMS_TRANSPORT_HYBRID 0
+#endif
+float4 BoxRows[FOGMS_BOX_DATA_ROWS];
 #include "/Plugin/FogMS/Private/FogMS_Indirect.ush"
 #if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
 #include "/Plugin/FogMS/Private/FogMS_LumenSource.ush"
@@ -24,6 +29,7 @@ float SourceTraceDistance;
 int GridSize;
 int AngularCount;
 int SkipConverged;
+float ConvergenceTolerance;
 float4 Ordinates[96];
 int IndirectEnabled;
 int SweepKind;
@@ -34,9 +40,16 @@ int TestGeometry;
 int TestBoundary;
 float TestTau;
 float TestAlbedo;
+// Pass 2 trims (runtime branches, no permutation). DirectSkipEmpty != 0: a cell whose pass-0 sigma_t is 0 traces no
+// rays (Direct = 0; hybrid Direct_sun = 0, T_sun = 1). DirectSamples 4: four subcell points instead of eight, the
+// tetrahedron {0,3,5,6} of the corner bit pattern on even FogMSSolveParity and its complement {1,2,4,7} on odd.
+int DirectSkipEmpty;
+int DirectSamples;
+uint FogMSSolveParity;
 Texture3D<float4> Coefficients;
 Texture3D<float4> DirectField;
 Texture2D<float4> ReconstructionAtlas;
+Texture2D<float4> PreviousAtlas;
 StructuredBuffer<float4> Faces;
 StructuredBuffer<float4> DirectionBoundaries;
 StructuredBuffer<float4> Angular;
@@ -59,6 +72,12 @@ RWStructuredBuffer<float4> OutPrimary;
 RWStructuredBuffer<float4> OutPartial;
 RWStructuredBuffer<float4> Scalars;
 RWTexture2D<float4> OutAtlas;
+// Pass 17 (Emissive Injection) output: Box-owned UTextureRenderTargetVolume, GridSize^3.
+RWTexture3D<float4> OutField;
+// Hybrid injection: per-cell T_sun (GridSize^3), written by pass 2, read by pass 17. Bound only in the
+// hybrid permutations; RDG tracks the texture, so an async pass 17 waits for graphics pass 2.
+RWTexture3D<float4> OutSunTransmittance; // rgb = uncollided sun term Direct_sun, a = T_sun
+Texture3D<float4> SunTransmittance;
 
 uint Count() { return uint(GridSize*GridSize*GridSize); }
 uint Flat(uint3 C) { return C.x+uint(GridSize)*(C.y+uint(GridSize)*C.z); }
@@ -98,6 +117,10 @@ bool DirectShadow(float3 P,float3 D,float Limit)
     // UE 5.8.2 LumenHardwareRayTracingMaterials packs CastShadow in bit 29.
     // Force candidate callbacks so mixed-material instances respect each segment.
     // Masked geometry remains opaque in this reference; no material opacity eval.
+    // ShadowHitData is the plugin's public rebuild (FogMS_BuildShadowHitFlags), sized by the highest
+    // visible segment index + 1: an index past the end has no flag and is treated as a shadow caster.
+    uint NumHitData,HitDataStride;
+    ShadowHitData.GetDimensions(NumHitData,HitDataStride);
     RayQuery<RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> Q;
     Q.TraceRayInline(TLAS,RAY_FLAG_NONE,RAY_TRACING_MASK_OPAQUE_SHADOW,Ray(P,D,Limit));
     while(Q.Proceed())
@@ -105,30 +128,14 @@ bool DirectShadow(float3 P,float3 D,float Limit)
         if(Q.CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE)
         {
             uint Index=Q.CandidateInstanceContributionToHitGroupIndex()/RAY_TRACING_NUM_SHADER_SLOTS+Q.CandidateGeometryIndex();
-            if((ShadowHitData[Index]&(1u<<29))!=0) Q.CommitNonOpaqueTriangleHit();
+            if(Index>=NumHitData || (ShadowHitData[Index]&(1u<<29))!=0) Q.CommitNonOpaqueTriangleHit();
         }
     }
     return Q.CommittedStatus()==COMMITTED_TRIANGLE_HIT;
 }
-#if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
-float3 BoundaryRadiance(float3 P,float3 D,float Limit,out bool Hit,out bool Valid)
-{
-    FTraceRayInlineContext C=CreateTraceRayInlineContext();
-    FTraceRayInlineResult H=TraceRayInline(TLAS,RAY_FLAG_FORCE_OPAQUE,RAY_TRACING_MASK_OPAQUE,Ray(P,D,Limit),C);
-    Hit=H.IsHit();
-    Valid=true;
-    if(!Hit) return FogMS_WorldSky(D);
-    float3 N=0;
-#if PLATFORM_SUPPORTS_INLINE_RAY_TRACING_TRIANGLE_NORMALS
-    N=H.WorldGeometryNormal;
-#elif PLATFORM_SUPPORTS_INLINE_RAY_TRACING_TRIANGLE_ATTRIBUTES
-    FTriangleBaseAttributes A=LoadInlineRayTracingTriangleAttributes(RayTracingSceneMetadata,H.InstanceContributionToHitGroupIndex,RAY_TRACING_NUM_SHADER_SLOTS,H.GeometryIndex,H.PrimitiveIndex);
-    N=normalize(mul(cross(A.LocalPositions[2]-A.LocalPositions[0],A.LocalPositions[1]-A.LocalPositions[0]),(float3x3)H.WorldToObject3x4));
-#endif
-    if(dot(N,D)>0) N=-N;
-    return FogMS_SurfaceRadiance(H.InstanceID,P+D*H.HitT,N,Valid);
-}
-#endif
+// Box-medium transmittance from P along D over [0,Limit] (pass-0 sigma_t, cell DDA). P must lie inside the Box: the first
+// cell is clamp(floor(...)), so a start outside would charge the whole outside stretch to that edge cell. The march stops
+// at Limit or where the ray leaves the grid (a directional light's Limit 1e27 thus ends at the Box exit).
 float MediumT(float3 P,float3 D,float Limit)
 {
     float3 L=Local(P), DL=float3(dot(D,BoxAxisX.xyz),dot(D,BoxAxisY.xyz),dot(D,BoxAxisZ.xyz));
@@ -149,6 +156,82 @@ float MediumT(float3 P,float3 D,float Limit)
     }
     return exp(-min(Tau,80.f));
 }
+#if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
+// MediumT for a start anywhere (boundary-ray hits lie inside or outside the Box). Clips the ray to the Box slabs
+// |Local| <= Extent (orthonormal Box axes, D unit, so the local parameter is the world distance) and marches from the
+// entry point. A ray that misses the Box, or leaves it before Limit reaches it, returns 1; a start inside (TEnter 0)
+// is exactly MediumT(P,D,Limit).
+float MediumTAnywhere(float3 P,float3 D,float Limit)
+{
+    float3 L=Local(P), DL=float3(dot(D,BoxAxisX.xyz),dot(D,BoxAxisY.xyz),dot(D,BoxAxisZ.xyz)), E=Extent();
+    float TEnter=0.f,TExit=Limit;
+    UNROLL for(uint A=0;A<3;++A)
+    {
+        if(abs(DL[A])<=1.e-10f)
+        {
+            if(abs(L[A])>E[A]) return 1.f; // parallel to this slab and outside it
+            continue;
+        }
+        float T0=(-E[A]-L[A])/DL[A],T1=(E[A]-L[A])/DL[A];
+        TEnter=max(TEnter,min(T0,T1)); TExit=min(TExit,max(T0,T1));
+    }
+    if(!(TEnter<TExit)) return 1.f;
+    return TEnter>0.f?MediumT(P+D*TEnter,D,Limit-TEnter):MediumT(P,D,Limit);
+}
+// Origin offset (cm) of the fallback sun ray along the hit's geometric normal, against self-intersection of the hit
+// triangle (Ray() TMin is 0.01 cm; translated-world hit positions carry ~0.01-0.1 cm float error at 1-10 km).
+static const float FallbackNormalBias=1.f;
+// Public fallback surface radiance at a boundary-ray hit (FogMSLumenBounce 0; Lumen Bounce Off, or Auto without the
+// 5.8.2 surface-cache source). One Lambert bounce of the atmosphere sun and the sky, no emissive, no local lights:
+//   L_o = FogMSFallbackGroundAlbedo * (E_sun * saturate(N.L) * V_sun * T_sun + E_sky(N)) / pi
+// E_sun / pi = 4 * J: FogMS_WorldLight's J is the isotropic in-scattered E_sun / (4*pi) (the light's volumetric intensity
+// and exposure compensation included; the same light data pass 2 uses for Direct). V_sun: one CastShadow-aware ray toward
+// the sun, geometry only. T_sun (FogMSFallbackMedium != 0, r.FogMS.World.FallbackMedium): Box-medium transmittance along
+// that ray (MediumTAnywhere, the pass-0 sigma_t pass 2 marches), 1 otherwise; only where V_sun is 1. The sky term
+// carries no medium or geometry occlusion. E_sky / pi = FogMS_WorldSkyIrradianceSH(N) (SH scale of the sky path).
+// FogMSFallbackGroundAlbedo: the Box's Fallback Ground Albedo (RGB, [0,1]). Hit and N: translated world, N unit and
+// facing the incoming ray. Always valid.
+float3 FallbackSurfaceRadiance(float3 Hit,float3 N)
+{
+    float3 Radiance=0;
+    if(FogMSWorldSunLightIndex>=0&&uint(FogMSWorldSunLightIndex)<FogMS_WorldLightCount())
+    {
+        float3 L,J; float Distance; bool Shadow;
+        FogMS_WorldLight(uint(FogMSWorldSunLightIndex),Hit,L,Distance,J,Shadow);
+        float NoL=saturate(dot(N,L));
+        float3 Origin=Hit+N*FallbackNormalBias;
+        if(NoL>0&&any(J>0)&&(!Shadow||!DirectShadow(Origin,L,Distance)))
+            Radiance+=4.f*J*NoL*(FogMSFallbackMedium!=0u?MediumTAnywhere(Origin,L,Distance):1.f);
+    }
+    Radiance+=FogMS_WorldSkyIrradianceSH(N);
+    Radiance*=FogMSFallbackGroundAlbedo;
+    return all(isfinite(Radiance))?max(Radiance,0.f):0.f;
+}
+// SectorSolidAngle: solid angle the ray D stands for (4*pi/AngularCount); selects the sky cubemap mip on a miss.
+float3 BoundaryRadiance(float3 P,float3 D,float Limit,float SectorSolidAngle,out bool Hit,out bool Valid)
+{
+    FTraceRayInlineContext C=CreateTraceRayInlineContext();
+    FTraceRayInlineResult H=TraceRayInline(TLAS,RAY_FLAG_FORCE_OPAQUE,RAY_TRACING_MASK_OPAQUE,Ray(P,D,Limit),C);
+    Hit=H.IsHit();
+    Valid=true;
+    if(!Hit) return FogMS_WorldSky(D,SectorSolidAngle);
+    float3 N=0;
+#if PLATFORM_SUPPORTS_INLINE_RAY_TRACING_TRIANGLE_NORMALS
+    N=H.WorldGeometryNormal;
+#elif PLATFORM_SUPPORTS_INLINE_RAY_TRACING_TRIANGLE_ATTRIBUTES
+    FTriangleBaseAttributes A=LoadInlineRayTracingTriangleAttributes(RayTracingSceneMetadata,H.InstanceContributionToHitGroupIndex,RAY_TRACING_NUM_SHADER_SLOTS,H.GeometryIndex,H.PrimitiveIndex);
+    N=normalize(mul(cross(A.LocalPositions[2]-A.LocalPositions[0],A.LocalPositions[1]-A.LocalPositions[0]),(float3x3)H.WorldToObject3x4));
+#endif
+    if(dot(N,D)>0) N=-N;
+    BRANCH if(FogMSLumenBounce!=0u) return FogMS_SurfaceRadiance(H.InstanceID,P+D*H.HitT,N,Valid);
+    // Fallback: always valid. Pass 1 discards boundary radiance under test inputs and r.FogMS.World.Indirect 0 (only the
+    // hit flags are used there; pass 14 is not reached then), so the sun ray is skipped in those cases.
+    if(TestMode>0||IndirectEnabled==0) return 0;
+    // Same normal as the Lumen branch; a missing/degenerate one (no triangle attributes) faces the ray.
+    if(!all(isfinite(N))||dot(N,N)<1.e-12f) N=-D;
+    return FallbackSurfaceRadiance(P+D*H.HitT,N);
+}
+#endif
 
 [numthreads(64,1,1)]
 void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
@@ -188,14 +271,14 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
             // Include the boundary half-cell: otherwise a thin wall there is
             // missed by both the exterior ray and every center-to-center edge.
             OuterHalfCellBlocked=Blocked(Interior,Outward,.5f*CellSize[A],RAY_TRACING_MASK_OPAQUE);
-            bool Hit,Valid; float3 Value=BoundaryRadiance(Interior,Outward,SourceTraceDistance+.5f*CellSize[A],Hit,Valid);
+            bool Hit,Valid; float3 Value=BoundaryRadiance(Interior,Outward,SourceTraceDistance+.5f*CellSize[A],4.f*PI/float(AngularCount),Hit,Valid);
             if(Plane==0) {Right=Value;RightValid=Valid;} else {Left=Value;LeftValid=Valid;}
         }
         else
         {
             bool H0,H1;
-            Left=BoundaryRadiance(P-D*(.5f*CellSize[A]),D,CellSize[A],H0,LeftValid);
-            Right=BoundaryRadiance(P+D*(.5f*CellSize[A]),-D,CellSize[A],H1,RightValid);
+            Left=BoundaryRadiance(P-D*(.5f*CellSize[A]),D,CellSize[A],4.f*PI/float(AngularCount),H0,LeftValid);
+            Right=BoundaryRadiance(P+D*(.5f*CellSize[A]),-D,CellSize[A],4.f*PI/float(AngularCount),H1,RightValid);
             Open=!(H0||H1);
             if(Open) {Left=0;Right=0;}
             else {if(!H0) Left=0;if(!H1) Right=0;}
@@ -217,20 +300,51 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
 #elif FOGMS_TRANSPORT_PASS == 2
     if(I>=N) return;
     uint3 C=Cell(I); float3 Direct=0;
-    if(TestMode==0)
+    // DirectSkipEmpty: sigma_t = 0 exactly (pass 0 averages eight point densities; the density mask returns exact
+    // zeros outside the cloud). Then sigma_s = 0 too, so this cell's Direct never reaches the solve (b = sqrt(sigma_s)*Base);
+    // it does reach slab 0 (Total) / slab 1 (Base) that the reconstruction and pass 17 interpolate, hence opt-in.
+    const bool Empty=DirectSkipEmpty!=0&&Coefficients.Load(int4(C,0)).a<=0.f;
+#if FOGMS_TRANSPORT_HYBRID
+    // T_sun: same subcell points, shadow ray and medium march as Direct, for the atmosphere sun only
+    // (FogMSWorldSunLightIndex from FogMS_GetWorldSources). No sun in the list, test inputs or a skipped empty cell: T_sun = 1.
+    float SunT=0; float3 SunDirect=0;
+    const bool HasSun=TestMode==0&&!Empty&&FogMSWorldSunLightIndex>=0&&uint(FogMSWorldSunLightIndex)<FogMS_WorldLightCount();
+#endif
+    if(TestMode==0&&!Empty)
     {
-        UNROLL for(uint Sample=0;Sample<8;++Sample)
+        // Weight 1/Samples, exact powers of two: at 8 the sums are bit-identical to the former "/8.f".
+        const uint Samples=DirectSamples==4?4u:8u;
+        const float Weight=Samples==4u?.25f:.125f;
+        UNROLL for(uint K=0;K<8;++K)
         {
+            if(K>=Samples) break;
+            // 8: Sample = K (the unchanged order). 4: K -> 0,3,5,6 (even bit counts: K*2 | parity(K)), XOR 7 on odd
+            // solves -> 7,4,2,1. Each is a regular tetrahedron of the .25/.75 corners centred on the cell (exact for
+            // linear and quadratic terms); the two differ in the sign of the xyz term, which cancels over two solves.
+            uint Sample=Samples==8u?K:(((K<<1)|(countbits(K)&1u))^((FogMSSolveParity&1u)*7u));
             float3 Offset=float3(Sample&1,(Sample>>1)&1,(Sample>>2)&1)*.5f+.25f;
             float3 P=World((float3(C)+Offset)*CellSize-Extent());
             LOOP for(uint Light=0;Light<FogMS_WorldLightCount();++Light)
             {
                 float3 D,J; float Distance; bool Shadow;
                 FogMS_WorldLight(Light,P,D,Distance,J,Shadow);
-                if(any(J>0)&&(!Shadow||!DirectShadow(P,D,Distance))) Direct+=J*MediumT(P,D,Distance)/8.f;
+#if FOGMS_TRANSPORT_HYBRID
+                if(HasSun&&Light==uint(FogMSWorldSunLightIndex))
+                {
+                    // One visibility ray shared by Direct and T_sun; Direct gets the identical J*MediumT*Weight term.
+                    // D points toward the sun, Distance = 1e27 (FogMS_WorldLight): MediumT stops at the Box exit.
+                    bool Visible=!Shadow||!DirectShadow(P,D,Distance);
+                    float T=Visible?MediumT(P,D,Distance):0.f;
+                    if(any(J>0)&&Visible) {Direct+=J*T*Weight; SunDirect+=J*T*Weight;}
+                    SunT+=T*Weight;
+                    continue;
+                }
+#endif
+                if(any(J>0)&&(!Shadow||!DirectShadow(P,D,Distance))) Direct+=J*MediumT(P,D,Distance)*Weight;
             }
         }
     }
+    // Also for empty cells: InverseDiagonal reads it (there 1 - sigma_s*Lambda = 1, so the value is inert, but kept exact).
     float LambdaDiagonal=0;
     if(AngularCount>6)
     {
@@ -239,6 +353,9 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
             LambdaDiagonal+=Ordinates[D].w/(Sigma+dot(abs(Ordinates[D].xyz),rcp(CellSize)));
     }
     OutDirect[C]=float4(Direct,LambdaDiagonal);
+#if FOGMS_TRANSPORT_HYBRID
+    OutSunTransmittance[C]=float4(HasSun?SunDirect:0.f,HasSun?saturate(SunT):1.f);
+#endif
 #elif FOGMS_TRANSPORT_PASS == 14
     // One incoming ordinate per exterior face/cell. Internal closed-face
     // surface radiance remains the reciprocal diffuse face adapter.
@@ -253,7 +370,7 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
     {
         float3 Look=-(Ordinates[D].x*BoxAxisX.xyz+Ordinates[D].y*BoxAxisY.xyz+Ordinates[D].z*BoxAxisZ.xyz);
         bool Hit,Valid;
-        Value.rgb=BoundaryRadiance(CellPosition(C),Look,SourceTraceDistance+length(CellSize),Hit,Valid);
+        Value.rgb=BoundaryRadiance(CellPosition(C),Look,SourceTraceDistance+length(CellSize),4.f*PI/float(AngularCount),Hit,Valid);
         Value.a=Valid?0.f:-1.f;
     }
     OutDirectionBoundaries[I]=Value;
@@ -281,15 +398,27 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
             OutFlux[Dir*N+Index]=float4(InClosed?Luminance(Incoming)*Area*(4.f*PI/6.f):0,OutClosed?Luminance(Outgoing)*Area*(4.f*PI/6.f):0,0,0);
         Incoming=Outgoing;
     }
-#elif FOGMS_TRANSPORT_PASS == 4 || FOGMS_TRANSPORT_PASS == 10
+#elif FOGMS_TRANSPORT_PASS == 15
+    if(I>=N) return;
+    uint3 C=Cell(I); float4 S=Coefficients.Load(int4(C,0));
+    float3 J=max(PreviousAtlas.Load(int3(C.x,C.y+C.z*GridSize,0)).rgb,0.f);
+    if(!all(isfinite(J))) J=0;
+    OutA[I]=float4(sqrt(S.rgb)*J,0);
+#elif FOGMS_TRANSPORT_PASS == 4 || FOGMS_TRANSPORT_PASS == 10 || FOGMS_TRANSPORT_PASS == 16
     if(I>=N) return;
     // Match the existing per-channel PCG stop exactly. No approximate new
     // tolerance: once all channels are inactive, alpha is already zero.
-    if(FOGMS_TRANSPORT_PASS==10 && AngularCount>6 && SkipConverged!=0)
+    if(FOGMS_TRANSPORT_PASS!=4 && AngularCount>6 && SkipConverged!=0)
     {
         float3 Rho=Scalars[0].rgb,InitialRho=Scalars[3].rgb;
         if(all(isfinite(Rho))&&all(isfinite(InitialRho))&&all(Rho>=0)&&all(InitialRho>=0)
-            &&all(Rho<=InitialRho*1.e-14f)) {OutA[I]=0;return;}
+            &&all(Rho<=InitialRho*ConvergenceTolerance))
+        {
+            if(FOGMS_TRANSPORT_PASS==10) {OutA[I]=0;return;}
+            // The warm sweep was skipped by this same predicate (b is zero): keep the exact cold state.
+            float3 R=InputB[I].rgb; uint3 K=Cell(I);
+            OutA[I]=0;OutB[I]=float4(R,0);OutC[I]=float4(R*InverseDiagonal(Coefficients.Load(int4(K,0)),K),0);return;
+        }
     }
     uint3 C=Cell(I); float4 S=Coefficients.Load(int4(C,0)); float3 Mean=0;
     LOOP for(uint D=0;D<uint(AngularCount);++D) Mean+=Angular[D*N+I].rgb*(AngularCount==6?1.f/6.f:Ordinates[D].w);
@@ -321,6 +450,11 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
             Mask|=Missing<<12; // <=288, exact integer in float32 together with low face flags.
         }
         OutPrimary[I]=float4(Base,float(Mask));
+    }
+    else if(FOGMS_TRANSPORT_PASS==16)
+    {
+        float3 U0=InputA[I].rgb,R=InputB[I].rgb-(U0-sqrt(S.rgb)*Mean);
+        OutA[I]=float4(U0,0);OutB[I]=float4(R,0);OutC[I]=float4(R*InverseDiagonal(S,C),0);
     }
     else OutA[I]=float4(InputA[I].rgb-sqrt(S.rgb)*Mean,0);
 #elif FOGMS_TRANSPORT_PASS == 7
@@ -356,14 +490,52 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
     OutAtlas[XY+uint2(0,2*Stride)]=S;
     float Volume=CellSize.x*CellSize.y*CellSize.z;
     OutAtlas[XY+uint2(0,3*Stride)]=float4(Power,4.f*PI*Volume*Luminance((S.a-S.rgb)*Diffuse),4.f*PI*Volume*Luminance(S.rgb*Direct));
+#elif FOGMS_TRANSPORT_PASS == 17
+    // Emissive Injection: publish slab 0 (total incident J; scene-linear, not pre-exposed,
+    // no sigma_s) of the published atlas (bound as ReconstructionAtlas) to a GridSize^3 volume.
+    // Mapping: Cell(I) = (I%N, (I/N)%N, I/(N*N)) is Box-local cell C along the Box axes, and
+    // field texel C == atlas texel (C.x, C.y + C.z*N). Cell centres sit at half texels, so the
+    // material samples uvw = (Local + Extent) / (2*Extent) with Local in Box-axis centimetres
+    // (CellPosition(C): Local = (C + .5)*CellSize - Extent). Alpha 1 marks a valid current
+    // field; a cleared field (alpha 0) tells the material to fall back to native albedo lighting.
+    if(I>=N) return;
+    uint3 C=Cell(I);
+#if FOGMS_TRANSPORT_HYBRID
+    // Hybrid v2: native fog renders the sun's single scattering (scaled by T_sun*k below), so publish
+    // J - Direct_sun. slab 0 = Total (Direct + Diffuse); slab 1 = Base = Direct + uncollided boundary sweep
+    // (texel (C.x, C.y + C.z*N + N*N)) is used for k = sun share of the uncollided light. Alpha
+    // 0.5 + 0.5*T_sun*k stays >= 0.5 (valid); the material applies S = saturate(2A - 1) to native single scattering.
+    int2 XY=int2(C.x,C.y+C.z*GridSize);
+    float3 Total=ReconstructionAtlas.Load(int3(XY,0)).rgb;
+    float3 Uncollided=ReconstructionAtlas.Load(int3(XY+int2(0,GridSize*GridSize),0)).rgb;
+    // Native single scattering cannot be limited to the sun (it adds sun + sky + local lights, all scaled by the
+    // material albedo). So the field keeps every uncollided term except the sun's (sector sky with its aureole,
+    // local lights, per-direction self-shadowing stay ours), and the albedo scale carries T_sun * k with
+    // k = sun share of the uncollided light: native then contributes about T_sun * sun only. No sun (night): k = 0,
+    // the Box degenerates to full-field injection.
+    float4 Sun=SunTransmittance.Load(int4(C,0));
+    float3 SunDirect=max(Sun.rgb,0.f); float SunT=Sun.a;
+    float3 Jpub=max(Total-SunDirect,0.f);
+    if(!all(isfinite(Jpub))) Jpub=0;
+    float K=saturate(Luminance(SunDirect)/max(Luminance(max(Uncollided,0.f)),1.e-6f));
+    float A=(isfinite(SunT)&&isfinite(K))?.5f+.5f*saturate(SunT*K):.5f;
+    OutField[C]=float4(Jpub,A);
+#else
+    float3 J=max(ReconstructionAtlas.Load(int3(C.x,C.y+C.z*GridSize,0)).rgb,0.f);
+    if(!all(isfinite(J))) J=0;
+    OutField[C]=float4(J,1);
+#endif
 #endif
 }
 
 #if FOGMS_ANGULAR_SWEEP
 // A direction owns one group. Every upwind neighbour lies on the previous
 // x+y+z front; shared memory makes ordering explicit without cross-group races.
+#ifndef FOGMS_SWEEP_THREADS
+#define FOGMS_SWEEP_THREADS 256
+#endif
 groupshared float3 AngularFront[2048];
-[numthreads(256,1,1)]
+[numthreads(FOGMS_SWEEP_THREADS,1,1)]
 void AngularSweepCS(uint3 Group:SV_GroupID,uint Thread:SV_GroupIndex)
 {
     const int ActiveSweep=FOGMS_ANGULAR_KIND;
@@ -373,7 +545,7 @@ void AngularSweepCS(uint3 Group:SV_GroupID,uint Thread:SV_GroupIndex)
         // Angular on this path. No group has entered its barriers yet.
         float3 Rho=Scalars[0].rgb,InitialRho=Scalars[3].rgb;
         if(all(isfinite(Rho))&&all(isfinite(InitialRho))&&all(Rho>=0)&&all(InitialRho>=0)
-            &&all(Rho<=InitialRho*1.e-14f)) return;
+            &&all(Rho<=InitialRho*ConvergenceTolerance)) return;
     }
     uint D=Group.x,N=Count(),Size=uint(GridSize),PlaneCells=Size*Size;
     float3 Omega=Ordinates[D].xyz,Rate=abs(Omega)/CellSize;
@@ -382,7 +554,7 @@ void AngularSweepCS(uint3 Group:SV_GroupID,uint Thread:SV_GroupIndex)
     LOOP for(uint Front=0;Front<3*Size-2;++Front)
     {
         uint WriteBase=(Front&1)*1024,ReadBase=((Front+1)&1)*1024;
-        LOOP for(uint IJ=Thread;IJ<PlaneCells;IJ+=256)
+        LOOP for(uint IJ=Thread;IJ<PlaneCells;IJ+=FOGMS_SWEEP_THREADS)
         {
             uint X=IJ%Size,Y=IJ/Size;int Z=int(Front)-int(X)-int(Y);
             if(Z>=0&&Z<int(Size))
@@ -449,6 +621,7 @@ void ReduceCS(uint3 Group:SV_GroupID,uint Thread:SV_GroupIndex,uint3 Dispatch:SV
 #else
         float3 Sum=Sums[0];
         if(ReductionKind==0) {Scalars[0]=float4(Sum,0);Scalars[1]=0;Scalars[2]=0;Scalars[3]=float4(Sum,0);}
+        else if(ReductionKind==3) Scalars[0]=float4(Sum,0); // warm rho; Scalars[3] keeps the cold rho
         else if(ReductionKind==1)
         {
             float3 Rho=Scalars[0].rgb;float3 Alpha=0;

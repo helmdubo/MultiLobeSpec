@@ -9,7 +9,7 @@ class FFogMSShadowCacheState;
 
 namespace FogMSRender
 {
-	constexpr uint32 BoxRowCount = 24;
+	constexpr uint32 BoxRowCount = 32; // Box packet float4 rows; rows 24..31 are reserved for authored density (zero until used).
 	using FShadowCacheStatePtr = TSharedPtr<FFogMSShadowCacheState, ESPMode::ThreadSafe>;
 
 	struct FShadowCacheResult

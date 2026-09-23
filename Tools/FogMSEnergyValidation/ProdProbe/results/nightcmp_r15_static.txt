@@ -1,0 +1,12 @@
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07', 'emissive_injection': 'False', 'use_manual_animation_time': 'False'}
+SUN_ROT0 [-15.95448112487792, 20.580078124999996, 53.30691909790036]
+
+A_box_authored   mean  112.7 | cloud(p75)  168.3 | dark(p5)   16.3 | Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diag
+B_native_only    mean  121.1 | cloud(p75)  166.3 | dark(p5)    7.0 | Active B3 isotropic transport (16 directions, tol 1.00e-06; see convergence diag
+C_box_injection  mean    0.2 | cloud(p75)    0.0 | dark(p5)    0.0 | Off (Box Enabled is false)
+D_box_hybrid     mean  173.7 | cloud(p75)  221.7 | dark(p5)   83.0 | World requires one realtime view.
+A_box_authored   vs native: mean x0.931 | cloud x1.012
+B_native_only    vs native: mean x1.000 | cloud x1.000
+C_box_injection  vs native: mean x0.002 | cloud x0.000
+D_box_hybrid     vs native: mean x1.434 | cloud x1.333
+DONE

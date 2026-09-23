@@ -9,6 +9,13 @@
 
 #if FOGMS_ENABLED && FOGMS_BOX_MODE
 
+#if FOGMS_BOUND_DENSITY_ATLAS
+// Transport/World producers: the BGRA8 density atlas (FFogMSWorldRequest::DensityAtlas) is an
+// ordinary bound SRV, valid in any bindless configuration. Row 7.z (its heap index) is ignored here;
+// consumers and the BindlessAll-only shadow-cache producer keep reading it through the heap.
+Texture2D<float4> FogMSDensityAtlas;
+#endif
+
 struct FogMS_IndirectData
 {
 	float3 Center;
@@ -30,6 +37,16 @@ struct FogMS_IndirectData
 	float3 WorldPhase1;
 	float3 WorldPhase2;
 	bool WorldAligned;
+	// S1 edge erosion (row 24) and S2 height profile (rows 25, 26).
+	float ErosionStrength;
+	float ErosionDepth;
+	uint ErosionChannel;
+	bool HeightProfile;
+	float HeightBottom;
+	float HeightTop;
+	float BottomSoftness;
+	float TopSoftness;
+	float AnvilStrength;
 	float Strength;
 	uint Steps;
 	uint AtlasSRV;
@@ -80,6 +97,21 @@ FogMS_IndirectData FogMS_GetIndirectData(bool RequireStrength)
 	Data.WorldPhase2 = FogMS_BoxRow(15).xyz;
 	if (Data.WorldAligned && (!all(isfinite(WorldMapping)) || any(Data.WorldFrequencies <= 0.0f)
 		|| !all(isfinite(Data.WorldPhase0)) || !all(isfinite(Data.WorldPhase1)) || !all(isfinite(Data.WorldPhase2)))) return Data;
+	// Row 24 = (ErosionStrength, ErosionDepth, ErosionChannel 0..3, 0); row 25 = (Bottom, Top, BottomSoftness, TopSoftness);
+	// row 26 = (AnvilStrength, ProfileEnabled, 0, 0). Zero rows (unused) mean Strength 0 and profile off: density unchanged.
+	float4 Erosion = FogMS_BoxRow(24);
+	float4 HeightRange = FogMS_BoxRow(25);
+	float4 HeightFlags = FogMS_BoxRow(26);
+	if (!all(isfinite(Erosion)) || !all(isfinite(HeightRange)) || !all(isfinite(HeightFlags))) return Data;
+	Data.ErosionStrength = saturate(Erosion.x);
+	Data.ErosionDepth = clamp(Erosion.y, 0.01f, 1.0f);
+	Data.ErosionChannel = (uint)clamp(Erosion.z, 0.0f, 3.0f);
+	Data.HeightProfile = HeightFlags.y > 0.5f;
+	Data.HeightBottom = saturate(HeightRange.x);
+	Data.HeightTop = saturate(HeightRange.y);
+	Data.BottomSoftness = saturate(HeightRange.z);
+	Data.TopSoftness = saturate(HeightRange.w);
+	Data.AnvilStrength = saturate(HeightFlags.x);
 	Data.Strength = saturate(Control.x);
 	Data.Steps = (uint)clamp(Control.y, 1.0f, 64.0f);
 	Data.AtlasSRV = (uint)Control.z;
@@ -95,7 +127,9 @@ float3 FogMS_IndirectLocalPosition(float3 TranslatedPosition, FogMS_IndirectData
 	return float3(dot(Offset, Data.AxisX), dot(Offset, Data.AxisY), dot(Offset, Data.AxisZ));
 }
 
-float FogMS_IndirectSampleNoise(float3 UVW, FogMS_IndirectData Data)
+// Returns all four channels of the one trilinear sample: callers pick Data.Channel (density) and, from
+// the Detail1 sample only, Data.ErosionChannel (S1 erosion), so erosion adds no texture loads.
+float4 FogMS_IndirectSampleNoise(float3 UVW, FogMS_IndirectData Data)
 {
 	// Reproduce mip-0 Texture3D wrap filtering, including both sides of every seam.
 	float3 TexelPosition = frac(UVW) * float3(Data.Size) - 0.5f;
@@ -103,20 +137,86 @@ float FogMS_IndirectSampleNoise(float3 UVW, FogMS_IndirectData Data)
 	float3 Alpha = frac(TexelPosition);
 	uint3 P0 = (uint3)(Base + int3(Data.Size)) % Data.Size;
 	uint3 P1 = (P0 + 1u) % Data.Size;
+	// Same texture and the same eight texel loads either way; only the binding source differs.
+#if FOGMS_BOUND_DENSITY_ATLAS
+	Texture2D<float4> Atlas = FogMSDensityAtlas;
+#else
 	Texture2D<float4> Atlas = GetSRVFromHeap(Texture2D<float4>, Data.AtlasSRV);
+#endif
 	// B8G8R8A8_UNORM SRVs expose logical RGBA; do not swizzle the BGRA source bytes.
-	float C000 = Atlas.Load(int3(P0.x, P0.y + P0.z * Data.Size.y, 0))[Data.Channel];
-	float C100 = Atlas.Load(int3(P1.x, P0.y + P0.z * Data.Size.y, 0))[Data.Channel];
-	float C010 = Atlas.Load(int3(P0.x, P1.y + P0.z * Data.Size.y, 0))[Data.Channel];
-	float C110 = Atlas.Load(int3(P1.x, P1.y + P0.z * Data.Size.y, 0))[Data.Channel];
-	float C001 = Atlas.Load(int3(P0.x, P0.y + P1.z * Data.Size.y, 0))[Data.Channel];
-	float C101 = Atlas.Load(int3(P1.x, P0.y + P1.z * Data.Size.y, 0))[Data.Channel];
-	float C011 = Atlas.Load(int3(P0.x, P1.y + P1.z * Data.Size.y, 0))[Data.Channel];
-	float C111 = Atlas.Load(int3(P1.x, P1.y + P1.z * Data.Size.y, 0))[Data.Channel];
+	// Per-component lerps: each channel is computed exactly as the former single-channel path.
+	float4 C000 = Atlas.Load(int3(P0.x, P0.y + P0.z * Data.Size.y, 0));
+	float4 C100 = Atlas.Load(int3(P1.x, P0.y + P0.z * Data.Size.y, 0));
+	float4 C010 = Atlas.Load(int3(P0.x, P1.y + P0.z * Data.Size.y, 0));
+	float4 C110 = Atlas.Load(int3(P1.x, P1.y + P0.z * Data.Size.y, 0));
+	float4 C001 = Atlas.Load(int3(P0.x, P0.y + P1.z * Data.Size.y, 0));
+	float4 C101 = Atlas.Load(int3(P1.x, P0.y + P1.z * Data.Size.y, 0));
+	float4 C011 = Atlas.Load(int3(P0.x, P1.y + P1.z * Data.Size.y, 0));
+	float4 C111 = Atlas.Load(int3(P1.x, P1.y + P1.z * Data.Size.y, 0));
 	return lerp(lerp(lerp(C000, C100, Alpha.x), lerp(C010, C110, Alpha.x), Alpha.y),
 		lerp(lerp(C001, C101, Alpha.x), lerp(C011, C111, Alpha.x), Alpha.y), Alpha.z);
 }
 
+// One helper for the S2 height profile, the same SS as Fn.SS in the material's FogMS_Extinction node.
+float FogMS_SS(float a, float w, float x)
+{
+	return smoothstep(a, a + max(w, 1e-4f), x);
+}
+
+// S2: P = SS(B,SB,h) * (1 - SS(T-ST,ST,h)) * (1 + A*SS(M, max(T-ST-M,1e-4), h)), M = B + 0.5*(T-B).
+// P >= 0 (A >= 0); the anvil term makes P up to 2 (wider coverage near the top).
+float FogMS_HeightProfile(float h, FogMS_IndirectData Data)
+{
+	float M = Data.HeightBottom + 0.5f * (Data.HeightTop - Data.HeightBottom);
+	return FogMS_SS(Data.HeightBottom, Data.BottomSoftness, h) * (1.0f - FogMS_SS(Data.HeightTop - Data.TopSoftness, Data.TopSoftness, h))
+		* (1.0f + Data.AnvilStrength * FogMS_SS(M, max(Data.HeightTop - Data.TopSoftness - M, 1e-4f), h));
+}
+
+/* Material twin: the FogMS_Extinction Custom node of M_FogMS_Density must stay formula-identical to
+   FogMS_IndirectLocalDensity below. Its HLSL is EXTINCTION_CODE_V2 in
+   Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py, copied verbatim between the markers (diff them).
+   Name map (material -> here): LocalPosition*0.01+0.5 -> Local/Extent*UVSign*0.5+0.5 (UVW and h);
+   dot(Noise|Detail0|Detail1, ChannelMask) -> sample[Data.Channel]; dot(Detail1, ErosionMask) -> Detail1[Data.ErosionChannel];
+   Threshold - Softness*0.5 -> Lo; Fn.SS -> FogMS_SS; HeightBottom/Top, Bottom/TopSoftness, AnvilStrength -> Data.*;
+   the material has no early exits (they are exact shortcuts here) and filters in hardware (here: 8 Loads).
+BEGIN EXTINCTION_CODE_V2
+// FogMS_Extinction v2 (S1 edge erosion, S2 height profile); formula-identical to FogMS_IndirectLocalDensity.
+// LocalPosition is Box-local cube space -50..50: LocalPosition * 0.01f + 0.5f == Local / Extent * UVSign * 0.5f + 0.5f.
+struct FogMSDensityFn
+{
+    float SS(float a, float w, float x) { return smoothstep(a, a + max(w, 1e-4f), x); }
+};
+FogMSDensityFn Fn;
+float P = 1.0f;
+if (HeightProfile > 0.5f)
+{
+    float h = LocalPosition.z * 0.01f + 0.5f;
+    float M = HeightBottom + 0.5f * (HeightTop - HeightBottom);
+    P = Fn.SS(HeightBottom, BottomSoftness, h) * (1.0f - Fn.SS(HeightTop - TopSoftness, TopSoftness, h))
+        * (1.0f + AnvilStrength * Fn.SS(M, max(HeightTop - TopSoftness - M, 1e-4f), h));
+}
+float n = dot(Noise, ChannelMask) * P;
+if (DetailStrength > 0.0f)
+{
+    float d0 = dot(Detail0, ChannelMask);
+    float d1 = dot(Detail1, ChannelMask);
+    float detail = ((2.0f * d0 - 1.0f) + 0.5f * SecondOctave * (2.0f * d1 - 1.0f))
+        / (1.0f + 0.5f * SecondOctave);
+    n += DetailStrength * detail;
+}
+if (ErosionStrength > 0.0f)
+{
+    float EdgeW = 1.0f - saturate((n - (Threshold - Softness * 0.5f)) / ErosionDepth);
+    n -= ErosionStrength * EdgeW * dot(Detail1, ErosionMask);
+}
+float mask = Softness > 0.0f ? smoothstep(Threshold - Softness * 0.5f, Threshold + Softness * 0.5f, n) : step(Threshold, n);
+float3 edge = (1.0f - abs(LocalPosition) * 0.02f) * WorldExtent;
+float inside = min(edge.x, min(edge.y, edge.z));
+float width = min(Feather, min(WorldExtent.x, min(WorldExtent.y, WorldExtent.z)));
+float fade = width > 0.0f ? smoothstep(0.0f, width, inside) : step(0.0f, inside);
+return max(Density, 0.0f) * mask * fade;
+END EXTINCTION_CODE_V2
+*/
 float FogMS_IndirectLocalDensity(float3 LocalPosition, FogMS_IndirectData Data)
 {
 	float3 Edge = Data.Extent - abs(LocalPosition);
@@ -127,20 +227,57 @@ float FogMS_IndirectLocalDensity(float3 LocalPosition, FogMS_IndirectData Data)
 	// CPU-reduced phase; a non-integer detail scale never re-phases when Box moves.
 	float3 WorldOffset = Data.AxisX * LocalPosition.x + Data.AxisY * LocalPosition.y + Data.AxisZ * LocalPosition.z;
 	if (Data.WorldAligned) UVW = WorldOffset * Data.WorldFrequencies.x + Data.WorldPhase0;
-	float Noise = FogMS_IndirectSampleNoise(UVW, Data);
+	float HalfSoftness = 0.5f * max(Data.Softness, 0.0f);
+	float Lo = Data.Threshold - HalfSoftness, Hi = Data.Threshold + HalfSoftness;
+	// S2 height profile. Off: P = 1 exactly, so Noise * P is the unchanged noise.
+	float P = 1.0f;
 	BRANCH
-	if (Data.DetailStrength > 0.0f)
+	if (Data.HeightProfile)
 	{
-		float3 UV0 = Data.WorldAligned ? WorldOffset * Data.WorldFrequencies.y + Data.WorldPhase1 : UVW * Data.DetailScale;
-		float3 UV1 = Data.WorldAligned ? WorldOffset * Data.WorldFrequencies.z + Data.WorldPhase2 : UVW * Data.DetailScale * 2.0f;
-		float Detail0 = FogMS_IndirectSampleNoise(UV0 + float3(0.173f, 0.379f, 0.613f), Data);
-		float Detail1 = FogMS_IndirectSampleNoise(UV1 + float3(0.731f, 0.217f, 0.419f), Data);
-		float Weight = 0.5f * Data.DetailSecondOctave;
-		Noise += Data.DetailStrength * ((2.0f * Detail0 - 1.0f) + Weight * (2.0f * Detail1 - 1.0f)) / (1.0f + Weight);
+		P = FogMS_HeightProfile(LocalPosition.z / Data.Extent.z * Data.UVSign.z * 0.5f + 0.5f, Data);
+		// UNORM noise <= 1 and P >= 0: Noise * P + detail <= P + DetailStrength, so exit before any texture load.
+		BRANCH
+		if (P < Lo - Data.DetailStrength - 1.e-6f) return 0.0f;
 	}
-	float Mask = Data.Softness > 0.0f
-		? smoothstep(Data.Threshold - 0.5f * Data.Softness, Data.Threshold + 0.5f * Data.Softness, Noise)
-		: step(Data.Threshold, Noise);
+	float Noise = FogMS_IndirectSampleNoise(UVW, Data)[Data.Channel] * P;
+	float Mask;
+	// |detail delta| <= DetailStrength and erosion only subtracts: below this band the mask is provably 0.
+	BRANCH
+	if (Noise < Lo - Data.DetailStrength - 1.e-6f) return 0.0f;
+	// Above it the mask is provably 1. With erosion, n >= Lo + ErosionDepth also gives EdgeW = 0 (no erosion).
+	// ErosionStrength 0: Upper = max(Hi, Hi) = Hi, the former exit.
+	float Upper = max(Hi, Data.ErosionStrength > 0.0f ? Lo + Data.ErosionDepth : Hi);
+	BRANCH
+	if (Noise >= Upper + Data.DetailStrength + 1.e-6f) Mask = 1.0f;
+	else
+	{
+		BRANCH
+		if (Data.DetailStrength > 0.0f || Data.ErosionStrength > 0.0f)
+		{
+			float3 UV0 = Data.WorldAligned ? WorldOffset * Data.WorldFrequencies.y + Data.WorldPhase1 : UVW * Data.DetailScale;
+			float3 UV1 = Data.WorldAligned ? WorldOffset * Data.WorldFrequencies.z + Data.WorldPhase2 : UVW * Data.DetailScale * 2.0f;
+			float Weight = 0.5f * Data.DetailSecondOctave;
+			// One Detail1 RGBA sample: channel Data.Channel is the second octave, channel Data.ErosionChannel erodes.
+			// Weight 0 contributes exactly 0 whatever Detail1 is; without erosion it is then not loaded.
+			float4 Detail1 = 0.5f;
+			BRANCH
+			if (Weight > 0.0f || Data.ErosionStrength > 0.0f) Detail1 = FogMS_IndirectSampleNoise(UV1 + float3(0.731f, 0.217f, 0.419f), Data);
+			BRANCH
+			if (Data.DetailStrength > 0.0f)
+			{
+				float Detail0 = FogMS_IndirectSampleNoise(UV0 + float3(0.173f, 0.379f, 0.613f), Data)[Data.Channel];
+				Noise += Data.DetailStrength * ((2.0f * Detail0 - 1.0f) + Weight * (2.0f * Detail1[Data.Channel] - 1.0f)) / (1.0f + Weight);
+			}
+			// S1 edge erosion in noise space, after detail: EdgeW is 1 at the lower band edge, 0 from Lo + ErosionDepth.
+			BRANCH
+			if (Data.ErosionStrength > 0.0f)
+			{
+				float EdgeW = 1.0f - saturate((Noise - Lo) / Data.ErosionDepth);
+				Noise -= Data.ErosionStrength * EdgeW * Detail1[Data.ErosionChannel];
+			}
+		}
+		Mask = Data.Softness > 0.0f ? smoothstep(Lo, Hi, Noise) : step(Data.Threshold, Noise);
+	}
 	float Fade = Data.DensityFeather > 0.0f ? smoothstep(0.0f, Data.DensityFeather, Inside) : 1.0f;
 	return Data.DensityPerCm * Mask * Fade;
 }
@@ -194,6 +331,8 @@ float FogMS_IndirectTransmittance(float3 TranslatedOrigin, float3 RayDirection, 
 	return exp(-min(FogMS_AuthoredOpticalDepth(TranslatedOrigin, RayDirection, HitDistance, Data.Steps, Data), 80.0f));
 }
 
+#if !FOGMS_PRODUCER
+// Consumer only (heap descriptor from rows 20/22): no producer calls it, so producers compile no heap access here.
 // Resident 2D atlas, Y slices stacked along Z. The explicit interpolation never
 // blends across adjacent slice borders (unlike a plain bilinear atlas lookup).
 float4 FogMS_FieldSample(uint Descriptor, float3 Cell, uint3 Size)
@@ -209,6 +348,7 @@ float4 FogMS_FieldSample(uint Descriptor, float3 Cell, uint3 Size)
 		lerp(Field.Load(int3(A.x, B.y + B.z * Size.y, 0)), Field.Load(int3(B.x, B.y + B.z * Size.y, 0)), F.x), F.y);
 	return lerp(Z0, Z1, F.z);
 }
+#endif // !FOGMS_PRODUCER
 
 // Requested B2 owns its authored density even while the lighting producer is
 // unavailable. This marker survives lighting fallback; the raster MID is zero.
@@ -269,6 +409,9 @@ bool FogMS_TransportFieldIncident(Texture2D<float4> Field, float3 CellPosition, 
 	return all(isfinite(Incident)) && all(Incident >= -1.e-6f);
 }
 
+#if !FOGMS_PRODUCER
+// Consumer-only readers below take heap descriptors from packet rows 20/22 (overlay, BindlessAll).
+// Producers use FogMS_TransportFieldIncident above with a bound atlas and never compile these.
 bool FogMS_TransportIncident(float3 TranslatedPosition, out float3 Incident)
 {
 	Incident = 0;
@@ -353,6 +496,7 @@ float FogMS_SurfaceSunTransmittance(float3 TranslatedPosition, float3 DirectionT
 	float Tau = FogMS_AuthoredOpticalDepth(TranslatedPosition, normalize(DirectionToLight), RayLimit, Steps, Data);
 	return lerp(1.0f, exp(-min(Tau, 80.0f)), saturate(FogMS_BoxRow(14).w));
 }
+#endif // !FOGMS_PRODUCER
 
 #endif // FOGMS_ENABLED && FOGMS_BOX_MODE
 
