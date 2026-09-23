@@ -915,7 +915,7 @@ namespace
 			Request.Directions = bTransport ? static_cast<int32>(Packet.Rows[21].W) : 12;
 			Request.ResetHistory = Packet.Rows[5].X > 0.5f;
 			Request.PhaseG = 0;
-			FFogMSSpatialResult Result;
+			FFogMSWorldResult Result; // bHeld: r.FogMS.Transport.SolveInterval re-offers the last publication (no pass).
 			if (bWorldLighting)
 			{
 				FFogMSWorldRequest WorldRequest;
@@ -935,6 +935,10 @@ namespace
 				// pass 0 of the producer binds it directly. Null fails the request (native fallback below).
 				WorldRequest.DensityAtlas = GPU->DensityAtlasTexture;
 				WorldRequest.bLatePublish = bLate;
+				// SolveInterval hold re-offers the injection volume as is: only while it still holds this view's last J
+				// (not cleared by a fallback/gap, not replaced; late: last copied by this view). Overlay-only: no veto.
+				WorldRequest.bAllowHold = !bInjection
+					|| (GPU->bInjectionFieldWritten && (!bLate || GPU->LateInjectionViewKey == View.GetViewKey()));
 				if (bLate)
 				{
 					// This frame's fog runs before this graph's late copy: upload last frame's pair now, on graphics BEFORE
@@ -958,7 +962,7 @@ namespace
 				Result = FogMS_BuildWorldLighting(GraphBuilder, View, WorldRequest);
 			}
 			else
-				Result = FogMS_BuildSpatial(GraphBuilder, View, Request);
+				static_cast<FFogMSSpatialResult&>(Result) = FogMS_BuildSpatial(GraphBuilder, View, Request);
 			// With a packet (BindlessAll) publication means a resident descriptor for the overlay, as before. Injection-only
 			// has no descriptor: a valid Transport build that wrote (or queued) the injection field is the publication.
 			const bool bDescriptorPublished = Result.DescriptorIndex < (1u << 24);
@@ -970,7 +974,12 @@ namespace
 				if (GPU->bWorldFieldPublished != bPublished) Packet.Rows[5].X = 1;
 				GPU->bWorldFieldPublished = bPublished;
 			}
-			if (bPublished && bLate)
+			if (bPublished && bLate && Result.bHeld)
+			{
+				// Late hold: row 22 already carries the consumed pair (FogMS_GetLateTransportField above) and the resident
+				// atlas / volume keep that copy. Queue nothing: PrePostProcessPass adds no copy and leaves the pair valid.
+			}
+			else if (bPublished && bLate)
 			{
 				// Late: row 22 keeps the consumed pair until PrePostProcessPass has added the copy it describes.
 				// Injection-only: no descriptor, so no row 22 pair; the late copy still publishes the injection field.
@@ -991,7 +1000,10 @@ namespace
 			if (bInjection && bPublished)
 			{
 				// Late: nothing is written yet; PrePostProcessPass sets it when its copy is actually added.
+				// Hold: the volume keeps its J (bAllowHold required it written). Late hold refreshes the copy frame, so the
+				// gap check above treats the hold as this view's publication, not as a skipped copy.
 				if (!bLate) GPU->bInjectionFieldWritten = true;
+				else if (Result.bHeld) GPU->LateInjectionRenderFrame = GFrameNumberRenderThread;
 			}
 			else if (bMayClearInjection) ClearInjectionField(GraphBuilder);
 			FString ToleranceText;
@@ -1004,14 +1016,19 @@ namespace
 				else if (ToleranceCVar) ToleranceText = FString::Printf(TEXT("tol %.2e from cvar"), FMath::Clamp(ToleranceCVar->GetValueOnRenderThread(), 0.0f, 1.0f));
 				else ToleranceText = TEXT("tol from cvar");
 			}
+			// r.FogMS.Transport.SolveInterval > 1 only (empty at 1): which phase of the interval this frame's field is.
+			FString HoldText;
+			if (bTransport && bPublished && Result.SolveInterval > 1)
+				HoldText = Result.bHeld ? FString::Printf(TEXT("; hold %d/%d"), Result.HoldPhase, Result.SolveInterval)
+					: FString::Printf(TEXT("; solve every %d frames"), Result.SolveInterval);
 			{
 				FScopeLock Lock(&GPU->FieldStatusMutex);
 				GPU->FieldStatusRevision = GPU->Revision;
 				if (bPublished)
 					GPU->SpatialFieldStatus = bTransport
-						? FString::Printf(TEXT("Active %s isotropic transport (%d directions, %s%s%s%s; see convergence diagnostics)%s"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
+						? FString::Printf(TEXT("Active %s isotropic transport (%d directions, %s%s%s%s%s; see convergence diagnostics)%s"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
 							*ToleranceText, bInjection ? TEXT("; emissive injection via material") : TEXT(""),
-							bHybrid ? TEXT("; hybrid: native single scattering") : TEXT(""), bLate ? TEXT("; one frame late") : TEXT(""),
+							bHybrid ? TEXT("; hybrid: native single scattering") : TEXT(""), bLate ? TEXT("; one frame late") : TEXT(""), *HoldText,
 							GPU->HasPacket() ? TEXT("") : TEXT(" (injection-only: no BindlessAll; overlay features off)"))
 						: (bWorldLighting
 							? (Packet.Rows[21].X > 0 ? TEXT("Active World primary + three current-frame scattering orders (no fog history)")

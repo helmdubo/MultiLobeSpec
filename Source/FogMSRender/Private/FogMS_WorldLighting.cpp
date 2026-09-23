@@ -43,6 +43,10 @@ namespace
 	constexpr uint64 RetireAfterCalls = 120;
 	TAutoConsoleVariable<int32> CVarWorldIndirect(TEXT("r.FogMS.World.Indirect"), 1,
 		TEXT("World source diagnostic: 0 direct source only, 1 sky + Lumen surface radiance. Does not change native light components."), ECVF_RenderThreadSafe);
+	TAutoConsoleVariable<int32> CVarSolveInterval(TEXT("r.FogMS.Transport.SolveInterval"), 1,
+		TEXT("Transport solves every N-th frame per view, clamped to [1,8]. Frames in between hold the last publication (resident atlas, ")
+		TEXT("row 22, injection volume) without any pass. Box/settings change, history reset, gap or failure solve at once. 1: every frame."),
+		ECVF_RenderThreadSafe);
 
 	// Producer only: all inputs are bound (BoxRows, density atlas, RDG textures). Inline RT on PCD3D_SM6 needs
 	// bindless at least for ray tracing (not Disabled), the engine's own inline-RT condition (D3D12Adapter).
@@ -148,6 +152,16 @@ namespace
 		bool bLateAtlasValid = false;
 		// GFrameNumberRenderThread of that copy: a gap (Box off, view not rendered) is never bridged by an old solve.
 		uint32 LateCopyRenderFrame = 0;
+		// r.FogMS.Transport.SolveInterval hold chain. bHoldValid: the last call for this key published (same-frame solve,
+		// completed late copy, or hold) at HoldRenderFrame; cleared at the start of every call and by Invalidate, so any
+		// failed call, skipped late copy or gap forces a solve. HoldPhase counts holds since that solve (counter mod N).
+		bool bHoldValid = false;
+		uint32 HoldRenderFrame = 0;
+		int32 HoldPhase = 0;
+		int32 HoldSolveInterval = 1;
+		bool bHoldInjection = false;
+		uint32 HoldDescriptorIndex = MAX_uint32;
+		int32 HoldGridSize = 0;
 
 		bool EnsureResource(bool bTransport)
 		{
@@ -264,6 +278,36 @@ namespace
 			&& (!Request.bTransport || (Request.Iterations >= 1 && Request.Iterations <= 64 && FMath::IsFinite(Request.Tolerance)));
 	}
 
+	int32 CVarIntValue(const TCHAR* Name) { return IConsoleManager::Get().FindConsoleVariable(Name)->GetInt(); }
+	float CVarFloatValue(const TCHAR* Name) { return IConsoleManager::Get().FindConsoleVariable(Name)->GetFloat(); }
+
+	// Warm start needs the same Box and the same diagnostic inputs; Directions/Iterations/Tolerance may differ (J is direction independent).
+	// Also the first gate of a SolveInterval hold: a hold never re-offers a field solved for other bounds or test inputs.
+	bool WarmStartValid(const FWorldViewState& State, const FFogMSWorldRequest& Request)
+	{
+		const FFogMSWorldRequest& Last = State.LastRequest;
+		return Last.bTransport && !Request.ResetHistory && !State.bLastReconstructionTest
+			&& Last.CenterWS == Request.CenterWS && Last.AxisX == Request.AxisX && Last.AxisY == Request.AxisY
+			&& Last.AxisZ == Request.AxisZ && Last.Extent == Request.Extent
+			&& State.LastTransportTest == CVarIntValue(TEXT("r.FogMS.Transport.Test"))
+			&& State.LastTransportGeometry == CVarIntValue(TEXT("r.FogMS.Transport.TestGeometry"))
+			&& State.LastTransportBoundary == CVarIntValue(TEXT("r.FogMS.Transport.TestBoundary"))
+			&& State.LastTransportTau == CVarFloatValue(TEXT("r.FogMS.Transport.TestTau"))
+			&& State.LastTransportAlbedo == CVarFloatValue(TEXT("r.FogMS.Transport.TestAlbedo"));
+	}
+
+	// Second gate of a hold: everything else the published field depends on is what the last solve used. Revision
+	// covers density, packet rows (strength, directions, iterations, delivery) and the sun; the rest is checked directly.
+	bool HoldCompatible(const FWorldViewState& State, const FFogMSWorldRequest& Request, int32 IndirectEnabled)
+	{
+		const FFogMSWorldRequest& Last = State.LastRequest;
+		return Last.Revision == Request.Revision && Last.Directions == Request.Directions && Last.Iterations == Request.Iterations
+			&& Last.Tolerance == Request.Tolerance && Last.Strength == Request.Strength && Last.DirectionToSun == Request.DirectionToSun
+			&& Last.bHybridInjection == Request.bHybridInjection && Last.bLatePublish == Request.bLatePublish
+			&& State.bHoldInjection == Request.InjectionTexture.IsValid() && State.LastIndirectEnabled == IndirectEnabled
+			&& CVarIntValue(TEXT("r.FogMS.Transport.TestReconstruction")) == 0;
+	}
+
 	uint64 TransportViewKey(const FSceneView& View)
 	{
 		// Same key as FogMS_BuildWorldLighting (FViewInfo::ViewState is FSceneView::State).
@@ -282,12 +326,24 @@ struct FFogMSLateTransportPublish
 };
 RDG_REGISTER_BLACKBOARD_STRUCT(FFogMSLateTransportPublish)
 
-FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSceneView& SceneView, const FFogMSWorldRequest& Request)
+FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSceneView& SceneView, const FFogMSWorldRequest& Request)
 {
 	check(IsInRenderingThread());
-	FFogMSSpatialResult Result;
+	FFogMSWorldResult Result;
 	bLastBuildValid = false;
 	const bool bLate = Request.bTransport && Request.bLatePublish;
+	// SolveInterval hold chain: read and break it before any early return, so only a call that publishes (or holds)
+	// again can continue it. A hold restores bLateAtlasValid only when it was valid here (the copy it re-offers exists).
+	bool bPriorHoldValid = false, bPriorLateAtlasValid = false;
+	if (Request.bTransport)
+	{
+		if (TUniquePtr<FWorldViewState>* Found = WorldViews.Find(TransportViewKey(SceneView)))
+		{
+			bPriorHoldValid = (*Found)->bHoldValid;
+			bPriorLateAtlasValid = (*Found)->bLateAtlasValid;
+			(*Found)->bHoldValid = false;
+		}
+	}
 	if (bLate)
 	{
 		// Before any early return: this graph's own PrePostProcessPass copy is the only way back to a valid atlas.
@@ -372,11 +428,50 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		Result.Error = TEXT("World lighting shader map is unavailable.");
 		return Result;
 	}
+	const uint64 Key = (uint64(View.ViewState->GetViewKey()) << 1) | (Request.bTransport ? 1u : 0u);
+	const int32 SolveInterval = Request.bTransport ? FMath::Clamp(CVarSolveInterval.GetValueOnRenderThread(), 1, 8) : 1;
+	if (SolveInterval > 1)
+	{
+		// Hold: every gate above passed, the previous call for this key published on the previous render frame, and the
+		// field in the resident atlas / injection volume was solved for these bounds and settings. Decided before the
+		// source bindings so a hold adds no pass or upload; PreviousAtlas stays the last solve's (next warm start).
+		TUniquePtr<FWorldViewState>* Found = WorldViews.Find(Key);
+		FWorldViewState* Held = Found ? Found->Get() : nullptr;
+		const int32 IndirectEnabled = CVarWorldIndirect.GetValueOnRenderThread() != 0 ? 1 : 0;
+		if (Held && bPriorHoldValid && Request.bAllowHold && GFrameNumberRenderThread - Held->HoldRenderFrame <= 1u
+			&& Held->HoldSolveInterval == SolveInterval && Held->HoldPhase + 1 < SolveInterval
+			&& Held->Texture.IsValid() == bResident && (!bLate || !Held->Texture.IsValid() || bPriorLateAtlasValid)
+			&& WarmStartValid(*Held, Request) && HoldCompatible(*Held, Request, IndirectEnabled))
+		{
+			Held->LastUse = ++WorldAccessSerial;
+			++Held->HoldPhase;
+			Held->bHoldValid = true;
+			Held->HoldRenderFrame = GFrameNumberRenderThread;
+			if (bLate && bPriorLateAtlasValid)
+			{
+				// Late gap check (FogMS_GetLateTransportField): a hold refreshes the copy it re-offers, it is not a gap.
+				Held->bLateAtlasValid = true;
+				Held->LateCopyRenderFrame = GFrameNumberRenderThread;
+			}
+			Result.Texture = Held->Texture;
+			Result.SRV = Held->SRV;
+			Result.DescriptorIndex = Held->HoldDescriptorIndex;
+			Result.GridSize = Held->HoldGridSize;
+			Result.Valid = true;
+			Result.bHeld = true;
+			Result.HoldPhase = Held->HoldPhase;
+			Result.SolveInterval = SolveInterval;
+			// FogMS.DumpSpatial reads the resident atlas, which still holds the published solve.
+			LastValidViewKey = Key;
+			LastValidRenderFrame = GFrameNumberRenderThread;
+			bLastBuildValid = true;
+			return Result;
+		}
+	}
 	FFogMSWorldCS::FParameters Common;
 	FMemory::Memzero(&Common, sizeof(Common));
 	if (!FogMS_GetLumenSource(GraphBuilder, View, Common.LumenSource, Result.Error)
 		|| !FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Common.LightSources, Result.Error)) return Result;
-	const uint64 Key = (uint64(View.ViewState->GetViewKey()) << 1) | (Request.bTransport ? 1u : 0u);
 	FRHICommandListImmediate& RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
 	++WorldAccessSerial;
 	CollectWorldViews(Key, RHICmdList);
@@ -403,16 +498,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	FRDGTextureRef FieldBack = nullptr;
 	if (Request.bTransport)
 	{
-		// Warm start needs the same Box and the same diagnostic inputs; Directions/Iterations/Tolerance may differ (J is direction independent).
-		const FFogMSWorldRequest& Last = State.LastRequest;
-		const bool bWarmValid = Last.bTransport && !Request.ResetHistory && !State.bLastReconstructionTest
-			&& Last.CenterWS == Request.CenterWS && Last.AxisX == Request.AxisX && Last.AxisY == Request.AxisY
-			&& Last.AxisZ == Request.AxisZ && Last.Extent == Request.Extent
-			&& State.LastTransportTest == CVarInt(TEXT("r.FogMS.Transport.Test"))
-			&& State.LastTransportGeometry == CVarInt(TEXT("r.FogMS.Transport.TestGeometry"))
-			&& State.LastTransportBoundary == CVarInt(TEXT("r.FogMS.Transport.TestBoundary"))
-			&& State.LastTransportTau == CVarFloat(TEXT("r.FogMS.Transport.TestTau"))
-			&& State.LastTransportAlbedo == CVarFloat(TEXT("r.FogMS.Transport.TestAlbedo"));
+		const bool bWarmValid = WarmStartValid(State, Request); // Same predicate as before, shared with the hold gate.
 		FRDGTextureRef Previous = nullptr;
 		if (!bWarmValid) State.PreviousAtlas.SafeRelease();
 		else if (State.PreviousAtlas.IsValid()) Previous = GraphBuilder.RegisterExternalTexture(State.PreviousAtlas, TEXT("FogMS.Transport.PreviousAtlas"));
@@ -541,6 +627,15 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		State.bLastReconstructionTest = CVarInt(TEXT("r.FogMS.Transport.TestReconstruction")) != 0;
 		State.LastTransportTau = CVarFloat(TEXT("r.FogMS.Transport.TestTau"));
 		State.LastTransportAlbedo = CVarFloat(TEXT("r.FogMS.Transport.TestAlbedo"));
+		// Hold chain restarts at this solve (phase 0). A same-frame publication is complete in this graph; a late one
+		// only once FogMS_PublishWorldLightingLate adds its copy, so a skipped copy can never be held.
+		State.bHoldValid = !bLate;
+		State.HoldRenderFrame = GFrameNumberRenderThread;
+		State.HoldPhase = 0;
+		State.HoldSolveInterval = SolveInterval;
+		State.bHoldInjection = Request.InjectionTexture.IsValid();
+		State.HoldDescriptorIndex = State.DescriptorIndex;
+		State.HoldGridSize = WorldSize;
 	}
 	Result.Texture = State.Texture;
 	Result.SRV = State.SRV;
@@ -548,6 +643,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	Result.DescriptorIndex = State.DescriptorIndex;
 	Result.GridSize = WorldSize;
 	Result.Valid = true;
+	Result.SolveInterval = SolveInterval;
 	LastValidViewKey = Key;
 	LastValidRenderFrame = GFrameNumberRenderThread;
 	bLastBuildValid = true;
@@ -561,6 +657,8 @@ void FogMS_InvalidateWorldLighting_RenderThread()
 {
 	check(IsInRenderingThread());
 	bLastBuildValid = false;
+	// The caller stopped publishing (Box off, mode change) and cleared row 22 / the injection field: never hold across.
+	for (auto& Item : WorldViews) Item.Value->bHoldValid = false;
 }
 
 bool FogMS_TransportPublishesLate(const FRDGBuilder& GraphBuilder)
@@ -625,6 +723,9 @@ bool FogMS_PublishWorldLightingLate(FRDGBuilder& GraphBuilder, const FSceneView&
 		GraphBuilder.UseExternalAccessMode(Target, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
 		bOutInjectionCopied = true;
 	}
+	// SolveInterval hold chain: the late publication exists only now; the next frames may hold exactly these copies.
+	State.bHoldValid = true;
+	State.HoldRenderFrame = GFrameNumberRenderThread;
 	return true;
 }
 

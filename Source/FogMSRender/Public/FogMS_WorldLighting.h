@@ -39,7 +39,23 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	 * and InjectionTexture from PrePostProcessPass of the same graph. Consumers see the field one frame late.
 	 */
 	bool bLatePublish = false;
+	/** Transport only; caller veto for an r.FogMS.Transport.SolveInterval hold. A hold re-offers what the last
+	 * publication left in the resident atlas and InjectionTexture, so the caller clears this whenever that content
+	 * is no longer there (e.g. the injection volume was cleared, replaced, or last written for another view).
+	 */
+	bool bAllowHold = true;
 	FFogMSWorldRequest() { FMemory::Memzero(BoxRows, sizeof(BoxRows)); }
+};
+
+/** FogMS_BuildWorldLighting result. bHeld (Transport, r.FogMS.Transport.SolveInterval > 1): no solve and no pass
+ * this frame; Valid with the descriptor pair of the last publication, whose resident atlas and InjectionTexture keep
+ * their content. The caller republishes that pair and must not clear the field. HoldPhase is 1..SolveInterval-1.
+ */
+struct FFogMSWorldResult : FFogMSSpatialResult
+{
+	bool bHeld = false;
+	int32 HoldPhase = 0;
+	int32 SolveInterval = 1;
 };
 
 /** PostTLAS, graphics queue only. Resident atlas: N x (2*N*N).
@@ -49,14 +65,15 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
  * Upper half: primary sky + surface/emissive incident radiance.
  * Both are scene-linear, g=0, no receiver sigma_s or camera pre-exposure.
  */
-FOGMSRENDER_API FFogMSSpatialResult FogMS_BuildWorldLighting(
+FOGMSRENDER_API FFogMSWorldResult FogMS_BuildWorldLighting(
 	FRDGBuilder& GraphBuilder, const FSceneView& View, const FFogMSWorldRequest& Request);
 /** True when this graph runs the Transport solver on async compute (r.FogMS.Transport.AsyncCompute resolved on;
  * the solver's own predicate). The caller then sets bLatePublish and defers every graphics consumer of the solve.
  */
 FOGMSRENDER_API bool FogMS_TransportPublishesLate(const FRDGBuilder& GraphBuilder);
 /** Render thread, before this graph's late copy. The resident Transport atlas of this view when the previous
- * graph completed its late copy (FogMS_PublishWorldLightingLate) for the same Box bounds (BoxRows 0..4).
+ * graph completed its late copy (FogMS_PublishWorldLightingLate) or held that copy (SolveInterval hold) for the
+ * same Box bounds (BoxRows 0..4).
  * False otherwise: the caller must publish no field (fail closed).
  */
 FOGMSRENDER_API bool FogMS_GetLateTransportField(const FSceneView& View, const FVector4f* BoxRows, uint32& OutDescriptorIndex, int32& OutGridSize);
