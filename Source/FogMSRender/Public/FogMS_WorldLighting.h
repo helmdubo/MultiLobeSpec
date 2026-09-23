@@ -2,6 +2,33 @@
 
 #include "FogMS_Spatial.h"
 
+/** Game-thread snapshot of the scene's sky light for the public sky-boundary sources (r.FogMS.World.SkySource 0/2/3/4).
+ * Values and RHI references only: no component, proxy or FTexture pointer reaches the render thread. The colour scale
+ * itself stays View.SkyLightColor (View UB, read by FogMS_WorldSky); these fields select and gate the source.
+ */
+struct FFogMSWorldSky
+{
+	/** A registered, visible, world-affecting USkyLightComponent (ASkyLight actors) was found. */
+	bool bValid = false;
+	/** USkyLightComponent::IsRealTimeCaptureEnabled(): the value FSkyLightSceneProxy::bRealTimeCaptureEnabled is built from. */
+	bool bRealTimeCapture = false;
+	/** ULightComponentBase::VolumetricScatteringIntensity (the proxy's VolumetricScatteringIntensity). */
+	float VolumetricScatteringIntensity = 0.f;
+	/** ULightComponentBase::GetLightColor() (colour * intensity). Zero / invalid gate only, never multiplied. */
+	FLinearColor LightColor = FLinearColor::Black;
+	/** USkyLightComponent::bLowerHemisphereIsBlack ("Lower Hemisphere Is Solid Color") and LowerHemisphereColor. */
+	bool bLowerHemisphereIsSolidColor = false;
+	FLinearColor LowerHemisphereColor = FLinearColor::Black;
+	/** Render thread: RHI references of USkyLightComponent::GetProcessedSkyTexture(), resolved inside the render command
+	 * enqueued by the gather (the resource is alive then). Null when there is no processed cubemap yet. No blend
+	 * destination: USkyLightComponent::BlendFraction / BlendDestinationProcessedSkyTexture are protected.
+	 */
+	FTextureRHIRef ProcessedTexture;
+	FSamplerStateRHIRef ProcessedSampler;
+	/** Candidate sky light components found; > 1 means the choice may differ from the renderer's (last registered). */
+	int32 Count = 0;
+};
+
 /** Current-frame isotropic lighting in the authored Box, independent of fog history.
  * Native Lumen surface-cache radiance remains subject to native scene coverage.
  */
@@ -19,6 +46,8 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	 * B3 transport rotates its angular quadrature so one ordinate points exactly at the sun.
 	 */
 	FVector3f DirectionToSun = FVector3f::ZeroVector;
+	/** Sky light snapshot for the public sky-boundary sources; unused by r.FogMS.World.SkySource 1 (private path). */
+	FFogMSWorldSky Sky;
 	/** Render thread only. Transport + Emissive Injection: 32^3 UAV-capable Texture3D (FloatRGBA or
 	 * RGBA32F) that receives total incident J per Box cell (alpha 1), then is left in SRV state for
 	 * the Box Volume material. Null: no field write. An invalid texture fails the request.
@@ -56,6 +85,8 @@ struct FFogMSWorldResult : FFogMSSpatialResult
 	bool bHeld = false;
 	int32 HoldPhase = 0;
 	int32 SolveInterval = 1;
+	/** Sky boundary source of the published solve (r.FogMS.World.SkySource), for status text. Holds repeat the last. */
+	FString SkySource;
 };
 
 /** PostTLAS, graphics queue only. Resident atlas: N x (2*N*N).

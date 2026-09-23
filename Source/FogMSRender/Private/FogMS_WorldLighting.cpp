@@ -164,6 +164,8 @@ namespace
 		int32 HoldPhase = 0;
 		int32 HoldSolveInterval = 1;
 		bool bHoldInjection = false;
+		// Sky boundary source of the last solve (FFogMSWorldResult::SkySource); a hold reports the field it re-offers.
+		FString LastSkySource;
 		uint32 HoldDescriptorIndex = MAX_uint32;
 		int32 HoldGridSize = 0;
 
@@ -486,6 +488,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 			Result.bHeld = true;
 			Result.HoldPhase = Held->HoldPhase;
 			Result.SolveInterval = SolveInterval;
+			Result.SkySource = Held->LastSkySource;
 			// FogMS.DumpSpatial reads the resident atlas, which still holds the published solve.
 			LastValidViewKey = Key;
 			LastValidRenderFrame = GFrameNumberRenderThread;
@@ -495,8 +498,9 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	}
 	FFogMSWorldCS::FParameters Common;
 	FMemory::Memzero(&Common, sizeof(Common));
+	FString SkySource; // r.FogMS.World.SkySource in use (status text)
 	if (!FogMS_GetLumenSource(GraphBuilder, View, Common.LumenSource, Result.Error)
-		|| !FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Common.LightSources, Result.Error)) return Result;
+		|| !FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Request.Sky, Common.LightSources, SkySource, Result.Error)) return Result;
 	FRHICommandListImmediate& RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
 	++WorldAccessSerial;
 	CollectWorldViews(Key, RHICmdList);
@@ -656,6 +660,9 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	State.LastRequest = Request;
 	State.LastRequest.InjectionTexture.SafeRelease(); // Do not extend the Box field's lifetime.
 	State.LastRequest.DensityAtlas.SafeRelease(); // Nor the density atlas's (warm start compares bounds only).
+	State.LastRequest.Sky.ProcessedTexture.SafeRelease(); // Nor the sky light's processed cubemap.
+	State.LastRequest.Sky.ProcessedSampler.SafeRelease();
+	State.LastSkySource = SkySource;
 	State.LastIndirectEnabled = Common.IndirectEnabled;
 	if (Request.bTransport)
 	{
@@ -682,6 +689,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	Result.GridSize = WorldSize;
 	Result.Valid = true;
 	Result.SolveInterval = SolveInterval;
+	Result.SkySource = SkySource;
 	LastValidViewKey = Key;
 	LastValidRenderFrame = GFrameNumberRenderThread;
 	bLastBuildValid = true;
