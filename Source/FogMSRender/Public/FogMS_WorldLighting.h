@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FogMS_ShadowCache.h" // FogMSRender::BoxRowCount
 #include "FogMS_Spatial.h"
 
 /** Game-thread snapshot of the scene's sky light for the public sky-boundary sources (r.FogMS.World.SkySource 0/2/3/4).
@@ -34,7 +35,7 @@ struct FFogMSWorldSky
  */
 struct FFogMSWorldRequest : FFogMSSpatialRequest
 {
-	FVector4f BoxRows[24];
+	FVector4f BoxRows[FogMSRender::BoxRowCount];
 	float Strength = 0.35f;
 	bool bTransport = false;
 	int32 Iterations = 24;

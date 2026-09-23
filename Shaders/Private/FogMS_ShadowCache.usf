@@ -1,7 +1,7 @@
 // Plugin-owned light-space transmittance. Z stores boundaries, starting on the sunward face.
 #include "/Engine/Private/Common.ush"
 
-float4 BoxRows[24];
+float4 BoxRows[FOGMS_BOX_DATA_ROWS];
 #include "/Plugin/FogMS/Private/FogMS_Indirect.ush"
 
 float4 LightAxisX;

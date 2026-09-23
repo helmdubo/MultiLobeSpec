@@ -86,7 +86,7 @@ namespace
         SHADER_PARAMETER_RDG_BUFFER_SRV(RaytracingAccelerationStructure, TLAS)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<FRayTracingSceneMetadataRecord>, RayTracingSceneMetadata)
         SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, ShadowHitData)
-        SHADER_PARAMETER_ARRAY(FVector4f, BoxRows, [24])
+        SHADER_PARAMETER_ARRAY(FVector4f, BoxRows, [FogMSRender::BoxRowCount])
         SHADER_PARAMETER(FVector3f, BoxCenterTranslated)
         SHADER_PARAMETER(FVector4f, BoxAxisX)
         SHADER_PARAMETER(FVector4f, BoxAxisY)
@@ -165,7 +165,7 @@ namespace
         Environment.SetDefine(TEXT("FOGMS_ENABLED"), 1);
         Environment.SetDefine(TEXT("FOGMS_BOX_MODE"), 1);
         Environment.SetDefine(TEXT("FOGMS_DEBUG_VIEWS"), 0);
-        Environment.SetDefine(TEXT("FOGMS_BOX_DATA_ROWS"), 24);
+        Environment.SetDefine(TEXT("FOGMS_BOX_DATA_ROWS"), FogMSRender::BoxRowCount);
         Environment.SetDefine(TEXT("FOGMS_ANGULAR_SWEEP"), 0);
         // FogMS_Indirect.ush: density atlas from the bound FogMSDensityAtlas, not from the heap (row 7.z).
         Environment.SetDefine(TEXT("FOGMS_BOUND_DENSITY_ATLAS"), 1);
@@ -314,7 +314,7 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FSceneView
     Common.TLAS = TLAS;
     Common.RayTracingSceneMetadata = GraphBuilder.CreateSRV(BindingData);
     Common.ShadowHitData = GraphBuilder.CreateSRV(ShadowHitData);
-    for (int32 I = 0; I < 24; ++I) Common.BoxRows[I] = Request.BoxRows[I];
+    for (uint32 I = 0; I < FogMSRender::BoxRowCount; ++I) Common.BoxRows[I] = Request.BoxRows[I];
     Common.BoxCenterTranslated = FVector3f(Request.CenterWS + View.ViewMatrices.GetPreViewTranslation());
     Common.BoxAxisX = FVector4f(Request.AxisX, Request.Extent.X);
     Common.BoxAxisY = FVector4f(Request.AxisY, Request.Extent.Y);

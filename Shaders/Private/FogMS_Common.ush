@@ -19,8 +19,8 @@ uint FogMS_DebugMode()
 }
 
 #if FOGMS_BOX_MODE
-#if FOGMS_BOX_DATA_ROWS != 24
-#error FogMS light fields require the matching twenty-four-row Box runtime and overlay.
+#if FOGMS_BOX_DATA_ROWS != 32
+#error FogMS light fields require the matching thirty-two-row Box runtime and overlay.
 #endif
 // Consumers (engine fog/lighting stages via the overlay) read the Box packet through the heap
 // descriptor FOGMS_BOX_DATA_SRV and need BindlessAll. Producers (plugin RDG passes) read the

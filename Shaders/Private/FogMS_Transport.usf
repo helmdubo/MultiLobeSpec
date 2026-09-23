@@ -6,7 +6,7 @@
 #ifndef FOGMS_TRANSPORT_HYBRID
 #define FOGMS_TRANSPORT_HYBRID 0
 #endif
-float4 BoxRows[24];
+float4 BoxRows[FOGMS_BOX_DATA_ROWS];
 #include "/Plugin/FogMS/Private/FogMS_Indirect.ush"
 #if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
 #include "/Plugin/FogMS/Private/FogMS_LumenSource.ush"

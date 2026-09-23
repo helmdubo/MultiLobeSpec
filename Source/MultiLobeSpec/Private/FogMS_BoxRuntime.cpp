@@ -69,7 +69,7 @@ namespace
 			});
 		}));
 
-	constexpr uint32 FogMS_BoxPacketRowCount = 24;
+	constexpr uint32 FogMS_BoxPacketRowCount = FogMSRender::BoxRowCount;
 
 	struct FBoxPacket
 	{
@@ -88,10 +88,11 @@ namespace
 		// Row 22: descriptor/grid/valid/mode. Row 23: density albedo RGB, B2 density marker:
 		// 4 = overlay injects density + source; 5 = Emissive Injection (native Volume MID owns
 		// sigma_t and receives sigma_s*J; every overlay density/source reader requires exactly 4).
+		// Rows 24..31: reserved for authored density (erosion, height profile, weather map); zero until used.
 		FVector4f Rows[FogMS_BoxPacketRowCount];
 		FBoxPacket() { FMemory::Memzero(Rows, sizeof(Rows)); }
 	};
-	static_assert(sizeof(FBoxPacket) == 384);
+	static_assert(sizeof(FBoxPacket) == 512);
 
 	struct FBoxPhases
 	{
@@ -349,7 +350,7 @@ namespace
 		void Upload(FRHICommandListBase& RHICmdList, const FBoxRenderSnapshot& Snapshot)
 		{
 			if (!Texture.IsValid()) return;
-			// Row y=0 preserves the producer's 24-float4 ABI. Only phase XYZ is
+			// Row y=0 preserves the producer's BoxRowCount-float4 ABI. Only phase XYZ is
 			// resident in row y=1; no prior atlas descriptor or resource is retained.
 			FBoxPacket TextureRows[2];
 			TextureRows[0] = Snapshot.Packet;

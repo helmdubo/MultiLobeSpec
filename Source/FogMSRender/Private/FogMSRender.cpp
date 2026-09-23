@@ -52,7 +52,7 @@ namespace
 	public:
 		BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 			SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
-			SHADER_PARAMETER_ARRAY(FVector4f, BoxRows, [24])
+			SHADER_PARAMETER_ARRAY(FVector4f, BoxRows, [FogMSRender::BoxRowCount])
 			SHADER_PARAMETER(FVector4f, LightAxisX)
 			SHADER_PARAMETER(FVector4f, LightAxisY)
 			SHADER_PARAMETER(FVector4f, LightAxisZ)
@@ -103,9 +103,14 @@ namespace
 		return FMath::IsFinite(Row.X) && FMath::IsFinite(Row.Y) && FMath::IsFinite(Row.Z) && FMath::IsFinite(Row.W);
 	}
 
+	// Rows FirstAuthoredDensityRow..BoxRowCount-1 hold authored density parameters (erosion, height profile, weather map).
+	// They all shape extinction, so the signature covers them like rows 0..4 and 7..15.
+	constexpr uint32 FirstAuthoredDensityRow = 24;
+	static_assert(FogMSRender::BoxRowCount >= FirstAuthoredDensityRow);
+
 	struct FShadowCacheSignature
 	{
-		FVector4f DensityRows[16];
+		FVector4f DensityRows[FogMSRender::BoxRowCount];
 		FVector4f SunAndSigma = FVector4f(0, 0, 0, 0);
 		uint64 AtlasRevision = 0;
 
@@ -250,9 +255,9 @@ bool FogMSRender::BuildShadow(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	}
 	const FVector3f AxisZ = DirectionToSun.GetSafeNormal();
 	FShadowCacheSignature Signature;
-	for (uint32 Row = 0; Row < 16; ++Row)
+	for (uint32 Row = 0; Row < BoxRowCount; ++Row)
 	{
-		if (Row < 5 || Row >= 7) Signature.DensityRows[Row] = BoxRows[Row];
+		if (Row < 5 || (Row >= 7 && Row < 16) || Row >= FirstAuthoredDensityRow) Signature.DensityRows[Row] = BoxRows[Row];
 	}
 	// Receiver-region feather, history/scattering and other shadow controls do not change extinction.
 	Signature.DensityRows[1].W = 0.0f;
