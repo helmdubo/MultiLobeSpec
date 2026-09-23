@@ -267,6 +267,26 @@ void AFogMSBoxVolume::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	UpdateDensity();
+	AutoStartRuntime();
+}
+
+void AFogMSBoxVolume::BeginPlay()
+{
+	Super::BeginPlay();
+	// Game/PIE worlds have no Details button. An enabled Transport Box with Emissive Injection starts its runtime
+	// itself: injection-only registers the view extension only; with BindlessAll (editor PIE) this is the button's path.
+	if (bEnabled && UsesEmissiveInjection()) EnableLiveBox();
+}
+
+void AFogMSBoxVolume::AutoStartRuntime()
+{
+	// Injection-only configuration (no BindlessAll): starting the runtime changes no global state (no BoxMode cvar,
+	// no engine-shader patch), so an enabled injection Box does it once on its first tick, also in the editor world.
+	// With BindlessAll the editor keeps the explicit Enable Live Box step (it applies the overlay patch).
+	if (bRuntimeAutoStarted || !bEnabled || !UsesEmissiveInjection() || FogMS_IsBindlessAllConfiguration()) return;
+	if (HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || !GetWorld() || GetWorld()->IsPreviewWorld()) return;
+	bRuntimeAutoStarted = true;
+	EnableLiveBox();
 }
 
 void AFogMSBoxVolume::Destroyed()

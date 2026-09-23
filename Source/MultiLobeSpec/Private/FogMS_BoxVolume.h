@@ -103,6 +103,7 @@ public:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void PostLoad() override;
 	virtual void Tick(float DeltaSeconds) override;
+	virtual void BeginPlay() override;
 	virtual void Destroyed() override;
 	virtual bool ShouldTickIfViewportsOnly() const override;
 #if WITH_EDITOR
@@ -400,8 +401,12 @@ private:
 	uint64 DensityRevision = 0;
 	bool bHasMaterialState = false;
 	bool bUpdatingDensity = false;
+	/** Injection-only runtime (no BindlessAll) started by this actor itself (editor tick or BeginPlay). */
+	bool bRuntimeAutoStarted = false;
 	FString LastDensityProblem;
 
+	/** Injection-only configuration: starts the Box runtime once without user action (no global state changes). */
+	void AutoStartRuntime();
 	/** Writes AngularQuality/TransportIterations/TransportTolerance from TransportPreset unless it is Custom. */
 	void ApplyTransportPreset();
 
