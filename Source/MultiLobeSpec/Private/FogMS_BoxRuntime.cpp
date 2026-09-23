@@ -88,7 +88,11 @@ namespace
 		// Row 22: descriptor/grid/valid/mode. Row 23: density albedo RGB, B2 density marker:
 		// 4 = overlay injects density + source; 5 = Emissive Injection (native Volume MID owns
 		// sigma_t and receives sigma_s*J; every overlay density/source reader requires exactly 4).
-		// Rows 24..31: reserved for authored density (erosion, height profile, weather map); zero until used.
+		// Rows 24..26: authored density, written with rows 7..15 (zero without a density source):
+		// row 24 = S1 erosion (strength [0,1], depth [0.01,1] in noise units, Detail1 channel index 1..3, 0);
+		// row 25 = S2 height profile (bottom, top, bottom softness, top softness; fractions of Box height);
+		// row 26 = (anvil strength, profile enabled 0/1, 0, 0). Profile off packs rows 25/26 as zero.
+		// Rows 27..31: reserved (weather map, terrain); zero until used.
 		FVector4f Rows[FogMS_BoxPacketRowCount];
 		FBoxPacket() { FMemory::Memzero(Rows, sizeof(Rows)); }
 	};
@@ -1052,6 +1056,13 @@ namespace
 							Packet.Rows[13] = FVector4f(Phase0, 0.0f);
 							Packet.Rows[14] = FVector4f(Phase1, 0.0f);
 							Packet.Rows[15] = FVector4f(Phase2, 0.0f);
+							// S1 erosion (row 24) and S2 height profile (rows 25, 26), validated by UpdateDensity like the rows above.
+							// Strength 0 and profile off are the identity; a disabled profile packs zeros.
+							Packet.Rows[24] = FVector4f(Selected->ErosionStrength, Selected->ErosionDepth,
+								static_cast<float>(1 + static_cast<int32>(Selected->ErosionChannel)), 0.0f);
+							Packet.Rows[25] = Selected->bHeightProfile ? FVector4f(Selected->HeightBottom, Selected->HeightTop,
+								Selected->BottomSoftness, Selected->TopSoftness) : FVector4f(0, 0, 0, 0);
+							Packet.Rows[26] = Selected->bHeightProfile ? FVector4f(Selected->AnvilStrength, 1.0f, 0.0f, 0.0f) : FVector4f(0, 0, 0, 0);
 							if (FogMS_IsTransportMode(Selected->ScatteringMode))
 							{
 								// Density injection must survive a lighting-producer fallback:

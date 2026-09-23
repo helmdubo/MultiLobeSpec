@@ -22,6 +22,26 @@ enum class EFogMSDensityChannel : uint8
 	A
 };
 
+/** Detail1 channel that erodes the lower edge of the density band (packet row 24.z = texture channel 1..3). */
+UENUM(BlueprintType)
+enum class EFogMSErosionChannel : uint8
+{
+	G = 0 UMETA(ToolTip="Texture channel G (Worley FBM in the bundled Perlin-Worley noise)."),
+	B = 1 UMETA(ToolTip="Texture channel B."),
+	A = 2 UMETA(ToolTip="Texture channel A.")
+};
+
+/** Editor-only shortcut: writes the five height-profile values (FogMS_DensityAuthoring_Design.md section 3). */
+UENUM(BlueprintType)
+enum class EFogMSHeightProfilePreset : uint8
+{
+	None = 0 UMETA(DisplayName="None", ToolTip="Values are edited directly. Editing any of the five values selects None."),
+	Stratus = 1 UMETA(DisplayName="Stratus", ToolTip="Bottom 0.40, Top 0.60, Bottom Softness 0.05, Top Softness 0.10, Anvil 0."),
+	Cumulus = 2 UMETA(DisplayName="Cumulus", ToolTip="Flat base, dome: Bottom 0.10, Top 0.70, Bottom Softness 0.02, Top Softness 0.45, Anvil 0."),
+	Cumulonimbus = 3 UMETA(DisplayName="Cumulonimbus", ToolTip="Column with an anvil: Bottom 0.05, Top 0.98, Bottom Softness 0.02, Top Softness 0.10, Anvil 0.6."),
+	ValleyFog = 4 UMETA(DisplayName="Valley Fog", ToolTip="Bottom 0, Top 0.35, Bottom Softness 0, Top Softness 0.30, Anvil 0.")
+};
+
 UENUM(BlueprintType)
 enum class EFogMSScatteringMode : uint8
 {
@@ -365,6 +385,46 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled", ClampMin="0.0", UIMin="0.0", Units="cm", ToolTip="Density feather inside the box edge, in world centimetres. Independent of the A1 Feather Distance."))
 	float DensityEdgeFeather = 100.0f;
 
+	/** S1, packet row 24.x. Zero (default) leaves the density bit-identical to the former formula. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Edge erosion: near the lower edge of the Threshold band, subtracts Erosion Channel of the second detail sample (same texture, no extra loads), carving wispy billowy edges while the cores stay solid. Erosion only removes density. Zero is off (original density). Changes apply live."))
+	float ErosionStrength = 0.0f;
+
+	/** S1, packet row 24.y: noise-space depth over which erosion fades from the band's lower edge (Lo) to zero. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && ErosionStrength > 0", ClampMin="0.01", ClampMax="1.0", UIMin="0.01", UIMax="1.0", ToolTip="How deep into the cloud erosion reaches, in noise units above Threshold - Softness/2: full erosion at the edge, none from this depth on. Larger values erode deeper."))
+	float ErosionDepth = 0.3f;
+
+	/** S1, packet row 24.z (texture channel index 1..3). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && ErosionStrength > 0", ToolTip="Channel of the second detail sample used as the erosion pattern. The bundled Perlin-Worley texture stores Worley FBM in G, B and A."))
+	EFogMSErosionChannel ErosionChannel = EFogMSErosionChannel::G;
+
+	/** Editor-only: selecting a preset writes the five values below and enables Height Profile (PostEditChangeProperty). */
+	UPROPERTY(EditAnywhere, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled", ToolTip="Writes Height Bottom/Top, Bottom/Top Softness and Anvil Strength from a cloud type and enables Height Profile. Editing any of those values afterwards selects None. Editor only."))
+	EFogMSHeightProfilePreset HeightProfilePreset = EFogMSHeightProfilePreset::None;
+
+	/** S2, packet row 26.y. False (default) leaves the density bit-identical to the former formula. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(DisplayName="Height Profile", EditCondition="bDensityEnabled", ToolTip="Shape the density over the Box height (0 = bottom face, 1 = top face, along the Box Z axis): the noise is multiplied by a profile that is 0 below Height Bottom and above Height Top, so only noise peaks survive where the profile is low (flat bases, domes, anvils). Off keeps the original density."))
+	bool bHeightProfile = false;
+
+	/** S2, packet row 25.x, fraction of the Box height. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && bHeightProfile", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Cloud base as a fraction of the Box height (0 bottom face, 1 top face). Must be below Height Top."))
+	float HeightBottom = 0.0f;
+
+	/** S2, packet row 25.y, fraction of the Box height. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && bHeightProfile", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Cloud top as a fraction of the Box height. Must be above Height Bottom."))
+	float HeightTop = 1.0f;
+
+	/** S2, packet row 25.z. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && bHeightProfile", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Height over which the profile rises from 0 at Height Bottom to 1. Small values give a flat base."))
+	float BottomSoftness = 0.05f;
+
+	/** S2, packet row 25.w. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && bHeightProfile", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Height below Height Top over which the profile falls to 0. Large values give a dome."))
+	float TopSoftness = 0.1f;
+
+	/** S2, packet row 26.x. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled && bHeightProfile", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Widens coverage in the upper half of the profile (profile up to 1 + Anvil Strength), for a cumulonimbus anvil. Zero is off."))
+	float AnvilStrength = 0.0f;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="FogMS|Density", meta=(ToolTip="Native volume-material cube. Its bounds follow Box Component; density is controlled by the Density properties."))
 	TObjectPtr<UStaticMeshComponent> DensityComponent;
 
@@ -408,6 +468,17 @@ private:
 		float DetailStrengthValue = 0.0f;
 		float DetailScaleValue = 4.0f;
 		float DetailSecondOctaveValue = 0.5f;
+		/** S1 edge erosion; ErosionMask is one-hot RGBA (MID FogMS_ErosionMask). */
+		float ErosionStrengthValue = 0.0f;
+		float ErosionDepthValue = 0.3f;
+		FLinearColor ErosionMask = FLinearColor(0, 1, 0, 0);
+		/** S2 height profile; with bHeightProfile false the five values stay at their neutral defaults. */
+		bool bHeightProfile = false;
+		float HeightBottomValue = 0.0f;
+		float HeightTopValue = 1.0f;
+		float BottomSoftnessValue = 0.05f;
+		float TopSoftnessValue = 0.1f;
+		float AnvilStrengthValue = 0.0f;
 		float DensityValue = 0.0f;
 		FLinearColor Albedo = FLinearColor::Black;
 		FLinearColor WorldExtent = FLinearColor::Black;
@@ -449,6 +520,8 @@ private:
 	void AutoStartRuntime();
 	/** Writes AngularQuality/TransportIterations/TransportTolerance from TransportPreset unless it is Custom. */
 	void ApplyTransportPreset();
+	/** Editor: writes the five height-profile values of HeightProfilePreset and enables it; None writes nothing. */
+	void ApplyHeightProfilePreset();
 
 	/** Lazily creates TransportField; returns true when it has a render resource. */
 	bool EnsureTransportField();

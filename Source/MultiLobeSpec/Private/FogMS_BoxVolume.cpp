@@ -402,6 +402,26 @@ void AFogMSBoxVolume::ApplyTransportPreset()
 	TransportTolerance = Tier.Tolerance;
 }
 
+void AFogMSBoxVolume::ApplyHeightProfilePreset()
+{
+	// Design table (FogMS_DensityAuthoring_Design.md section 3): B, T, SB, ST, A.
+	float Values[5];
+	switch (HeightProfilePreset)
+	{
+	case EFogMSHeightProfilePreset::Stratus: Values[0] = 0.40f; Values[1] = 0.60f; Values[2] = 0.05f; Values[3] = 0.10f; Values[4] = 0.0f; break;
+	case EFogMSHeightProfilePreset::Cumulus: Values[0] = 0.10f; Values[1] = 0.70f; Values[2] = 0.02f; Values[3] = 0.45f; Values[4] = 0.0f; break;
+	case EFogMSHeightProfilePreset::Cumulonimbus: Values[0] = 0.05f; Values[1] = 0.98f; Values[2] = 0.02f; Values[3] = 0.10f; Values[4] = 0.6f; break;
+	case EFogMSHeightProfilePreset::ValleyFog: Values[0] = 0.0f; Values[1] = 0.35f; Values[2] = 0.0f; Values[3] = 0.30f; Values[4] = 0.0f; break;
+	default: return;
+	}
+	HeightBottom = Values[0];
+	HeightTop = Values[1];
+	BottomSoftness = Values[2];
+	TopSoftness = Values[3];
+	AnvilStrength = Values[4];
+	bHeightProfile = true;
+}
+
 #if WITH_EDITOR
 void AFogMSBoxVolume::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
@@ -413,6 +433,15 @@ void AFogMSBoxVolume::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 			|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, TransportIterations)
 			|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, TransportTolerance)))
 		TransportPreset = EFogMSTransportPreset::Custom;
+	// Height profile preset: editor-only apply on its own change; a direct edit of one of its values selects None.
+	if (Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, HeightProfilePreset))
+		ApplyHeightProfilePreset();
+	else if (Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, HeightBottom)
+		|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, HeightTop)
+		|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, BottomSoftness)
+		|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, TopSoftness)
+		|| Name == GET_MEMBER_NAME_CHECKED(AFogMSBoxVolume, AnvilStrength))
+		HeightProfilePreset = EFogMSHeightProfilePreset::None;
 	// Also here, not only in UpdateDensity: Blueprint defaults (archetypes) skip UpdateDensity.
 	ApplyTransportPreset();
 	Super::PostEditChangeProperty(PropertyChangedEvent);
@@ -506,6 +535,11 @@ bool AFogMSBoxVolume::FDensityState::HasSameDensityParameters(const FDensityStat
 		&& ThresholdValue == Other.ThresholdValue && SoftnessValue == Other.SoftnessValue
 		&& DetailStrengthValue == Other.DetailStrengthValue && DetailScaleValue == Other.DetailScaleValue
 		&& DetailSecondOctaveValue == Other.DetailSecondOctaveValue
+		&& ErosionStrengthValue == Other.ErosionStrengthValue && ErosionDepthValue == Other.ErosionDepthValue
+		&& ErosionMask == Other.ErosionMask
+		&& bHeightProfile == Other.bHeightProfile && HeightBottomValue == Other.HeightBottomValue
+		&& HeightTopValue == Other.HeightTopValue && BottomSoftnessValue == Other.BottomSoftnessValue
+		&& TopSoftnessValue == Other.TopSoftnessValue && AnvilStrengthValue == Other.AnvilStrengthValue
 		&& DensityValue == Other.DensityValue && Albedo == Other.Albedo
 		&& WorldExtent == Other.WorldExtent && Feather == Other.Feather && TextureOffset == Other.TextureOffset;
 }
@@ -605,6 +639,20 @@ void AFogMSBoxVolume::UpdateDensity()
 			|| !FMath::IsFinite(DetailSecondOctave) || DetailSecondOctave < 0.0f || DetailSecondOctave > 1.0f)
 		{
 			Problem = TEXT("Detail Strength and Second Octave must be finite in [0,1], and Detail Scale in [0.1,32].");
+		}
+		else if (!FMath::IsFinite(ErosionStrength) || ErosionStrength < 0.0f || ErosionStrength > 1.0f
+			|| !FMath::IsFinite(ErosionDepth) || ErosionDepth < 0.01f || ErosionDepth > 1.0f
+			|| static_cast<uint8>(ErosionChannel) > static_cast<uint8>(EFogMSErosionChannel::A))
+		{
+			Problem = TEXT("Erosion Strength must be finite in [0,1], Erosion Depth in [0.01,1], and Erosion Channel G, B or A.");
+		}
+		else if (bHeightProfile && (!FMath::IsFinite(HeightBottom) || !FMath::IsFinite(HeightTop)
+			|| HeightBottom < 0.0f || HeightTop > 1.0f || HeightBottom >= HeightTop
+			|| !FMath::IsFinite(BottomSoftness) || BottomSoftness < 0.0f || BottomSoftness > 1.0f
+			|| !FMath::IsFinite(TopSoftness) || TopSoftness < 0.0f || TopSoftness > 1.0f
+			|| !FMath::IsFinite(AnvilStrength) || AnvilStrength < 0.0f || AnvilStrength > 1.0f))
+		{
+			Problem = TEXT("Height Profile requires finite 0 <= Height Bottom < Height Top <= 1, and Bottom/Top Softness and Anvil Strength in [0,1].");
 		}
 		else if (bWorldAlignedTexture && !FogMS_MakeWorldMapping(BoxComponent->GetComponentLocation(), TextureOffsetWorld, WorldTextureSize, DetailScale,
 			WorldFrequencies, WorldPhase0, WorldPhase1, WorldPhase2))
@@ -731,6 +779,20 @@ void AFogMSBoxVolume::UpdateDensity()
 				State.DetailStrengthValue = DetailStrength;
 				State.DetailScaleValue = DetailScale;
 				State.DetailSecondOctaveValue = DetailSecondOctave;
+				State.ErosionStrengthValue = ErosionStrength;
+				State.ErosionDepthValue = ErosionDepth;
+				State.ErosionMask = FLinearColor(0, 0, 0, 0);
+				State.ErosionMask.Component(1 + static_cast<int32>(ErosionChannel)) = 1.0f;
+				// Profile off keeps the neutral defaults, so editing a disabled profile changes nothing.
+				State.bHeightProfile = bHeightProfile;
+				if (bHeightProfile)
+				{
+					State.HeightBottomValue = HeightBottom;
+					State.HeightTopValue = HeightTop;
+					State.BottomSoftnessValue = BottomSoftness;
+					State.TopSoftnessValue = TopSoftness;
+					State.AnvilStrengthValue = AnvilStrength;
+				}
 				State.DensityValue = Density;
 				State.Albedo = FLinearColor(DensityAlbedo.R, DensityAlbedo.G, DensityAlbedo.B, 1.0f);
 				State.WorldExtent = ExtentValue;
@@ -766,6 +828,16 @@ void AFogMSBoxVolume::UpdateDensity()
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailStrength"), State.DetailStrengthValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailScale"), State.DetailScaleValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailSecondOctave"), State.DetailSecondOctaveValue);
+					// S1/S2 (material node FogMS_Extinction, Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py).
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_ErosionStrength"), State.ErosionStrengthValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_ErosionDepth"), State.ErosionDepthValue);
+					DensityMID->SetVectorParameterValue(TEXT("FogMS_ErosionMask"), State.ErosionMask);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightProfile"), State.bHeightProfile ? 1.0f : 0.0f);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightBottom"), State.HeightBottomValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightTop"), State.HeightTopValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightBottomSoftness"), State.BottomSoftnessValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightTopSoftness"), State.TopSoftnessValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightAnvilStrength"), State.AnvilStrengthValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_Density"), State.bUseNativeDensity ? State.DensityValue : 0.0f);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_Albedo"), State.Albedo);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldExtent"), State.WorldExtent);

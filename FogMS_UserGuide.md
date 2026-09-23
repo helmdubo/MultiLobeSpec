@@ -136,6 +136,21 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
 (размер повтора в см), `Texture Offset (World)`, `Tile Scale` (только без World Aligned), `Threshold`/`Softness`,
 `Detail Strength`/`Detail Scale`/`Detail Second Octave`, `Density`, `Density Albedo`. Правки видны сразу.
 
+**Форма плотности (FogMS|Density, срезы S1/S2).** По умолчанию выключены, и плотность побитово прежняя.
+Нужен материал с узлом `FogMS_Extinction` (скрипт `Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py`);
+со старым материалом Box эти свойства видят только решатель и тени, штатный туман их не видит.
+
+| Свойство | Что делает | По умолчанию |
+|---|---|---|
+| `Erosion Strength` | Выедает нижнюю кромку полосы порога каналом второй detail-выборки (без новых чтений текстуры). Только убавляет плотность | 0 = выкл. |
+| `Erosion Depth` | Насколько глубоко (в единицах шума над `Threshold − Softness/2`) доходит эрозия, [0.01, 1] | 0.3 |
+| `Erosion Channel` | Канал узора эрозии: G/B/A (в Perlin-Worley там Worley FBM) | G |
+| `Height Profile` | Умножает шум на профиль по высоте Box (0 — нижняя грань, 1 — верхняя, ось Z Box) | выкл. |
+| `Height Bottom` / `Height Top` | Основание и верх облака, доли высоты Box, Bottom < Top | 0 / 1 |
+| `Bottom Softness` / `Top Softness` | Ширина нарастания снизу и спада сверху (малое снизу = плоское основание, большое сверху = купол) | 0.05 / 0.1 |
+| `Anvil Strength` | Расширяет покрытие в верхней половине профиля (наковальня), [0, 1] | 0 |
+| `Height Profile Preset` | Только редактор: пишет пять значений (Stratus, Cumulus, Cumulonimbus, Valley Fog) и включает профиль. Правка любого из пяти значений вручную ставит None | None |
+
 **Анимация (FogMS|Density Animation):** `Animate Density`, `Wind Speed`, `Edge Flow Speed`; кнопки
 `FreezeDensityAnimation`/`ResumeDensityAnimation`, `ResetMotionOrigin`; `Use Manual Animation Time` + `Manual Animation Time`
 дают воспроизводимый кадр.
