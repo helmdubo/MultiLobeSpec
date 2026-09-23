@@ -68,7 +68,7 @@ namespace
         TEXT("(hybrid: Direct_sun 0, T_sun 1). The solve is unchanged (an empty cell has sigma_s 0, so its Direct never enters b), but the published ")
         TEXT("J (slab 0) and uncollided slab 1 of empty cells lose their direct part, and both are interpolated into neighbouring fog by the ")
         TEXT("reconstruction and the injection field. 0 (default) computes every cell."), ECVF_RenderThreadSafe);
-    TAutoConsoleVariable<int32> CVarDirectSamples(TEXT("r.FogMS.Transport.DirectSamples"), 8,
+    TAutoConsoleVariable<int32> CVarDirectSamples(TEXT("r.FogMS.Transport.DirectSamples"), 4,
         TEXT("Pass 2 subcell points per cell for the direct light (and hybrid T_sun). 8 (default) all corners of the half-cell lattice; 4 one ")
         TEXT("tetrahedron of them, alternating with the complementary tetrahedron on every solve (half the shadow rays; the direct term then ")
         TEXT("changes between successive solves where the two disagree). Other values: 8."), ECVF_RenderThreadSafe);
