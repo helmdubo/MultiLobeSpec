@@ -1,0 +1,26 @@
+SAVED E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vise
+CAM | <Struct 'Vector' (0x000002329BFD1E60) {x: 25621.805410, y: 14897.365355, z: 2478.516712}> <Struct 'Rotator' (0x000002320084BC10) {pitch: 4.675096, yaw: 935.738530, roll: -0.000000}>
+SET frozen | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: 
+SET 00_base | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagno
+SHOT 00_base -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_00_base.png
+SET 01_erosion_0.3 | Waiting for current-frame isotropic transport
+SHOT 01_erosion_0.3 -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_01_erosion_0.3.png
+SET 02_erosion_0.6 | Waiting for current-frame isotropic transport
+SHOT 02_erosion_0.6 -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_02_erosion_0.6.png
+SET 03_erosion_0.2 | Waiting for current-frame isotropic transport
+SHOT 03_erosion_0.2 -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_03_erosion_0.2.png
+SET 04_erosion_0.3_depth_0.3 | Waiting for current-frame isotropic transport
+SHOT 04_erosion_0.3_depth_0.3 -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_04_erosion_0.3_depth_0.3.png
+SET 10_stratus | Waiting for current-frame isotropic transport
+SHOT 10_stratus -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_10_stratus.png
+SET 11_cumulus | Waiting for current-frame isotropic transport
+SHOT 11_cumulus -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_11_cumulus.png
+SET 12_cumulonimbus | Waiting for current-frame isotropic transport
+SHOT 12_cumulonimbus -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_12_cumulonimbus.png
+SET 13_valley_fog | Waiting for current-frame isotropic transport
+SHOT 13_valley_fog -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_13_valley_fog.png
+SET 20_cumulus_erosion_0.4 | Waiting for current-frame isotropic transport
+SHOT 20_cumulus_erosion_0.4 -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_20_cumulus_erosion_0.4.png
+SET 99_base_again | Waiting for current-frame isotropic transport
+SHOT 99_base_again -> E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vis_99_base_again.png
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',
