@@ -1,0 +1,167 @@
+{
+ "jsonrpc": "2.0",
+ "id": 9171,
+ "result": {
+  "success": true,
+  "result": "None",
+  "log_output": [
+   {
+    "type": "Info",
+    "output": "USH_SYNC OK (E:\\GITHUB\\MultiLobeSpec\\MultiLobeSpec\\.claude\\worktrees\\volumetric-fog-multiple-scattering-audit-494905\\Shaders\\Private\\FogMS_Indirect.ush)\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "V1 node MaterialExpressionCustom_3 consumers: pins=[('MaterialExpressionCustom_5', 'Extinction')] props=['MP_SUBSURFACE_COLOR']\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "PATCHED saved=True\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "FOGMS_DENSITY material=/MultiLobeSpec/FogMS/M_FogMS_Density nodes=44 FogMS_Extinction=MaterialExpressionCustom_7\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  Noise           <- MaterialExpressionTextureSampleParameterVolume_0.RGBA\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  Detail0         <- MaterialExpressionTextureSampleParameterVolume_1.RGBA\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  Detail1         <- MaterialExpressionTextureSampleParameterVolume_2.RGBA\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  ChannelMask     <- MaterialExpressionVectorParameter_5.RGBA\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  DetailStrength  <- MaterialExpressionScalarParameter_6.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  SecondOctave    <- MaterialExpressionScalarParameter_7.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  LocalPosition   <- MaterialExpressionTransformPosition_0.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  WorldExtent     <- MaterialExpressionVectorParameter_6.RGB\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  Threshold       <- MaterialExpressionScalarParameter_2.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  Softness        <- MaterialExpressionScalarParameter_3.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  Density         <- MaterialExpressionScalarParameter_4.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  Feather         <- MaterialExpressionScalarParameter_5.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  ErosionStrength <- MaterialExpressionScalarParameter_10.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  ErosionDepth    <- MaterialExpressionScalarParameter_11.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  HeightProfile   <- MaterialExpressionScalarParameter_12.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  HeightBottom    <- MaterialExpressionScalarParameter_13.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  HeightTop       <- MaterialExpressionScalarParameter_14.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  BottomSoftness  <- MaterialExpressionScalarParameter_15.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  TopSoftness     <- MaterialExpressionScalarParameter_16.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  AnvilStrength   <- MaterialExpressionScalarParameter_17.\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  IN  ErosionMask     <- MaterialExpressionVectorParameter_8.RGBA\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  OUT -> MaterialExpressionCustom_5.Extinction (FogMS_EmissiveInjection)\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  OUT -> MP_SUBSURFACE_COLOR\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PARAM FogMS_ErosionStrength = 0.0\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PARAM FogMS_ErosionDepth = 0.30000001192092896\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PARAM FogMS_HeightProfile = 0.0\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PARAM FogMS_HeightBottom = 0.0\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PARAM FogMS_HeightTop = 1.0\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PARAM FogMS_HeightBottomSoftness = 0.05000000074505806\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PARAM FogMS_HeightTopSoftness = 0.10000000149011612\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PARAM FogMS_HeightAnvilStrength = 0.0\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PARAM FogMS_ErosionMask = <Struct 'LinearColor' (0x000002743AC6EAA0) {r: 0.000000, g: 1.000000, b: 0.000000, a: 0.000000}>\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PROPERTY MP_BASE_COLOR <- MaterialExpressionCustom_6\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PROPERTY MP_EMISSIVE_COLOR <- MaterialExpressionCustom_5\r\n"
+   },
+   {
+    "type": "Info",
+    "output": "  PROPERTY MP_SUBSURFACE_COLOR <- MaterialExpressionCustom_7\r\n"
+   }
+  ],
+  "output": "USH_SYNC OK (E:\\GITHUB\\MultiLobeSpec\\MultiLobeSpec\\.claude\\worktrees\\volumetric-fog-multiple-scattering-audit-494905\\Shaders\\Private\\FogMS_Indirect.ush)\r\n\nV1 node MaterialExpressionCustom_3 consumers: pins=[('MaterialExpressionCustom_5', 'Extinction')] props=['MP_SUBSURFACE_COLOR']\r\n\nPATCHED saved=True\r\n\nFOGMS_DENSITY material=/MultiLobeSpec/FogMS/M_FogMS_Density nodes=44 FogMS_Extinction=MaterialExpressionCustom_7\r\n\n  IN  Noise           <- MaterialExpressionTextureSampleParameterVolume_0.RGBA\r\n\n  IN  Detail0         <- MaterialExpressionTextureSampleParameterVolume_1.RGBA\r\n\n  IN  Detail1         <- MaterialExpressionTextureSampleParameterVolume_2.RGBA\r\n\n  IN  ChannelMask     <- MaterialExpressionVectorParameter_5.RGBA\r\n\n  IN  DetailStrength  <- MaterialExpressionScalarParameter_6.\r\n\n  IN  SecondOctave    <- MaterialExpressionScalarParameter_7.\r\n\n  IN  LocalPosition   <- MaterialExpressionTransformPosition_0.\r\n\n  IN  WorldExtent     <- MaterialExpressionVectorParameter_6.RGB\r\n\n  IN  Threshold       <- MaterialExpressionScalarParameter_2.\r\n\n  IN  Softness        <- MaterialExpressionScalarParameter_3.\r\n\n  IN  Density         <- MaterialExpressionScalarParameter_4.\r\n\n  IN  Feather         <- MaterialExpressionScalarParameter_5.\r\n\n  IN  ErosionStrength <- MaterialExpressionScalarParameter_10.\r\n\n  IN  ErosionDepth    <- MaterialExpressionScalarParameter_11.\r\n\n  IN  HeightProfile   <- MaterialExpressionScalarParameter_12.\r\n\n  IN  HeightBottom    <- MaterialExpressionScalarParameter_13.\r\n\n  IN  HeightTop       <- MaterialExpressionScalarParameter_14.\r\n\n  IN  BottomSoftness  <- MaterialExpressionScalarParameter_15.\r\n\n  IN  TopSoftness     <- MaterialExpressionScalarParameter_16.\r\n\n  IN  AnvilStrength   <- MaterialExpressionScalarParameter_17.\r\n\n  IN  ErosionMask     <- MaterialExpressionVectorParameter_8.RGBA\r\n\n  OUT -> MaterialExpressionCustom_5.Extinction (FogMS_EmissiveInjection)\r\n\n  OUT -> MP_SUBSURFACE_COLOR\r\n\n  PARAM FogMS_ErosionStrength = 0.0\r\n\n  PARAM FogMS_ErosionDepth = 0.30000001192092896\r\n\n  PARAM FogMS_HeightProfile = 0.0\r\n\n  PARAM FogMS_HeightBottom = 0.0\r\n\n  PARAM FogMS_HeightTop = 1.0\r\n\n  PARAM FogMS_HeightBottomSoftness = 0.05000000074505806\r\n\n  PARAM FogMS_HeightTopSoftness = 0.10000000149011612\r\n\n  PARAM FogMS_HeightAnvilStrength = 0.0\r\n\n  PARAM FogMS_ErosionMask = <Struct 'LinearColor' (0x000002743AC6EAA0) {r: 0.000000, g: 1.000000, b: 0.000000, a: 0.000000}>\r\n\n  PROPERTY MP_BASE_COLOR <- MaterialExpressionCustom_6\r\n\n  PROPERTY MP_EMISSIVE_COLOR <- MaterialExpressionCustom_5\r\n\n  PROPERTY MP_SUBSURFACE_COLOR <- MaterialExpressionCustom_7\r\n"
+ }
+}

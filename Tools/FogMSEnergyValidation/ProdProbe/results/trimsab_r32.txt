@@ -1,0 +1,25 @@
+SAVED E:/GITHUB/MultiLobeSpec/MultiLobeSpec/.claude/worktrees/volumetric-fog-multiple-scattering-audit-494905/Tools/FogM
+"output": "FROZEN inj=True hyb=True\r\n"
+=== graphics-queue cost (async on): baseline / skip / s4 / both
+== trim_g_base | == trim_g_base: GPU frame 14.09 ms, 394 events | FogMS transport/world (B2/B3)                    0.35 ms | maxres 0.0716192499
+            0.202 ms  FogMS B2 direct cell average + sun transmittance (hybrid)
+== trim_g_skip | == trim_g_skip: GPU frame 14.11 ms, 394 events | FogMS transport/world (B2/B3)                    0.33 ms | maxres 0.138138458
+            0.191 ms  FogMS B2 direct cell average + sun transmittance (hybrid)
+== trim_g_s4 | == trim_g_s4: GPU frame 14.71 ms, 394 events | FogMS transport/world (B2/B3)                    0.23 ms | maxres 0.0107615339
+            0.082 ms  FogMS B2 direct cell average + sun transmittance (hybrid)
+== trim_g_both | == trim_g_both: GPU frame 14.55 ms, 394 events | FogMS transport/world (B2/B3)                    0.22 ms | maxres 0.0107564116
+            0.079 ms  FogMS B2 direct cell average + sun transmittance (hybrid)
+=== field vs baseline (overlay delivery, async off)
+"output": "OVERLAY\r\n"
+== trim_f_base | == trim_f_base: GPU frame 16.57 ms, 527 events | FogMS transport/world (B2/B3)                    2.11 ms | maxres 0.094283253
+== trim_f_skip | == trim_f_skip: GPU frame 16.78 ms, 527 events | FogMS transport/world (B2/B3)                    2.10 ms | maxres 0.0703295097
+== trim_f_s4 | == trim_f_s4: GPU frame 17.19 ms, 531 events | FogMS transport/world (B2/B3)                    2.68 ms | maxres 0.0194722544
+== trim_f_s4b | == trim_f_s4b: GPU frame 18.75 ms, 560 events | FogMS transport/world (B2/B3)                    2.80 ms | maxres 0.0148160709
+== trim_f_both | == trim_f_both: GPU frame 17.28 ms, 531 events | FogMS transport/world (B2/B3)                    2.69 ms | maxres 0.019629132
+skip  trim_f_skip vs trim_f_base: rel L2 0.2112 | weighted mean rel diff 0.1043 | mean lum ratio 0.9148 | bright-half mean |dJ|/J 0.1122
+s4    trim_f_s4 vs trim_f_base: rel L2 0.0046 | weighted mean rel diff 0.0008 | mean lum ratio 1.0000 | bright-half mean |dJ|/J 0.0010
+s4b   trim_f_s4b vs trim_f_base: rel L2 0.0046 | weighted mean rel diff 0.0008 | mean lum ratio 1.0000 | bright-half mean |dJ|/J 0.0010
+both  trim_f_both vs trim_f_base: rel L2 0.2112 | weighted mean rel diff 0.1048 | mean lum ratio 0.9148 | bright-half mean |dJ|/J 0.1128
+--- flicker probe: two consecutive DirectSamples 4 solves (s4 vs s4b; compare with the noise floor of skip runs if needed)
+trim_f_s4 vs trim_f_s4b: rel L2 0.0092 | weighted mean rel diff 0.0017 | mean lum ratio 1.0000 | bright-half mean |dJ|/J 0.0019
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',

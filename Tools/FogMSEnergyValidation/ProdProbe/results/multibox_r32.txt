@@ -1,0 +1,20 @@
+SAVED E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\mult
+SETUP | live box ready Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-ta
+one-box t=2s | FogMS - Live Box | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sk
+
+one-box t=2s | FogMS - Test Box 2 | MISSING
+
+one-box t=2s | FogMS - Test Box 3 | MISSING
+Traceback (most recent call last):
+  File "E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\multibox_test.py", line 90, in <module>
+    print(dup(T2, 1)[:200]); print(dup(T3, 2)[:200])
+          ~~~^^^^^^^
+  File "E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\multibox_test.py", line 62, in dup
+    return py("import unreal\n%s\n%s\n"
+              ~~~~~~~~~~~~~~~~~~~~~~~~~
+    ...<7 lines>...
+              "d.set_editor_property('emissive_injection', True); d.set_editor_property('enabled', True); d.update_density()\n"
+              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+              "print('DUP', d.get_actor_label(), d.get_actor_location(), '| src', src.get_actor_location())" % (EAS, LIVE, label, k, label))
+              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TypeError: %d format: a real number is required, not str
