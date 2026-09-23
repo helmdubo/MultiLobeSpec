@@ -282,8 +282,18 @@ namespace
 			&& (!Request.bTransport || (Request.Iterations >= 1 && Request.Iterations <= 64 && FMath::IsFinite(Request.Tolerance)));
 	}
 
-	int32 CVarIntValue(const TCHAR* Name) { return IConsoleManager::Get().FindConsoleVariable(Name)->GetInt(); }
-	float CVarFloatValue(const TCHAR* Name) { return IConsoleManager::Get().FindConsoleVariable(Name)->GetFloat(); }
+	// Render-thread only. The warm-start / hold gates run every frame: cache the console objects by literal address
+	// instead of FindConsoleVariable per call (the engine logs a FindConsoleObject performance warning after 500 lookups).
+	IConsoleVariable* CachedCVar(const TCHAR* Name)
+	{
+		static TMap<const TCHAR*, IConsoleVariable*> Cache;
+		if (IConsoleVariable** Found = Cache.Find(Name)) return *Found;
+		IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name);
+		if (Variable) Cache.Add(Name, Variable);
+		return Variable;
+	}
+	int32 CVarIntValue(const TCHAR* Name) { IConsoleVariable* V = CachedCVar(Name); return V ? V->GetInt() : 0; }
+	float CVarFloatValue(const TCHAR* Name) { IConsoleVariable* V = CachedCVar(Name); return V ? V->GetFloat() : 0.f; }
 
 	// Warm start needs the same Box and the same diagnostic inputs; Directions/Iterations/Tolerance may differ (J is direction independent).
 	// Also the first gate of a SolveInterval hold: a hold never re-offers a field solved for other bounds or test inputs.
