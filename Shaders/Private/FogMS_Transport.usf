@@ -20,6 +20,14 @@ StructuredBuffer<FRayTracingSceneMetadataRecord> RayTracingSceneMetadata;
 #endif
 RaytracingAccelerationStructure TLAS;
 StructuredBuffer<uint> ShadowHitData;
+// r.FogMS.Transport.HitFlagsDebug 2 (pass 2 only; runtime branch, no permutation): DirectShadow compares bit 29 of every
+// candidate in ShadowHitData (the A/B-selected buffer, which still decides the hit) and ShadowHitDataAlt (the other path's).
+// HitFlagsDebugOut[0] counts disagreeing candidate evaluations; records 1+5k (k < 32, placed by the counter's old value) =
+// {Index, CandidateInstanceID, CandidateGeometryIndex, raw ShadowHitData, raw ShadowHitDataAlt}, 0xFFFFFFFF = past the end.
+// Off (0): ShadowHitDataAlt = ShadowHitData and HitFlagsDebugOut is a one-element dummy that is never written.
+int HitFlagsDebug;
+StructuredBuffer<uint> ShadowHitDataAlt;
+RWStructuredBuffer<uint> HitFlagsDebugOut;
 float3 BoxCenterTranslated;
 float4 BoxAxisX;
 float4 BoxAxisY;
@@ -115,6 +123,8 @@ bool DirectShadow(float3 P,float3 D,float Limit)
     // visible segment index + 1: an index past the end has no flag and is treated as a shadow caster.
     uint NumHitData,HitDataStride;
     ShadowHitData.GetDimensions(NumHitData,HitDataStride);
+    uint NumHitDataAlt=0;
+    if(HitFlagsDebug==2) ShadowHitDataAlt.GetDimensions(NumHitDataAlt,HitDataStride);
     RayQuery<RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> Q;
     Q.TraceRayInline(TLAS,RAY_FLAG_NONE,RAY_TRACING_MASK_OPAQUE_SHADOW,Ray(P,D,Limit));
     while(Q.Proceed())
@@ -122,6 +132,25 @@ bool DirectShadow(float3 P,float3 D,float Limit)
         if(Q.CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE)
         {
             uint Index=Q.CandidateInstanceContributionToHitGroupIndex()/RAY_TRACING_NUM_SHADER_SLOTS+Q.CandidateGeometryIndex();
+            if(HitFlagsDebug==2)
+            {
+                uint Raw=Index<NumHitData?ShadowHitData[Index]:0xFFFFFFFFu;
+                uint RawAlt=Index<NumHitDataAlt?ShadowHitDataAlt[Index]:0xFFFFFFFFu;
+                if(((Raw^RawAlt)&(1u<<29))!=0)
+                {
+                    uint Slot;
+                    InterlockedAdd(HitFlagsDebugOut[0],1u,Slot);
+                    if(Slot<32u)
+                    {
+                        uint Base=1u+5u*Slot;
+                        HitFlagsDebugOut[Base]=Index;
+                        HitFlagsDebugOut[Base+1u]=Q.CandidateInstanceID();
+                        HitFlagsDebugOut[Base+2u]=Q.CandidateGeometryIndex();
+                        HitFlagsDebugOut[Base+3u]=Raw;
+                        HitFlagsDebugOut[Base+4u]=RawAlt;
+                    }
+                }
+            }
             if(Index>=NumHitData || (ShadowHitData[Index]&(1u<<29))!=0) Q.CommitNonOpaqueTriangleHit();
         }
     }

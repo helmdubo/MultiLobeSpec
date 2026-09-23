@@ -416,8 +416,10 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	}
 	const FSceneView& View = SceneView;
 	const bool bPublicHitFlags = FogMS_UsePublicShadowHitFlags();
+	// r.FogMS.Transport.HitFlagsDebug >= 1: both CastShadow buffers are built in this graph and compared (diagnostic only).
+	const int32 HitFlagsDebug = FogMS_HitFlagsDebugMode();
 	// Private CastShadow-flag fallback (P5, PublicHitFlags 0): the renderer's buffer, read through FogMS_LumenSource.cpp.
-	const FRDGBufferRef PrivateHitData = bPublicHitFlags ? nullptr : FogMS_GetPrivateLumenHitDataBuffer(View);
+	const FRDGBufferRef PrivateHitData = bPublicHitFlags && HitFlagsDebug == 0 ? nullptr : FogMS_GetPrivateLumenHitDataBuffer(View);
 	if (Request.bTransport && !bPublicHitFlags && !PrivateHitData)
 	{
 		Result.Error = TEXT("B2 is waiting for per-segment ray-traced shadow flags.");
@@ -518,10 +520,19 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 		// Hybrid injection: pass 2 of this graph also writes T_sun (RDG texture); pass 17 below consumes it in the
 		// same graph for both deliveries, so the late path needs no extra lifetime or fence handling.
 		FRDGTextureRef SunTransmittance = nullptr;
-		// Per-segment CastShadow flags for the direct shadow rays: public rebuild (default) or the private A/B fallback.
-		const FRDGBufferRef ShadowHitData = bPublicHitFlags ? FogMS_BuildShadowHitFlags(GraphBuilder, View) : PrivateHitData;
+		// Per-segment CastShadow flags for the direct shadow rays: private buffer (default, PublicHitFlags 0) or the public rebuild.
+		// HitFlagsDebug >= 1 builds the public flags as well and queues the CPU comparison of both; 2 also hands the other path's
+		// buffer to pass 2 for the per-candidate GPU check. The A/B-selected buffer still decides every shadow ray.
+		const FRDGBufferRef PublicHitData = bPublicHitFlags || HitFlagsDebug != 0 ? FogMS_BuildShadowHitFlags(GraphBuilder, View) : nullptr;
+		const FRDGBufferRef ShadowHitData = bPublicHitFlags ? PublicHitData : PrivateHitData;
+		FRDGBufferRef AltShadowHitData = nullptr;
+		if (HitFlagsDebug != 0)
+		{
+			FogMS_QueueHitFlagsCompare(GraphBuilder, View, PublicHitData, PrivateHitData);
+			if (HitFlagsDebug == 2) AltShadowHitData = bPublicHitFlags ? PrivateHitData : PublicHitData;
+		}
 		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0,
-			ShadowHitData, Previous, Request.bHybridInjection ? &SunTransmittance : nullptr);
+			ShadowHitData, Previous, Request.bHybridInjection ? &SunTransmittance : nullptr, AltShadowHitData);
 		if (!Work) { Result.Error = TEXT("B2 transport graph unavailable."); return Result; }
 		// Fail closed: a hybrid material must never receive the full field (native single scattering would double count).
 		if (Request.bHybridInjection && !SunTransmittance) { Result.Error = TEXT("Hybrid injection: sun transmittance unavailable."); return Result; }
