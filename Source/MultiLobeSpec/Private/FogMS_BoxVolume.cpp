@@ -185,6 +185,43 @@ namespace
 #endif
 		UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS Box Volume: r.FogMS.BoxMode %d needs the editor-only engine-shader overlay; not applied outside the editor."), BoxMode);
 	}
+
+	// Game worlds (bApplyRequiredRenderSettings): the two renderer requirements of the transport/world solver checked by
+	// FogMS_WorldViewProblem and FogMS_BuildWorldLighting (engine defaults 3 and 1). ECVF_SetByGameSetting ranks above
+	// constructor defaults and scalability, but below project settings, [SystemSettings]/ini, device profiles,
+	// ConsoleVariables.ini, the command line and the console: an explicit project value wins and is only reported (the
+	// Set is skipped so the engine logs no priority warning). Not restored at EndPlay: a game-process setting.
+	void FogMS_ApplyRequiredRenderSettings(const AFogMSBoxVolume& Box)
+	{
+		struct FRequiredSetting
+		{
+			const TCHAR* Name;
+			int32 Value;
+		};
+		static const FRequiredSetting RequiredSettings[] =
+		{
+			{ TEXT("r.RayTracing.Culling"), 0 },
+			{ TEXT("r.Lumen.AsyncCompute"), 0 },
+		};
+		FString Summary;
+		for (const FRequiredSetting& Setting : RequiredSettings)
+		{
+			IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Setting.Name);
+			if (!Variable)
+			{
+				Summary += FString::Printf(TEXT(" %s unavailable;"), Setting.Name);
+				continue;
+			}
+			const int32 Previous = Variable->GetInt();
+			const EConsoleVariableFlags PreviousSetBy = static_cast<EConsoleVariableFlags>(Variable->GetFlags() & ECVF_SetByMask);
+			if (Previous != Setting.Value && PreviousSetBy <= ECVF_SetByGameSetting) Variable->Set(Setting.Value, ECVF_SetByGameSetting);
+			const int32 Current = Variable->GetInt();
+			Summary += FString::Printf(TEXT(" %s %d -> %d (previous SetBy%s)%s;"), Setting.Name, Previous, Current,
+				GetConsoleVariableSetByName(PreviousSetBy),
+				Current == Setting.Value ? TEXT("") : TEXT(" kept: higher-priority project/ini/command-line value, Transport stays off"));
+		}
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS %s: Apply Required Render Settings (SetByGameSetting):%s"), *Box.GetName(), *Summary);
+	}
 }
 
 AFogMSBoxVolume::AFogMSBoxVolume()
@@ -286,6 +323,12 @@ void AFogMSBoxVolume::Tick(float DeltaSeconds)
 void AFogMSBoxVolume::BeginPlay()
 {
 	Super::BeginPlay();
+	// Standalone game worlds only (packaged, -game): PIE and editor worlds keep the editor path (Enable Indirect Preview).
+	// Only an enabled Box whose mode needs the world producer (Transport, World) changes these global settings.
+	const UWorld* World = GetWorld();
+	if (bApplyRequiredRenderSettings && bEnabled && World && World->WorldType == EWorldType::Game
+		&& (FogMS_IsTransportMode(ScatteringMode) || ScatteringMode == EFogMSScatteringMode::WorldSpace))
+		FogMS_ApplyRequiredRenderSettings(*this);
 	// Game/PIE worlds have no Details button. An enabled Transport Box with Emissive Injection starts its runtime
 	// itself: injection-only registers the view extension only; with BindlessAll (editor PIE) this is the button's path.
 	if (bEnabled && UsesEmissiveInjection()) EnableLiveBox();

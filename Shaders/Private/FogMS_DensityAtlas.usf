@@ -1,0 +1,21 @@
+// FogMS density atlas GPU copy (cooked Volume Textures without editor TextureSource).
+// Mip 0 of the linear BGRA8 Volume Texture -> BGRA8 2D atlas, X by (Y*Z): atlas texel (x, y + z*SizeY) = voxel (x, y, z),
+// the layout FogMS_Indirect.ush reads with Atlas.Load(int3(P.x, P.y + P.z*Size.y, 0)) and the CPU upload writes.
+// Both views are UNORM (no sRGB): UNORM8 -> float -> UNORM8 returns the stored byte, so no channel or gamma change.
+
+#include "/Engine/Private/Common.ush"
+
+int3 VolumeSize;
+Texture3D<float4> DensityVolume;
+RWTexture2D<float4> DensityAtlas;
+
+[numthreads(8, 8, 1)]
+void VolumeToAtlasCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	const int3 P = int3(DispatchThreadId);
+	if (any(P >= VolumeSize))
+	{
+		return;
+	}
+	DensityAtlas[uint2(P.x, P.y + P.z * VolumeSize.y)] = DensityVolume.Load(int4(P, 0));
+}

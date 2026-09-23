@@ -162,6 +162,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="Hybrid Single Scattering", EditCondition="bEmissiveInjection && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ToolTip="Experimental Emissive Injection split: native volumetric fog keeps all single scattering (sun with its phase function and shadow maps, local lights, sky via Lumen) at froxel resolution; the field carries only the multiple-scattering remainder (total minus uncollided incident radiance). Native single scattering is darkened per 32^3 cell by the solver's sun transmittance (medium and ray-traced geometry). Approximation: the same sun transmittance also scales the native single scattering of sky and local lights. Requires the material to implement FogMS_InjectionMode 2."))
 	bool bHybridSingleScattering = false;
 
+	/** Game worlds only (packaged or -game; not PIE/editor): BeginPlay of an enabled Transport/World Box sets the solver's
+	 * renderer requirements at ECVF_SetByGameSetting priority, below every project/ini/command-line value. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ToolTip="In a game world (packaged or -game; not PIE or the editor), BeginPlay of an enabled Transport/World Box sets r.RayTracing.Culling 0 and r.Lumen.AsyncCompute 0, which the transport solver requires (engine defaults 3 and 1), and logs the previous values. Uses game-setting priority: a value set by the project ini, device profile or command line is kept (and reported). Off = the project owns these cvars. The editor keeps Enable Indirect Preview."))
+	bool bApplyRequiredRenderSettings = true;
+
 	/** Transport field for Emissive Injection: 32^3 PF_FloatRGBA, scene-linear, not pre-exposed.
 	 * Texel (x,y,z) is Box-local cell (x,y,z) along the Box rotation axes, cell centres at half texels:
 	 * uvw = (Local + Extent) / (2 * Extent). A = 0 when cleared (no current field: the material falls back

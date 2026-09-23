@@ -1,6 +1,7 @@
 #include "FogMS_ShadowCache.h"
 #include "FogMS_RHICompatibility.h"
 
+#include "DataDrivenShaderPlatformInfo.h"
 #include "DynamicRHI.h"
 #include "GlobalShader.h"
 #include "Interfaces/IPluginManager.h"
@@ -12,7 +13,9 @@
 #include "MultiGPU.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
+#include "PooledRenderTarget.h"
 #include "RenderingThread.h"
+#include "RHI.h"
 #include "RHICommandList.h"
 #include "SceneView.h"
 #include "ShaderCore.h"
@@ -114,7 +117,31 @@ namespace
 				&& FMemory::Memcmp(&SunAndSigma, &Other.SunAndSigma, sizeof(SunAndSigma)) == 0;
 		}
 	};
+
+	// Cooked density atlas (no editor TextureSource): one thread per voxel copies mip 0 of the BGRA8 Volume Texture into
+	// the X by (Y + Z*SizeY) BGRA8 atlas. Registered here because global shaders need this PostConfigInit module.
+	class FFogMSDensityVolumeToAtlasCS : public FGlobalShader
+	{
+		DECLARE_GLOBAL_SHADER(FFogMSDensityVolumeToAtlasCS);
+		SHADER_USE_PARAMETER_STRUCT(FFogMSDensityVolumeToAtlasCS, FGlobalShader);
+	public:
+		BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+			SHADER_PARAMETER(FIntVector, VolumeSize)
+			SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, DensityVolume)
+			SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, DensityAtlas)
+		END_SHADER_PARAMETER_STRUCT()
+
+		static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+		{
+			return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
+		}
+	};
+	IMPLEMENT_GLOBAL_SHADER(FFogMSDensityVolumeToAtlasCS, "/Plugin/FogMS/Private/FogMS_DensityAtlas.usf", "VolumeToAtlasCS", SF_Compute);
 }
+
+// Used by FogMS_DensityAtlas.cpp (MultiLobeSpec), which declares it locally; no public header in this change set.
+FOGMSRENDER_API bool FogMS_CopyVolumeToDensityAtlas(FRHICommandListImmediate& RHICmdList, FRHITexture* Volume, FRHITexture* Atlas,
+	FString& OutError);
 
 class FFogMSShadowCacheState
 {
@@ -328,6 +355,55 @@ bool FogMSRender::BuildShadow(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	State->LastBuildGraph = &GraphBuilder;
 	State->LastBuildFrame = GFrameNumberRenderThread;
 	State->bHasCachedResult = true;
+	return true;
+}
+
+bool FogMS_CopyVolumeToDensityAtlas(FRHICommandListImmediate& RHICmdList, FRHITexture* Volume, FRHITexture* Atlas, FString& OutError)
+{
+	check(IsInRenderingThread());
+	OutError.Reset();
+	if (!Volume || !Atlas)
+	{
+		OutError = TEXT("FogMS density atlas GPU copy has no source volume or destination atlas.");
+		return false;
+	}
+	const FRHITextureDesc& VolumeDesc = Volume->GetDesc();
+	const FRHITextureDesc& AtlasDesc = Atlas->GetDesc();
+	// Mip 0 of the resident RHI texture must be the full-resolution BGRA8 voxel grid, read without sRGB decoding, so the
+	// UNORM8 -> float -> UNORM8 round trip reproduces the bytes and the atlas matches the CPU-source layout exactly.
+	if (!VolumeDesc.IsTexture3D() || VolumeDesc.Format != PF_B8G8R8A8 || EnumHasAnyFlags(VolumeDesc.Flags, ETextureCreateFlags::SRGB)
+		|| AtlasDesc.Dimension != ETextureDimension::Texture2D || AtlasDesc.Format != PF_B8G8R8A8 || !EnumHasAnyFlags(AtlasDesc.Flags, ETextureCreateFlags::UAV)
+		|| AtlasDesc.Extent.X != VolumeDesc.Extent.X || AtlasDesc.Extent.Y != VolumeDesc.Extent.Y * VolumeDesc.Depth)
+	{
+		OutError = TEXT("FogMS density atlas GPU copy requires a linear PF_B8G8R8A8 3D source and a matching X by (Y*Z) PF_B8G8R8A8 UAV atlas.");
+		return false;
+	}
+	if (!RHIPixelFormatHasCapabilities(PF_B8G8R8A8, EPixelFormatCapabilities::TypedUAVStore))
+	{
+		OutError = TEXT("FogMS density atlas GPU copy requires typed UAV stores to B8G8R8A8 on this GPU.");
+		return false;
+	}
+	FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(GMaxRHIShaderPlatform);
+	if (!ShaderMap || !ShaderMap->HasShader(&FFogMSDensityVolumeToAtlasCS::GetStaticType(), 0))
+	{
+		OutError = TEXT("FogMS density atlas GPU copy shader is unavailable.");
+		return false;
+	}
+	TShaderMapRef<FFogMSDensityVolumeToAtlasCS> Shader(ShaderMap);
+	FRDGBuilder GraphBuilder(RHICmdList, RDG_EVENT_NAME("FogMS.DensityAtlasGPUCopy"));
+	// The Volume Texture is read-only and engine-owned (left readable by the texture/streaming code): never transitioned.
+	FRDGTextureRef VolumeTexture = GraphBuilder.RegisterExternalTexture(CreateRenderTarget(Volume, TEXT("FogMS.DensityVolume")),
+		ERDGTextureFlags::SkipTracking);
+	FRDGTextureRef AtlasTexture = GraphBuilder.RegisterExternalTexture(CreateRenderTarget(Atlas, TEXT("FogMS.DensityAtlas")));
+	auto* Parameters = GraphBuilder.AllocParameters<FFogMSDensityVolumeToAtlasCS::FParameters>();
+	Parameters->VolumeSize = FIntVector(VolumeDesc.Extent.X, VolumeDesc.Extent.Y, VolumeDesc.Depth);
+	Parameters->DensityVolume = VolumeTexture;
+	Parameters->DensityAtlas = GraphBuilder.CreateUAV(AtlasTexture);
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS Density Volume To Atlas"), ERDGPassFlags::Compute, Shader, Parameters,
+		FComputeShaderUtils::GetGroupCount(Parameters->VolumeSize, FIntVector(8, 8, 1)));
+	// Same final state as the CPU upload path: producers bind the atlas as an SRV.
+	GraphBuilder.SetTextureAccessFinal(AtlasTexture, ERHIAccess::SRVMask);
+	GraphBuilder.Execute();
 	return true;
 }
 

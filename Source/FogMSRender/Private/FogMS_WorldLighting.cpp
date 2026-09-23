@@ -3,6 +3,7 @@
 #include "FogMS_WorldSources.h"
 #include "FogMS_Transport.h"
 
+#include "DataDrivenShaderPlatformInfo.h" // RHISupportsRayTracing / RHISupportsInlineRayTracing
 #include "DynamicRHI.h"
 #include "GlobalShader.h"
 #include "HAL/FileManager.h"
@@ -23,15 +24,14 @@
 #include "SceneRendererInterface.h"
 #include "SceneUniformBuffer.h"
 #include "SceneView.h"
+#include "ShaderCompilerCore.h" // ECompilerFlags (CFLAG_Wave32, CFLAG_InlineRayTracing); no longer reached through SceneRendering.h
 #include "ShaderParameterStruct.h"
 #include "ShaderPlatformConfig.h"
 #if RHI_RAYTRACING
 #include "FXRenderingUtils.h"
 #endif
-// Renderer/Private, only for the two remaining FViewInfo reads in FogMS_BuildWorldLighting: the Lumen surface-cache
-// source (P8: FogMS_GetLumenSource still takes FViewInfo) and the r.FogMS.Transport.PublicHitFlags 0 fallback (P5:
-// FViewInfo::LumenHardwareRayTracingHitDataBuffer). Everything else here uses the public FSceneView API.
-#include "SceneRendering.h"
+// No Renderer/Private include here: the two renderer-private view reads (Lumen surface-cache source, P8, and the
+// r.FogMS.Transport.PublicHitFlags 0 fallback, P5) take FSceneView and cast to FViewInfo in FogMS_LumenSource.cpp.
 
 // Implemented in FogMS_Transport.cpp (transport pass 17). Declared here, not in FogMS_Transport.h,
 // to keep this change within the reviewed file set. SunTransmittance non-null selects the hybrid field.
@@ -411,15 +411,14 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	static const IConsoleVariable* const LumenAsync = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Lumen.AsyncCompute"));
 	if (!Culling || Culling->GetInt() != 0 || !LumenAsync || LumenAsync->GetInt() != 0)
 	{
-		Result.Error = TEXT("World lighting requires r.RayTracing.Culling=0 and r.Lumen.AsyncCompute=0. Use Enable Indirect Preview.");
+		Result.Error = TEXT("World lighting requires r.RayTracing.Culling=0 and r.Lumen.AsyncCompute=0. Use Enable Indirect Preview (editor) or the Box's Apply Required Render Settings (game).");
 		return Result;
 	}
-	// PostTLASBuild of the deferred renderer passes an actual FViewInfo. The renderer-private view is read only for
-	// the Lumen surface-cache source (P8) and the private CastShadow-flag fallback (P5, PublicHitFlags 0).
-	const FViewInfo& PrivateView = static_cast<const FViewInfo&>(SceneView);
 	const FSceneView& View = SceneView;
 	const bool bPublicHitFlags = FogMS_UsePublicShadowHitFlags();
-	if (Request.bTransport && !bPublicHitFlags && !PrivateView.LumenHardwareRayTracingHitDataBuffer)
+	// Private CastShadow-flag fallback (P5, PublicHitFlags 0): the renderer's buffer, read through FogMS_LumenSource.cpp.
+	const FRDGBufferRef PrivateHitData = bPublicHitFlags ? nullptr : FogMS_GetPrivateLumenHitDataBuffer(View);
+	if (Request.bTransport && !bPublicHitFlags && !PrivateHitData)
 	{
 		Result.Error = TEXT("B2 is waiting for per-segment ray-traced shadow flags.");
 		return Result;
@@ -484,7 +483,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 	}
 	FFogMSWorldCS::FParameters Common;
 	FMemory::Memzero(&Common, sizeof(Common));
-	if (!FogMS_GetLumenSource(GraphBuilder, PrivateView, Common.LumenSource, Result.Error)
+	if (!FogMS_GetLumenSource(GraphBuilder, View, Common.LumenSource, Result.Error)
 		|| !FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Common.LightSources, Result.Error)) return Result;
 	FRHICommandListImmediate& RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
 	++WorldAccessSerial;
@@ -520,8 +519,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 		// same graph for both deliveries, so the late path needs no extra lifetime or fence handling.
 		FRDGTextureRef SunTransmittance = nullptr;
 		// Per-segment CastShadow flags for the direct shadow rays: public rebuild (default) or the private A/B fallback.
-		const FRDGBufferRef ShadowHitData = bPublicHitFlags ? FogMS_BuildShadowHitFlags(GraphBuilder, View)
-			: PrivateView.LumenHardwareRayTracingHitDataBuffer;
+		const FRDGBufferRef ShadowHitData = bPublicHitFlags ? FogMS_BuildShadowHitFlags(GraphBuilder, View) : PrivateHitData;
 		Work = FogMS_RenderTransport(GraphBuilder, View, Request, Common.LumenSource, Common.LightSources, Common.IndirectEnabled != 0,
 			ShadowHitData, Previous, Request.bHybridInjection ? &SunTransmittance : nullptr);
 		if (!Work) { Result.Error = TEXT("B2 transport graph unavailable."); return Result; }

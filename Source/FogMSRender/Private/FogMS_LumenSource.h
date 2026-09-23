@@ -1,10 +1,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "RenderGraphFwd.h"
 #include "ShaderParameterStruct.h"
 
 class FRDGBuilder;
-class FViewInfo;
+class FSceneView;
 
 // Plugin-owned metadata. Do not import the unexported FLumenCardScene metadata.
 // Field names match the UE 5.8.2 LumenCardCommon / SurfaceCacheSampling contract.
@@ -48,6 +49,12 @@ END_SHADER_PARAMETER_STRUCT()
  * first-frame/reallocation/missing-resource failure returns false with a reason;
  * the caller must not publish a valid multiple-scattering result in that case.
  * This is surface-cache radiance, not a camera-fog history or native hit-lighting pass.
+ * View must be the renderer's FViewInfo (FSceneView::bIsViewInfo, as passed to PostTLASBuild);
+ * the renderer-private cast and includes stay in FogMS_LumenSource.cpp. Other views fail with a reason.
  */
-bool FogMS_GetLumenSource(FRDGBuilder& GraphBuilder, const FViewInfo& View,
+bool FogMS_GetLumenSource(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	FFogMSLumenSourceParameters& OutParameters, FString& OutError);
+
+/** r.FogMS.Transport.PublicHitFlags 0 fallback (P5, A/B only): the renderer-private
+ * FViewInfo::LumenHardwareRayTracingHitDataBuffer of View, or null (none this frame, or not an FViewInfo). */
+FRDGBufferRef FogMS_GetPrivateLumenHitDataBuffer(const FSceneView& View);

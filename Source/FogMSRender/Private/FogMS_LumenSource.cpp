@@ -12,7 +12,23 @@
 
 IMPLEMENT_GLOBAL_SHADER_PARAMETER_STRUCT(FFogMSLumenCardScene, "FogMSLumenCardScene");
 
-bool FogMS_GetLumenSource(FRDGBuilder& GraphBuilder, const FViewInfo& View,
+namespace
+{
+	// The only renderer-private view access of the producer path. PostTLASBuild of the deferred renderer passes an
+	// actual FViewInfo, which marks itself with FSceneView::bIsViewInfo (FViewInfo constructor).
+	const FViewInfo* FogMS_AsViewInfo(const FSceneView& View)
+	{
+		return View.bIsViewInfo ? static_cast<const FViewInfo*>(&View) : nullptr;
+	}
+}
+
+FRDGBufferRef FogMS_GetPrivateLumenHitDataBuffer(const FSceneView& SceneView)
+{
+	const FViewInfo* View = FogMS_AsViewInfo(SceneView);
+	return View ? View->LumenHardwareRayTracingHitDataBuffer : nullptr;
+}
+
+bool FogMS_GetLumenSource(FRDGBuilder& GraphBuilder, const FSceneView& SceneView,
 	FFogMSLumenSourceParameters& OutParameters, FString& OutError)
 {
 	check(IsInRenderingThread());
@@ -20,6 +36,13 @@ bool FogMS_GetLumenSource(FRDGBuilder& GraphBuilder, const FViewInfo& View,
 	OutError.Reset();
 
 #if PLATFORM_WINDOWS && ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 8 && ENGINE_PATCH_VERSION == 2
+	const FViewInfo* const ViewInfo = FogMS_AsViewInfo(SceneView);
+	if (!ViewInfo)
+	{
+		OutError = TEXT("Lumen source requires the renderer's scene view (FViewInfo).");
+		return false;
+	}
+	const FViewInfo& View = *ViewInfo;
 	if (!GDynamicRHI || GDynamicRHI->GetInterfaceType() != ERHIInterfaceType::D3D12
 		|| View.GetShaderPlatform() != SP_PCD3D_SM6)
 	{
