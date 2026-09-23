@@ -94,7 +94,7 @@ void FFogMSRHICompatibility::Apply()
 	if (!bReported || bWasEnabled)
 	{
 		UE_LOG(LogFogMSRHICompatibility, Warning,
-			TEXT("UE 5.8.2 D3D12/SM6 BindlessAll compatibility: r.RHICmd.ParallelTranslate.Enable=0 (CPU RHI translation). Native RT descriptor-heap restore can dereference a null heap on a fresh parallel context. Ray tracing and lighting remain enabled; parallel RDG recording is unchanged. The guard lasts for this editor process, including FogMS Off."));
+			TEXT("UE 5.8.2 D3D12/SM6 BindlessAll compatibility: r.RHICmd.ParallelTranslate.Enable=0 (CPU RHI translation). Native RT descriptor-heap restore can dereference a null heap on a fresh parallel context. Ray tracing and lighting remain enabled; parallel RDG recording is unchanged. The guard lasts for this process (editor or game), including FogMS Off."));
 		bReported = true;
 	}
 #endif

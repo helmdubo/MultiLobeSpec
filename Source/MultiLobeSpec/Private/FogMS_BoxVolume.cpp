@@ -152,25 +152,38 @@ namespace
 
 	// Same predicate as BoxRuntime: the engine-shader overlay (r.FogMS.BoxMode 1) needs BindlessAll. Without it
 	// only the injection-only runtime exists (Transport -> Emissive Injection volume -> this Box's Volume material).
+	// The overlay is built by the editor-only shader patcher, so outside the editor (cooked game, -game) this is
+	// always false and the Box is injection-only even when the RHI runs BindlessAll.
 	bool FogMS_IsBindlessAllConfiguration()
 	{
-		return FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform)
+#if WITH_EDITOR
+		return GIsEditor && FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform)
 			&& FShaderPlatformConfig::GetBindlessConfiguration(GMaxRHIShaderPlatform) == ERHIBindlessConfiguration::All;
+#else
+		return false;
+#endif
 	}
 
 	void FogMS_ApplyBoxMode(const int32 BoxMode)
 	{
-		IConsoleVariable* EnableVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Enable"));
-		IConsoleVariable* BoxModeVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.BoxMode"));
-		if (!EnableVariable || !BoxModeVariable)
+#if WITH_EDITOR
+		if (GIsEditor)
 		{
-			UE_LOG(LogMultiLobeSpec, Error, TEXT("FogMS Box Volume: r.FogMS.Enable or r.FogMS.BoxMode is unavailable; the mode was not applied."));
+			IConsoleVariable* EnableVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Enable"));
+			IConsoleVariable* BoxModeVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.BoxMode"));
+			if (!EnableVariable || !BoxModeVariable)
+			{
+				UE_LOG(LogMultiLobeSpec, Error, TEXT("FogMS Box Volume: r.FogMS.Enable or r.FogMS.BoxMode is unavailable; the mode was not applied."));
+				return;
+			}
+
+			EnableVariable->Set(1, ECVF_SetByConsole);
+			BoxModeVariable->Set(BoxMode, ECVF_SetByConsole);
+			FMultiLobeSpecModule::Get().ApplyFromSettings();
 			return;
 		}
-
-		EnableVariable->Set(1, ECVF_SetByConsole);
-		BoxModeVariable->Set(BoxMode, ECVF_SetByConsole);
-		FMultiLobeSpecModule::Get().ApplyFromSettings();
+#endif
+		UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS Box Volume: r.FogMS.BoxMode %d needs the editor-only engine-shader overlay; not applied outside the editor."), BoxMode);
 	}
 }
 

@@ -16,14 +16,23 @@ public class MultiLobeSpec : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"FogMSRender",
-			"Json",
-			"RenderCore",      // AddShaderSourceDirectoryMapping / FlushShaderFileCache
+			"RenderCore",      // FogMS Box RDG passes; editor overlay: AddShaderSourceDirectoryMapping / FlushShaderFileCache
 			"RHI",             // Plugin-owned live FogMS Box texture/SRV
-			"Projects",
-			"DeveloperSettings",
-			"Slate",           // FSlateNotificationManager: apply-failure toast
-			"SlateCore"
+			"DeveloperSettings"
 		});
+
+		// The engine-shader overlay (MultiLobeShaderPatcher, MLSRawMaterialVisibilityOverlay, the MLS/FogMS console
+		// tools and the apply-failure toast) is compiled only with WITH_EDITOR, so its modules are editor-target only.
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[]
+			{
+				"Json",        // Overlay capability manifest / LUT admission
+				"Projects",    // IPluginManager: plugin Shaders/ and LUT artifact paths
+				"Slate",       // FSlateNotificationManager: apply-failure toast
+				"SlateCore"
+			});
+		}
 		if (Target.Platform == UnrealTargetPlatform.Win64)
 		{
 			PrivateDependencyModuleNames.Add("D3D12RHI");

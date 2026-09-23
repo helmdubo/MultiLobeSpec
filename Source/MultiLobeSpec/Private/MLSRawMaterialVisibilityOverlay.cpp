@@ -1,5 +1,8 @@
 #include "MLSRawMaterialVisibilityOverlay.h"
 
+// Post-patch of the editor-only engine-shader overlay (see MultiLobeShaderPatcher.cpp): compiled out of game targets.
+#if WITH_EDITOR
+
 #include "Dom/JsonObject.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
@@ -204,3 +207,13 @@ bool FMLSRawMaterialVisibilityOverlay::Patch(
 	UpdateCapabilityReceipt(OverlayDir);
 	return true;
 }
+
+#else // WITH_EDITOR
+
+bool FMLSRawMaterialVisibilityOverlay::Patch(const FString&, FString& OutError)
+{
+	OutError = TEXT("The MLS raw MaterialAO overlay transport is editor-only.");
+	return false;
+}
+
+#endif // WITH_EDITOR

@@ -1,4 +1,11 @@
 #include "MultiLobeShaderPatcher.h"
+
+// The overlay copies and patches <Engine>/Shaders, remaps /Engine and recompiles: editor only. A cooked game has
+// neither engine shader sources nor a shader compiler, so the patcher (and its r.FogMS.Enable/Steps/... overlay
+// cvars) is compiled out of game targets; the stubs at the end of this file refuse every request. The FogMS Box
+// injection-only runtime (FogMS_BoxRuntime.cpp) never needs the patcher.
+#if WITH_EDITOR
+
 #include "MultiLobeSpec.h"
 #include "FogMS_BoxRuntime.h"
 
@@ -3388,3 +3395,47 @@ bool FMultiLobeShaderPatcher::BuildOverlay(const FString& EngineShaderDir, const
 	// already contain the exact config whose digest names their directory.
 	return true;
 }
+
+#else // WITH_EDITOR
+
+namespace
+{
+	const TCHAR* const MLS_EditorOnlyError = TEXT("The MLS/FogMS engine-shader overlay is editor-only; game builds run only the injection-only FogMS Box.");
+}
+
+FFogMSConfig FFogMSShaderPatcher::ReadConfig()
+{
+	FFogMSConfig Config;
+	Config.Error = MLS_EditorOnlyError;
+	return Config;
+}
+
+FString FFogMSShaderPatcher::GetIdentity(const FFogMSConfig&)
+{
+	return TEXT("FogMS=0");
+}
+
+bool FFogMSShaderPatcher::PatchOverlay(const FString&, const FFogMSConfig&, FString& OutError)
+{
+	OutError = MLS_EditorOnlyError;
+	return false;
+}
+
+FString FMultiLobeShaderPatcher::GetOverlayBuildId(const FMLSShaderConfig&)
+{
+	return FString();
+}
+
+bool FMultiLobeShaderPatcher::BuildOverlay(const FString&, const FString&, const FMLSShaderConfig&, FString& OutError)
+{
+	OutError = MLS_EditorOnlyError;
+	return false;
+}
+
+bool FMultiLobeShaderPatcher::WriteConfigFile(const FString&, const FMLSShaderConfig&, FString& OutError)
+{
+	OutError = MLS_EditorOnlyError;
+	return false;
+}
+
+#endif // WITH_EDITOR

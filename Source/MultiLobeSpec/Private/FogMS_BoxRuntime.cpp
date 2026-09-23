@@ -8,6 +8,7 @@
 #include "MultiLobeSpec.h"
 
 #include "Components/BoxComponent.h"
+#include "CoreGlobals.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Engine/DirectionalLight.h"
@@ -166,10 +167,16 @@ namespace
 	// The engine-shader overlay (packet texture, heap descriptors, A1d/A1e, shadow cache, SSFS sky disk,
 	// ViewIntegration, debug views) needs BindlessAll. Without it the runtime is injection-only: the Transport
 	// solver writes the Emissive Injection volume and the Box Volume material lights native fog.
+	// The overlay itself comes from the editor-only shader patcher: outside the editor (cooked game, -game) this is
+	// always false, so a game is injection-only even when the RHI runs BindlessAll (no packet, no descriptor).
 	bool FogMS_IsBindlessAll()
 	{
-		return FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform)
+#if WITH_EDITOR
+		return GIsEditor && FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform)
 			&& FShaderPlatformConfig::GetBindlessConfiguration(GMaxRHIShaderPlatform) == ERHIBindlessConfiguration::All;
+#else
+		return false;
+#endif
 	}
 
 	bool FogMS_IsLocalOverlayEnabled()
