@@ -43,12 +43,22 @@ namespace
 	TAutoConsoleVariable<int32> CVarWorldIndirect(TEXT("r.FogMS.World.Indirect"), 1,
 		TEXT("World source diagnostic: 0 direct source only, 1 sky + Lumen surface radiance. Does not change native light components."), ECVF_RenderThreadSafe);
 
+	// Producer only: all inputs are bound (BoxRows, density atlas, RDG textures). Inline RT on PCD3D_SM6 needs
+	// bindless at least for ray tracing (not Disabled), the engine's own inline-RT condition (D3D12Adapter).
+	// BindlessAll is needed only by the overlay consumers and the resident atlas (IsResidentAtlasAvailable).
 	bool SupportsWorld(EShaderPlatform Platform)
 	{
 		return Platform == SP_PCD3D_SM6 && FShaderPlatformConfig::IsValid(Platform)
-			&& FShaderPlatformConfig::GetBindlessConfiguration(Platform) == ERHIBindlessConfiguration::All
+			&& !IsBindlessDisabled(FShaderPlatformConfig::GetBindlessConfiguration(Platform))
 			&& IsRayTracingEnabledForProject(Platform) && RHISupportsRayTracing(Platform)
 			&& RHISupportsInlineRayTracing(Platform) && !IsForwardShadingEnabled(Platform);
+	}
+
+	// The resident atlas exists only for hidden heap readers (overlay consumers), which require BindlessAll.
+	bool IsResidentAtlasAvailable(EShaderPlatform Platform)
+	{
+		return FShaderPlatformConfig::IsValid(Platform)
+			&& IsBindlessFullyEnabled(FShaderPlatformConfig::GetBindlessConfiguration(Platform));
 	}
 
 #if RHI_RAYTRACING
@@ -88,6 +98,9 @@ namespace
 			SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float4>, OutMS)
 			SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float4>, OutBaseIndirect)
 			SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutAtlas)
+			// Pass 0 samples the Box density atlas through this ordinary binding (Request.DensityAtlas, raw RHI
+			// texture resident in SRV state, not tracked by RDG); no bindless descriptor.
+			SHADER_PARAMETER_TEXTURE(Texture2D<float4>, FogMSDensityAtlas)
 		END_SHADER_PARAMETER_STRUCT()
 		static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters) { return SupportsWorld(Parameters.Platform); }
 		static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& Environment)
@@ -100,6 +113,8 @@ namespace
 			Environment.SetDefine(TEXT("FOGMS_BOX_MODE"), 1);
 			Environment.SetDefine(TEXT("FOGMS_DEBUG_VIEWS"), 0);
 			Environment.SetDefine(TEXT("FOGMS_BOX_DATA_ROWS"), 24);
+			// FogMS_Indirect.ush: density atlas from the bound FogMSDensityAtlas, not from the heap (row 7.z).
+			Environment.SetDefine(TEXT("FOGMS_BOUND_DENSITY_ATLAS"), 1);
 		}
 	};
 	IMPLEMENT_GLOBAL_SHADER(FFogMSWorldCS, "/Plugin/FogMS/Private/FogMS_WorldLighting.usf", "WorldLightingCS", SF_Compute);
@@ -281,7 +296,8 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	if (!GDynamicRHI || GDynamicRHI->GetInterfaceType() != ERHIInterfaceType::D3D12
 		|| GNumExplicitGPUsForRendering != 1 || !GRHISupportsInlineRayTracing || !SupportsWorld(SceneView.GetShaderPlatform()))
 	{
-		Result.Error = TEXT("World lighting requires single-GPU deferred D3D12/SM6, inline HWRT and -BindlessAll.");
+		// GRHISupportsInlineRayTracing already implies bindless enabled at least for ray tracing (D3D12Adapter).
+		Result.Error = TEXT("World lighting requires single-GPU deferred D3D12/SM6 with inline hardware ray tracing (bindless enabled at least for ray tracing).");
 		return Result;
 	}
 	if (!SceneView.Family || SceneView.Family->Views.Num() != 1 || SceneView.bIsSceneCapture
@@ -308,6 +324,21 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 			Result.Error = TEXT("Emissive injection requires Transport and a 32^3 UAV FloatRGBA/RGBA32F volume field.");
 			return Result;
 		}
+	}
+	// Pass 0 of both producers binds the density atlas directly (FOGMS_BOUND_DENSITY_ATLAS); a missing or
+	// non-2D texture would fail shader-parameter validation, so reject it before any pass is added.
+	if (!Request.DensityAtlas.IsValid() || Request.DensityAtlas->GetDesc().Dimension != ETextureDimension::Texture2D)
+	{
+		Result.Error = TEXT("World lighting requires the Box density atlas (2D texture); it is not uploaded yet.");
+		return Result;
+	}
+	// Resident atlas + bindless descriptor feed only the overlay consumers (BindlessAll). Without BindlessAll the
+	// solve reaches fog only through the Emissive Injection volume, so a request without one has no consumer.
+	const bool bResident = IsResidentAtlasAvailable(SceneView.GetShaderPlatform());
+	if (!bResident && !(Request.bTransport && Request.InjectionTexture.IsValid()))
+	{
+		Result.Error = TEXT("Without -BindlessAll only Transport with Emissive Injection is available (the overlay consumers of the resident atlas need -BindlessAll).");
+		return Result;
 	}
 	static const IConsoleVariable* const Culling = IConsoleManager::Get().FindConsoleVariable(TEXT("r.RayTracing.Culling"));
 	static const IConsoleVariable* const LumenAsync = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Lumen.AsyncCompute"));
@@ -346,8 +377,10 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	if (!StatePtr) StatePtr = MakeUnique<FWorldViewState>();
 	FWorldViewState& State = *StatePtr;
 	State.LastUse = WorldAccessSerial;
-	if (!State.EnsureResource(Request.bTransport)) { Result.Error = State.AllocationError; return Result; }
+	// Injection-only (no BindlessAll): no resident atlas, no descriptor; State.Texture stays null.
+	if (bResident && !State.EnsureResource(Request.bTransport)) { Result.Error = State.AllocationError; return Result; }
 	Common.View = View.ViewUniformBuffer;
+	Common.FogMSDensityAtlas = Request.DensityAtlas.GetReference();
 	Common.Scene = GetSceneUniformBufferRef(GraphBuilder, View);
 	Common.TLAS = View.GetRayTracingSceneLayerViewChecked(ERayTracingSceneLayer::Base);
 	Common.RayTracingSceneMetadata = GraphBuilder.CreateSRV(View.GetInlineRayTracingBindingDataBuffer());
@@ -473,8 +506,10 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 		Late.FieldBack = FieldBack;
 		Late.Field = FieldBack ? Request.InjectionTexture : FTextureRHIRef();
 	}
-	else
+	else if (bResident)
 	{
+		// Same-frame resident copy for the overlay consumers (BindlessAll only). Injection-only has no resident
+		// atlas: the injection field written above is the only output, and Result carries no descriptor.
 		Output = RegisterExternalTexture(GraphBuilder, State.Texture, TEXT("FogMS.WorldResident"));
 		GraphBuilder.UseInternalAccessMode(Output);
 		AddCopyTexturePass(GraphBuilder, Work, Output);
@@ -483,6 +518,7 @@ FFogMSSpatialResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FS
 	State.LastFrameIndex = View.ViewState->GetFrameIndex();
 	State.LastRequest = Request;
 	State.LastRequest.InjectionTexture.SafeRelease(); // Do not extend the Box field's lifetime.
+	State.LastRequest.DensityAtlas.SafeRelease(); // Nor the density atlas's (warm start compares bounds only).
 	State.LastIndirectEnabled = Common.IndirectEnabled;
 	if (Request.bTransport)
 	{
@@ -551,15 +587,22 @@ bool FogMS_PublishWorldLightingLate(FRDGBuilder& GraphBuilder, const FSceneView&
 	// Consume once per graph whatever happens below.
 	Late->Work = Late->FieldBack = nullptr;
 	Late->Field.SafeRelease();
-	if (!Found || !(*Found)->Texture.IsValid()) return false;
+	// Injection-only (no BindlessAll): the state has no resident atlas; only the injection field is copied.
+	if (!Found || (!(*Found)->Texture.IsValid() && !(FieldBack && Field.IsValid()))) return false;
 	FWorldViewState& State = **Found;
 	// PrePostProcessPass, graphics queue, after ComputeVolumetricFog: these copies are the first graphics consumers
 	// of the async solve, so RDG joins async->graphics here and the solver overlapped lights, Lumen and fog.
 	RDG_EVENT_SCOPE(GraphBuilder, "FogMS transport publish (one frame late)");
-	FRDGTextureRef Output = RegisterExternalTexture(GraphBuilder, State.Texture, TEXT("FogMS.WorldResident"));
-	GraphBuilder.UseInternalAccessMode(Output);
-	AddCopyTexturePass(GraphBuilder, Work, Output);
-	GraphBuilder.UseExternalAccessMode(Output, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
+	if (State.Texture.IsValid())
+	{
+		FRDGTextureRef Output = RegisterExternalTexture(GraphBuilder, State.Texture, TEXT("FogMS.WorldResident"));
+		GraphBuilder.UseInternalAccessMode(Output);
+		AddCopyTexturePass(GraphBuilder, Work, Output);
+		GraphBuilder.UseExternalAccessMode(Output, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
+		// The resident pair is offered to FogMS_GetLateTransportField only when it exists.
+		State.bLateAtlasValid = true;
+		State.LateCopyRenderFrame = GFrameNumberRenderThread;
+	}
 	if (FieldBack && Field.IsValid())
 	{
 		// The Box Volume material binding is invisible to RDG: hand the volume back in external SRV access.
@@ -569,8 +612,6 @@ bool FogMS_PublishWorldLightingLate(FRDGBuilder& GraphBuilder, const FSceneView&
 		GraphBuilder.UseExternalAccessMode(Target, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
 		bOutInjectionCopied = true;
 	}
-	State.bLateAtlasValid = true;
-	State.LateCopyRenderFrame = GFrameNumberRenderThread;
 	return true;
 }
 

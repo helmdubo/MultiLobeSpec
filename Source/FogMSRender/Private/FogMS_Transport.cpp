@@ -112,12 +112,19 @@ namespace
         SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<float4>, Scalars)
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutAtlas)
         SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float4>, OutField)
+        // Pass 0 (density average) samples the Box density atlas through this ordinary binding
+        // (FFogMSWorldRequest::DensityAtlas, raw RHI texture outside RDG, resident in SRV state);
+        // no bindless descriptor. Other passes do not reference it.
+        SHADER_PARAMETER_TEXTURE(Texture2D<float4>, FogMSDensityAtlas)
     END_SHADER_PARAMETER_STRUCT()
 
+    // Producer only: every input is bound (BoxRows, density atlas, RDG textures), so BindlessAll is not needed.
+    // Inline RT on PCD3D_SM6 requires bindless at least for ray tracing (DDPI bInlineRayTracingRequiresBindless;
+    // ShaderCore.cpp ShouldCompileWithBindlessEnabled, D3D12Adapter GRHISupportsInlineRayTracing): not Disabled.
     bool SupportsTransport(EShaderPlatform Platform)
     {
         return Platform == SP_PCD3D_SM6 && FShaderPlatformConfig::IsValid(Platform)
-            && FShaderPlatformConfig::GetBindlessConfiguration(Platform) == ERHIBindlessConfiguration::All
+            && !IsBindlessDisabled(FShaderPlatformConfig::GetBindlessConfiguration(Platform))
             && IsRayTracingEnabledForProject(Platform) && RHISupportsInlineRayTracing(Platform);
     }
     void TransportEnvironment(FShaderCompilerEnvironment& Environment)
@@ -130,6 +137,8 @@ namespace
         Environment.SetDefine(TEXT("FOGMS_DEBUG_VIEWS"), 0);
         Environment.SetDefine(TEXT("FOGMS_BOX_DATA_ROWS"), 24);
         Environment.SetDefine(TEXT("FOGMS_ANGULAR_SWEEP"), 0);
+        // FogMS_Indirect.ush: density atlas from the bound FogMSDensityAtlas, not from the heap (row 7.z).
+        Environment.SetDefine(TEXT("FOGMS_BOUND_DENSITY_ATLAS"), 1);
     }
     class FTransportCS : public FGlobalShader
     {
@@ -192,10 +201,14 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
 {
 #if RHI_RAYTRACING
     if (!View.LumenHardwareRayTracingHitDataBuffer) return nullptr;
+    // Validated by FogMS_BuildWorldLighting (non-null 2D); a null binding would fail pass 0's shader validation.
+    if (!Request.DensityAtlas.IsValid()) return nullptr;
     const bool bWarm = PreviousAtlas != nullptr && CVarWarmStart.GetValueOnRenderThread() != 0;
     FTransportParameters Common;
     FMemory::Memzero(&Common, sizeof(Common));
     Common.PreviousAtlas = PreviousAtlas ? PreviousAtlas : GSystemTextures.GetBlackDummy(GraphBuilder);
+    // Box density atlas (MultiLobeSpec FFogMSDensityAtlas -> BoxRuntime -> Request): read by pass 0 on graphics.
+    Common.FogMSDensityAtlas = Request.DensityAtlas.GetReference();
     Common.View = View.ViewUniformBuffer;
     Common.Scene = GetSceneUniformBufferRef(GraphBuilder, View);
     Common.LumenSource = Lumen; Common.LightSources = Lights;
@@ -288,7 +301,7 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FViewInfo&
     const auto Dispatch = [&](int32 Pass, const TCHAR* Name, const FTransportParameters& Params, int32 Threads)
     {
         // Graphics only: 1/2/14 trace inline rays (TLAS, RT geometry through bindless metadata, Lumen cache);
-        // 0 reads the bindless density atlas. Hidden reads stay on the queue the BoxRuntime fences assume.
+        // 0 reads the density atlas (a raw bound texture RDG does not track). Hidden reads stay on the queue the BoxRuntime fences assume.
         const bool bGraphics = Pass == 0 || Pass == 1 || Pass == 2 || Pass == 14;
         FTransportCS::FPermutationDomain Permutation; Permutation.Set<FTransportCS::FPass>(Pass);
         TShaderMapRef<FTransportCS> Shader(ShaderMap, Permutation);

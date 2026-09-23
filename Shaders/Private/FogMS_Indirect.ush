@@ -9,6 +9,13 @@
 
 #if FOGMS_ENABLED && FOGMS_BOX_MODE
 
+#if FOGMS_BOUND_DENSITY_ATLAS
+// Transport/World producers: the BGRA8 density atlas (FFogMSWorldRequest::DensityAtlas) is an
+// ordinary bound SRV, valid in any bindless configuration. Row 7.z (its heap index) is ignored here;
+// consumers and the BindlessAll-only shadow-cache producer keep reading it through the heap.
+Texture2D<float4> FogMSDensityAtlas;
+#endif
+
 struct FogMS_IndirectData
 {
 	float3 Center;
@@ -103,7 +110,12 @@ float FogMS_IndirectSampleNoise(float3 UVW, FogMS_IndirectData Data)
 	float3 Alpha = frac(TexelPosition);
 	uint3 P0 = (uint3)(Base + int3(Data.Size)) % Data.Size;
 	uint3 P1 = (P0 + 1u) % Data.Size;
+	// Same texture and the same eight texel loads either way; only the binding source differs.
+#if FOGMS_BOUND_DENSITY_ATLAS
+	Texture2D<float4> Atlas = FogMSDensityAtlas;
+#else
 	Texture2D<float4> Atlas = GetSRVFromHeap(Texture2D<float4>, Data.AtlasSRV);
+#endif
 	// B8G8R8A8_UNORM SRVs expose logical RGBA; do not swizzle the BGRA source bytes.
 	float C000 = Atlas.Load(int3(P0.x, P0.y + P0.z * Data.Size.y, 0))[Data.Channel];
 	float C100 = Atlas.Load(int3(P1.x, P0.y + P0.z * Data.Size.y, 0))[Data.Channel];
@@ -206,6 +218,8 @@ float FogMS_IndirectTransmittance(float3 TranslatedOrigin, float3 RayDirection, 
 	return exp(-min(FogMS_AuthoredOpticalDepth(TranslatedOrigin, RayDirection, HitDistance, Data.Steps, Data), 80.0f));
 }
 
+#if !FOGMS_PRODUCER
+// Consumer only (heap descriptor from rows 20/22): no producer calls it, so producers compile no heap access here.
 // Resident 2D atlas, Y slices stacked along Z. The explicit interpolation never
 // blends across adjacent slice borders (unlike a plain bilinear atlas lookup).
 float4 FogMS_FieldSample(uint Descriptor, float3 Cell, uint3 Size)
@@ -221,6 +235,7 @@ float4 FogMS_FieldSample(uint Descriptor, float3 Cell, uint3 Size)
 		lerp(Field.Load(int3(A.x, B.y + B.z * Size.y, 0)), Field.Load(int3(B.x, B.y + B.z * Size.y, 0)), F.x), F.y);
 	return lerp(Z0, Z1, F.z);
 }
+#endif // !FOGMS_PRODUCER
 
 // Requested B2 owns its authored density even while the lighting producer is
 // unavailable. This marker survives lighting fallback; the raster MID is zero.
@@ -281,6 +296,9 @@ bool FogMS_TransportFieldIncident(Texture2D<float4> Field, float3 CellPosition, 
 	return all(isfinite(Incident)) && all(Incident >= -1.e-6f);
 }
 
+#if !FOGMS_PRODUCER
+// Consumer-only readers below take heap descriptors from packet rows 20/22 (overlay, BindlessAll).
+// Producers use FogMS_TransportFieldIncident above with a bound atlas and never compile these.
 bool FogMS_TransportIncident(float3 TranslatedPosition, out float3 Incident)
 {
 	Incident = 0;
@@ -365,6 +383,7 @@ float FogMS_SurfaceSunTransmittance(float3 TranslatedPosition, float3 DirectionT
 	float Tau = FogMS_AuthoredOpticalDepth(TranslatedPosition, normalize(DirectionToLight), RayLimit, Steps, Data);
 	return lerp(1.0f, exp(-min(Tau, 80.0f)), saturate(FogMS_BoxRow(14).w));
 }
+#endif // !FOGMS_PRODUCER
 
 #endif // FOGMS_ENABLED && FOGMS_BOX_MODE
 

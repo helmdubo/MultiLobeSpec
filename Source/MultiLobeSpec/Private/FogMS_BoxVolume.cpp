@@ -6,6 +6,7 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
+#include "DynamicRHI.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/TextureRenderTargetVolume.h"
 #include "Engine/VolumeTexture.h"
@@ -18,6 +19,7 @@
 #include "MultiLobeSpec.h"
 #include "Serialization/CustomVersion.h"
 #include "Serialization/Archive.h"
+#include "ShaderPlatformConfig.h"
 #include "Templates/UnrealTemplate.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -146,6 +148,14 @@ namespace
 		if (World && !World->UsesGameHiddenFlags()) return !Actor.IsHiddenEd();
 #endif
 		return World && !Actor.IsHidden();
+	}
+
+	// Same predicate as BoxRuntime: the engine-shader overlay (r.FogMS.BoxMode 1) needs BindlessAll. Without it
+	// only the injection-only runtime exists (Transport -> Emissive Injection volume -> this Box's Volume material).
+	bool FogMS_IsBindlessAllConfiguration()
+	{
+		return FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform)
+			&& FShaderPlatformConfig::GetBindlessConfiguration(GMaxRHIShaderPlatform) == ERHIBindlessConfiguration::All;
 	}
 
 	void FogMS_ApplyBoxMode(const int32 BoxMode)
@@ -621,7 +631,10 @@ void AFogMSBoxVolume::UpdateDensity()
 				const bool bInjection = bEnabled && UsesEmissiveInjection() && EnsureTransportField();
 				// Keep authored density valid for the B2 atlas while avoiding duplicate
 				// native voxelization. Leaving Transport restores the authored value.
-				State.bUseNativeDensity = !bEnabled || !FogMS_IsTransportMode(ScatteringMode) || bInjection;
+				// Without BindlessAll no overlay injects density (row 23.w 4), so Transport without injection keeps
+				// the native MID density: the Box stays visible, lit natively (fail closed).
+				State.bUseNativeDensity = !bEnabled || !FogMS_IsTransportMode(ScatteringMode) || bInjection
+					|| !FogMS_IsBindlessAllConfiguration();
 				State.bEmissiveInjection = bInjection;
 				State.InjectionField = bInjection ? TransportField.Get() : nullptr;
 				State.Texture = DensityTexture.Get();
@@ -805,6 +818,27 @@ void AFogMSBoxVolume::ResumeDensityAnimation()
 
 void AFogMSBoxVolume::EnableLiveBox()
 {
+	if (!FogMS_IsBindlessAllConfiguration())
+	{
+		// No BindlessAll: never set r.FogMS.BoxMode 1 or apply the engine-shader patch (its consumers need the heap).
+		// Register only the injection-only runtime; Prepare reports the overlay as unavailable in OutError by design.
+		uint32 UnusedDescriptor = MAX_uint32;
+		FString OverlayNote;
+		if (!FFogMSBoxRuntime::Prepare(UnusedDescriptor, OverlayNote))
+		{
+			SpatialStatus = OverlayNote;
+			UE_LOG(LogMultiLobeSpec, Error, TEXT("FogMS Box: %s"), *OverlayNote);
+			return;
+		}
+		// The runtime overwrites this every frame; this is the immediate feedback of the button.
+		SpatialStatus = UsesEmissiveInjection()
+			? TEXT("Waiting for current-frame isotropic transport (injection-only: no BindlessAll; overlay features off)")
+			: (FogMS_IsTransportMode(ScatteringMode)
+				? TEXT("Transport needs Emissive Injection or -BindlessAll (injection-only: no BindlessAll; overlay features off). Native fog lighting.")
+				: TEXT("This Scattering Mode requires -BindlessAll (injection-only: no BindlessAll; overlay features off). Native fog lighting."));
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Box: injection-only runtime (no BindlessAll): Transport + Emissive Injection via the Box Volume material; overlay features (A1d/A1e, shadow cache, ViewIntegration, SSFS sky disk, debug views) off."));
+		return;
+	}
 	FogMS_ApplyBoxMode(1);
 }
 

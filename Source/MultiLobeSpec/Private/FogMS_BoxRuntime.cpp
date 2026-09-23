@@ -38,7 +38,7 @@
 namespace
 {
 	TAutoConsoleVariable<int32> FogMS_BoxMode(TEXT("r.FogMS.BoxMode"), 0,
-		TEXT("0 global A1, 1 live Box. Initial change requires FogMS.Apply and D3D12 -BindlessAll. Actor edits then update live."));
+		TEXT("0 global A1, 1 live Box. Initial change requires FogMS.Apply and D3D12 -BindlessAll. Actor edits then update live. Without -BindlessAll use Enable Live Box on the actor instead (injection-only runtime; this stays 0)."));
 	TAutoConsoleVariable<int32> FogMS_ScreenScatteringSun(TEXT("r.FogMS.ScreenScatteringSun"), 1,
 		TEXT("Include the later procedural SkyAtmosphere sun disk in native fog screen-space scattering. Requires native FSSS; 0 restores UE source ordering."), ECVF_RenderThreadSafe);
 	TAutoConsoleVariable<int32> FogMS_ViewIntegration(TEXT("r.FogMS.ViewIntegration"), 0,
@@ -163,10 +163,27 @@ namespace
 		return Variable ? Variable->GetFloat() : DefaultValue;
 	}
 
+	// The engine-shader overlay (packet texture, heap descriptors, A1d/A1e, shadow cache, SSFS sky disk,
+	// ViewIntegration, debug views) needs BindlessAll. Without it the runtime is injection-only: the Transport
+	// solver writes the Emissive Injection volume and the Box Volume material lights native fog.
+	bool FogMS_IsBindlessAll()
+	{
+		return FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform)
+			&& FShaderPlatformConfig::GetBindlessConfiguration(GMaxRHIShaderPlatform) == ERHIBindlessConfiguration::All;
+	}
+
 	bool FogMS_IsLocalOverlayEnabled()
 	{
 		static const IConsoleVariable* const EnableVariable = IConsoleManager::Get().FindConsoleVariable(TEXT("r.FogMS.Enable"));
-		return FogMS_BoxMode.GetValueOnGameThread() == 1 && EnableVariable && EnableVariable->GetInt() != 0;
+		// Never true without BindlessAll, even if r.FogMS.BoxMode was set by hand: no overlay can exist then.
+		return FogMS_IsBindlessAll() && FogMS_BoxMode.GetValueOnGameThread() == 1 && EnableVariable && EnableVariable->GetInt() != 0;
+	}
+
+	// Status text for an overlay-only feature that is not active.
+	const TCHAR* FogMS_OverlayUnavailable()
+	{
+		return FogMS_IsBindlessAll() ? TEXT("use Enable Live Box to activate the local overlay.")
+			: TEXT("requires -BindlessAll (injection-only: no BindlessAll; overlay features off).");
 	}
 
 	bool FogMS_IsWorldScatteringMode(EFogMSScatteringMode Mode)
@@ -324,6 +341,16 @@ namespace
 		// that view's fallback clears it: a capture/other family between two of its frames would erase valid J.
 		uint32 LateInjectionRenderFrame = 0;
 		uint32 LateInjectionViewKey = 0;
+		// Uploaded density atlas of the current packet (render thread). Transport/World producers bind it directly
+		// (FFogMSWorldRequest::DensityAtlas); the packet's row 7.z heap index serves only overlay consumers.
+		FTextureRHIRef DensityAtlasTexture;
+		// Injection-only runtime (no packet): the injection volume that this frame's native fog samples holds a
+		// current J. Set by PostTLAS; replaces the row 22 test of the SSFS trigger in that configuration.
+		bool bInjectionFieldConsumed = false;
+
+		// False in the injection-only runtime (no BindlessAll): no packet texture, no descriptor, no hidden readers.
+		// With BindlessAll Prepare fails unless the packet exists, so every existing path sees true.
+		bool HasPacket() const { return Texture.IsValid(); }
 
 		bool GetAtlasStatus(uint64 AtlasRevision, FString& OutProblem)
 		{
@@ -343,6 +370,8 @@ namespace
 
 		void Upload(FRHICommandListBase& RHICmdList, const FBoxRenderSnapshot& Snapshot)
 		{
+			// Injection-only: no packet texture and no reader of one; the producers take BoxRows as uniforms.
+			if (!HasPacket()) return;
 			// Row y=0 preserves the producer's 24-float4 ABI. Only phase XYZ is
 			// resident in row y=1; no prior atlas descriptor or resource is retained.
 			FBoxPacket TextureRows[2];
@@ -532,7 +561,7 @@ namespace
 						if (!FogMS_IsLocalOverlayEnabled())
 						{
 							Packet.Rows[6].W = 0.0f;
-							Selected->SunShadowStatus = TEXT("Bypassed: use Enable Live Box to activate the local overlay.");
+							Selected->SunShadowStatus = FString(TEXT("Bypassed: ")) + FogMS_OverlayUnavailable();
 						}
 						else if (!DensityUpload.IsValid() || !DensityProblem.IsEmpty())
 						{
@@ -551,7 +580,7 @@ namespace
 					{
 						FString SurfaceProblem;
 						if (!FogMS_IsLocalOverlayEnabled())
-							SurfaceProblem = TEXT("Use Enable Live Box to activate the local overlay.");
+							SurfaceProblem = FogMS_IsBindlessAll() ? TEXT("Use Enable Live Box to activate the local overlay.") : FogMS_OverlayUnavailable();
 						else if (!FMath::IsFinite(Selected->SurfaceShadowStrength)
 							|| Selected->SurfaceShadowStrength < 0.0f || Selected->SurfaceShadowStrength > 1.0f
 							|| Selected->SurfaceShadowSteps < 1 || Selected->SurfaceShadowSteps > 64)
@@ -615,7 +644,14 @@ namespace
 				const bool bTransport = FogMS_IsTransportMode(static_cast<EFogMSScatteringMode>(Packet.Rows[5].Y));
 				const bool bWorldLighting = FogMS_UsesWorldProducer(Packet.Rows[5].Y);
 				FString SpatialProblem;
-				if (!FogMS_IsLocalOverlayEnabled()) SpatialProblem = TEXT("Use Enable Live Box first.");
+				// Without BindlessAll only Transport + Emissive Injection runs (solver -> injection volume -> Box Volume
+				// material -> native fog); every other mode needs the overlay consumers. Fail closed: native fog lighting.
+				const bool bInjectionOnly = !FogMS_IsBindlessAll();
+				if (bInjectionOnly && !bTransport)
+					SpatialProblem = TEXT("Spatial/World scattering requires -BindlessAll (injection-only: no BindlessAll; overlay features off). Native fog lighting.");
+				else if (bInjectionOnly && !Selected->IsEmissiveInjectionActive())
+					SpatialProblem = TEXT("Transport needs Emissive Injection or -BindlessAll (injection-only: no BindlessAll). Native fog lighting with authored density.");
+				else if (!bInjectionOnly && !FogMS_IsLocalOverlayEnabled()) SpatialProblem = TEXT("Use Enable Live Box first.");
 				else if (!DensityUpload.IsValid() || !Selected->IsDensitySourceActive())
 					SpatialProblem = Selected->GetDensityProblem().IsEmpty() ? TEXT("Requires a valid authored density source.") : Selected->GetDensityProblem();
 				else if (bWorldLighting) SpatialProblem = FogMS_WorldViewProblem(Family);
@@ -662,6 +698,14 @@ namespace
 			else if (Selected && Count == 1 && FogMS_IsWorldScatteringMode(Selected->ScatteringMode) && !Problem.IsEmpty())
 			{
 				Selected->SpatialStatus = Problem;
+			}
+			if (!FogMS_IsBindlessAll())
+			{
+				// Injection-only: A1d (6.W), A1e (13.W/14.W) and the sun-shadow cache (16.X) are overlay features.
+				// Already zero through FogMS_IsLocalOverlayEnabled(); forced here so BuildShadow can never run.
+				Packet.Rows[6].W = 0.0f;
+				Packet.Rows[13].W = Packet.Rows[14].W = 0.0f;
+				Packet.Rows[16].X = 0.0f;
 			}
 			const uint64 AtlasRevision = DensityUpload.IsValid() ? DensityUpload->Revision : 0;
 			bool bDensityChanged = DensityRevisions.Num() != Previous.DensityRevisions.Num() || AtlasRevision != Previous.LastAtlasRevision;
@@ -766,15 +810,28 @@ namespace
 				}
 				// Hidden bindless reads have no RDG dependency. Fence prior async readers
 				// before overwriting the packet or retiring an atlas, including manual CVar changes.
-				RHICmdList.Transition(TArrayView<const FRHITransitionInfo>(), ERHIPipeline::AsyncCompute, ERHIPipeline::Graphics);
+				// Injection-only: no packet and no hidden reader (the atlas is bound to graphics pass 0 only),
+				// so there is nothing to fence; skip both cross-pipe transitions.
+				const bool bFence = Resource->HasPacket();
+				if (bFence) RHICmdList.Transition(TArrayView<const FRHITransitionInfo>(), ERHIPipeline::AsyncCompute, ERHIPipeline::Graphics);
 				if (DensityUpload.IsValid())
 				{
 					FString AtlasProblem;
-					const uint32 Descriptor = Resource->DensityAtlas.EnsureAndGetDescriptor(RHICmdList, DensityUpload, AtlasProblem);
-					if (Descriptor != MAX_uint32 && Descriptor < (1u << 24))
-						Packet.Rows[7].Z = static_cast<float>(Descriptor);
+					FTextureRHIRef AtlasTexture;
+					const uint32 Descriptor = Resource->DensityAtlas.EnsureAndGetDescriptor(RHICmdList, DensityUpload, AtlasProblem, &AtlasTexture);
+					const bool bDescriptor = Descriptor != MAX_uint32 && Descriptor < (1u << 24);
+					// Overlay consumers need the heap index (row 7.z); producers need only the uploaded texture.
+					// With a packet (BindlessAll) both are required, exactly as before; injection-only needs the texture.
+					if (AtlasTexture.IsValid() && (bDescriptor || !Resource->HasPacket()))
+					{
+						if (bDescriptor) Packet.Rows[7].Z = static_cast<float>(Descriptor);
+						Resource->DensityAtlasTexture = AtlasTexture;
+					}
 					else
 					{
+						Resource->DensityAtlasTexture.SafeRelease();
+						if (AtlasProblem.IsEmpty() && AtlasTexture.IsValid() && Descriptor == MAX_uint32)
+							AtlasProblem = TEXT("Density atlas has no bindless descriptor; the Box overlay requires -BindlessAll.");
 						Packet.Rows[6].W = 0.0f;
 						Packet.Rows[13].W = 0.0f;
 						Packet.Rows[7] = FVector4f(0, 0, 0, 0);
@@ -799,13 +856,14 @@ namespace
 						Resource->LastAtlasProblem = AtlasProblem;
 					}
 				}
+				else Resource->DensityAtlasTexture.SafeRelease(); // No density source: producers are not requested.
 				Resource->Upload(RHICmdList, Snapshot);
 				Resource->RenderSnapshot = Snapshot;
 				if (!FogMS_UsesWorldProducer(Packet.Rows[5].Y)) Resource->bWorldFieldPublished = false;
 				Resource->DirectionToSun = DirectionToSun;
 				Resource->Revision = Revision;
 				Resource->DensityAtlasRevision = DensityUpload.IsValid() ? DensityUpload->Revision : 0;
-				RHICmdList.Transition(TArrayView<const FRHITransitionInfo>(), ERHIPipeline::Graphics, ERHIPipeline::AsyncCompute);
+				if (bFence) RHICmdList.Transition(TArrayView<const FRHITransitionInfo>(), ERHIPipeline::Graphics, ERHIPipeline::AsyncCompute);
 			});
 		}
 		virtual ESceneViewExtensionFlags GetFlags() const override
@@ -827,6 +885,7 @@ namespace
 			// async queue there and the solve overlaps lights/Lumen/fog. This frame's fog reads last frame's publication.
 			const bool bLate = bTransport && Packet.Rows[0].W >= 0.5f && FogMS_TransportPublishesLate(GraphBuilder);
 			GPU->bLatePublishQueued = false;
+			GPU->bInjectionFieldConsumed = false; // Set at the end only when this frame's fog samples a current J.
 			// Same-frame: every fallback clears J. Late: only the view that owns the late J (LateInjectionViewKey);
 			// a capture/planar/other family rendered between two of its frames must not erase J before its next fog.
 			const bool bMayClearInjection = !FogMS_TransportPublishesLate(GraphBuilder) || View.GetViewKey() == GPU->LateInjectionViewKey;
@@ -867,6 +926,9 @@ namespace
 					WorldRequest.Tolerance = Packet.Rows[16].W;
 				}
 				if (bInjection) WorldRequest.InjectionTexture = GPU->InjectionTexture;
+				// Uploaded by this packet's FogMS_UpdateBox command (same family, earlier on the render thread);
+				// pass 0 of the producer binds it directly. Null fails the request (native fallback below).
+				WorldRequest.DensityAtlas = GPU->DensityAtlasTexture;
 				WorldRequest.bLatePublish = bLate;
 				if (bLate)
 				{
@@ -892,7 +954,10 @@ namespace
 			}
 			else
 				Result = FogMS_BuildSpatial(GraphBuilder, View, Request);
-			const bool bPublished = Result.Valid && Result.DescriptorIndex < (1u << 24) && Result.GridSize > 1;
+			// With a packet (BindlessAll) publication means a resident descriptor for the overlay, as before. Injection-only
+			// has no descriptor: a valid Transport build that wrote (or queued) the injection field is the publication.
+			const bool bDescriptorPublished = Result.DescriptorIndex < (1u << 24);
+			const bool bPublished = Result.Valid && Result.GridSize > 1 && (bDescriptorPublished || (!GPU->HasPacket() && bInjection));
 			if (bWorldLighting && !bLate)
 			{
 				// Native fog still filters the final image temporally. Invalidate it once
@@ -903,12 +968,18 @@ namespace
 			if (bPublished && bLate)
 			{
 				// Late: row 22 keeps the consumed pair until PrePostProcessPass has added the copy it describes.
-				GPU->LateField = FVector4f(static_cast<float>(Result.DescriptorIndex), static_cast<float>(Result.GridSize), 1, 4.0f);
+				// Injection-only: no descriptor, so no row 22 pair; the late copy still publishes the injection field.
+				GPU->LateField = bDescriptorPublished ? FVector4f(static_cast<float>(Result.DescriptorIndex), static_cast<float>(Result.GridSize), 1, 4.0f)
+					: FVector4f(0, 0, 0, 0);
 				GPU->bLatePublishQueued = true;
 			}
 			else if (bPublished)
-				Packet.Rows[22] = FVector4f(static_cast<float>(Result.DescriptorIndex), static_cast<float>(Result.GridSize), 1,
-					bTransport ? 4.0f : (bWorldLighting ? 3.0f : 0.0f));
+			{
+				// Row 22 describes a resident descriptor; the injection-only runtime has none (and no packet reader).
+				if (bDescriptorPublished)
+					Packet.Rows[22] = FVector4f(static_cast<float>(Result.DescriptorIndex), static_cast<float>(Result.GridSize), 1,
+						bTransport ? 4.0f : (bWorldLighting ? 3.0f : 0.0f));
+			}
 			else if (bWorldLighting)
 				Packet.Rows[5].Y = 0; // No replacement GI may consume an invalid World atlas.
 			// The producer wrote the field in this graph only for a published injection request.
@@ -933,8 +1004,9 @@ namespace
 				GPU->FieldStatusRevision = GPU->Revision;
 				if (bPublished)
 					GPU->SpatialFieldStatus = bTransport
-						? FString::Printf(TEXT("Active %s isotropic transport (%d directions, %s%s%s; see convergence diagnostics)"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
-							*ToleranceText, bInjection ? TEXT("; emissive injection via material") : TEXT(""), bLate ? TEXT("; one frame late") : TEXT(""))
+						? FString::Printf(TEXT("Active %s isotropic transport (%d directions, %s%s%s; see convergence diagnostics)%s"), Request.Directions == 6 ? TEXT("B2") : TEXT("B3"), Request.Directions,
+							*ToleranceText, bInjection ? TEXT("; emissive injection via material") : TEXT(""), bLate ? TEXT("; one frame late") : TEXT(""),
+							GPU->HasPacket() ? TEXT("") : TEXT(" (injection-only: no BindlessAll; overlay features off)"))
 						: (bWorldLighting
 							? (Packet.Rows[21].X > 0 ? TEXT("Active World primary + three current-frame scattering orders (no fog history)")
 								: TEXT("Active World primary (Strength=0: extra orders disabled; no fog history)"))
@@ -952,6 +1024,9 @@ namespace
 			// lighting and volumetric fog. Publish the new spatial descriptor here.
 			// Late: already uploaded before the solver; the new pair goes up with its copy in PrePostProcessPass.
 			if (!bLate) PublishFields(GraphBuilder, Snapshot);
+			// Injection-only SSFS trigger: the volume this frame's fog samples holds a current J (same-frame: written
+			// above; late: last frame's copy, not cleared by the gap/failure paths above).
+			GPU->bInjectionFieldConsumed = !GPU->HasPacket() && bInjection && GPU->bInjectionFieldWritten;
 		}
 
 		virtual void PostRenderBasePassDeferred_RenderThread(FRDGBuilder& GraphBuilder, FSceneView& View,
@@ -967,7 +1042,9 @@ namespace
 			if (GPU->LastViewIntegrationMode != Snapshot.ViewIntegrationMode) Packet.Rows[5].X = 1;
 			GPU->LastViewIntegrationMode = Snapshot.ViewIntegrationMode;
 			Packet.Rows[20] = FVector4f(0, 0, 0, 0);
-			if (Packet.Rows[0].W > 0.5f && Packet.Rows[16].X > 0 && Packet.Rows[7].W > 0)
+			// The shadow cache is an overlay feature (heap-read density atlas, BindlessAll-only shaders). Row 16.X is
+			// forced to 0 without BindlessAll; HasPacket() keeps BuildShadow unreachable in that runtime regardless.
+			if (GPU->HasPacket() && Packet.Rows[0].W > 0.5f && Packet.Rows[16].X > 0 && Packet.Rows[7].W > 0)
 			{
 				if (!GPU->ShadowCache.IsValid()) GPU->ShadowCache = FogMSRender::CreateShadowCacheState();
 				FogMSRender::FShadowCacheResult Result;
@@ -999,8 +1076,12 @@ namespace
 			const FBoxPacket& Packet = GPU->RenderSnapshot.Packet;
 			// Screen scattering is a post filter, not density/source injection: keep it for both
 			// Transport deliveries (4 overlay, 5 emissive injection) with a published field.
+			// BindlessAll: the field this frame's fog consumed is row 22 (unchanged). Injection-only has no row 22:
+			// PostTLAS records whether the injection volume sampled by this frame's fog holds a current J.
+			const bool bFieldConsumed = GPU->HasPacket() ? (Packet.Rows[22].Z >= .5f && Packet.Rows[22].W == 4.f)
+				: GPU->bInjectionFieldConsumed;
 			if (Packet.Rows[0].W > .5f && (Packet.Rows[23].W == 4.f || Packet.Rows[23].W == 5.f)
-				&& Packet.Rows[22].Z >= .5f && Packet.Rows[22].W == 4.f
+				&& bFieldConsumed
 				&& !View.bIsSceneCapture && !View.bIsReflectionCapture && !View.bIsPlanarReflection
 				&& View.Family && View.Family->Views.Num() == 1)
 			{
@@ -1048,6 +1129,9 @@ namespace
 			// Consumers use a stable resident descriptor. Each publication follows its
 			// producer's external-SRV transition in the graphics graph. Capture both
 			// rows together: a later family/world must not replace only the prior phase.
+			// Injection-only: no packet texture and no hidden reader, so neither the upload nor its async<->graphics
+			// fences are needed; the injection volume's hand-off is RDG's UseExternalAccessMode in the producer.
+			if (!GPU->HasPacket()) return;
 			GraphBuilder.AddPass(RDG_EVENT_NAME("FogMS PublishFields"), ERDGPassFlags::NeverCull,
 				[Resource = GPU, Snapshot](FRHICommandList& RHICmdList)
 				{
@@ -1074,11 +1158,28 @@ bool FFogMSBoxRuntime::Prepare(uint32& OutDescriptorIndex, FString& OutError)
 {
 	if (!GDynamicRHI || FCString::Strcmp(GDynamicRHI->GetName(), TEXT("D3D12")) != 0
 		|| GMaxRHIShaderPlatform != SP_PCD3D_SM6 || GNumExplicitGPUsForRendering != 1
-		|| !FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform)
-		|| FShaderPlatformConfig::GetBindlessConfiguration(GMaxRHIShaderPlatform) != ERHIBindlessConfiguration::All)
+		|| !FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform))
 	{
-		OutError = TEXT("Live FogMS Box requires single-GPU D3D12/SM6 with -BindlessAll. Restart the editor with that flag, then enable the Box. Global A1 remains available without it.");
+		OutError = TEXT("Live FogMS Box requires single-GPU D3D12/SM6. Global A1 remains available without it.");
 		return false;
+	}
+	if (!FogMS_IsBindlessAll())
+	{
+		// Injection-only runtime: register the view extension without a packet texture or descriptor. Its only
+		// output path is Transport -> Emissive Injection volume -> Box Volume material -> native fog (no patch).
+		// GRHISupportsInlineRayTracing already implies bindless is not Disabled (D3D12Adapter).
+		if (!GRHISupportsInlineRayTracing)
+		{
+			OutError = TEXT("FogMS Box transport requires inline hardware ray tracing (D3D12 SM6, ray tracing enabled). Global A1 remains available.");
+			return false;
+		}
+		if (!GPUState.IsValid()) GPUState = MakeShared<FBoxGPUState, ESPMode::ThreadSafe>(); // HasPacket() == false
+		if (!Extension.IsValid()) Extension = FSceneViewExtensions::NewExtension<FBoxViewExtension>(GPUState.ToSharedRef());
+		// Returns true (runtime ready) but still reports an error for the overlay: FFogMSShaderPatcher::ReadConfig
+		// checks only OutError, so a BoxMode 1 Apply fails closed and no Box overlay is ever built with this index.
+		OutDescriptorIndex = MAX_uint32;
+		OutError = TEXT("The live Box overlay (BoxMode 1) requires -BindlessAll. Injection-only runtime active: Transport + Emissive Injection through the Box Volume material; overlay features off.");
+		return true;
 	}
 	if (!GPUState.IsValid())
 	{

@@ -54,6 +54,8 @@ struct FFogMSDensityAtlas::FRenderThreadState
 		FTextureRHIRef Texture;
 		FShaderResourceViewRHIRef SRV;
 		uint32 DescriptorIndex = MAX_uint32;
+		// Texture holds the uploaded bytes (what producers bind); independent of DescriptorIndex.
+		bool bUploaded = false;
 		FString Error;
 	};
 	struct FRetired
@@ -220,13 +222,15 @@ FFogMSDensityAtlas::FUploadPtr FFogMSDensityAtlas::Prepare(UVolumeTexture* Textu
 #endif
 }
 
-uint32 FFogMSDensityAtlas::EnsureAndGetDescriptor(FRHICommandListImmediate& RHICmdList, const FUploadPtr& Upload, FString& OutError)
+uint32 FFogMSDensityAtlas::EnsureAndGetDescriptor(FRHICommandListImmediate& RHICmdList, const FUploadPtr& Upload, FString& OutError,
+	FTextureRHIRef* OutTexture)
 {
 	check(IsInRenderingThread());
 	OutError.Reset();
+	if (OutTexture) OutTexture->SafeRelease();
 	if (!GDynamicRHI || FCString::Strcmp(GDynamicRHI->GetName(), TEXT("D3D12")) != 0 || GNumExplicitGPUsForRendering != 1)
 	{
-		OutError = TEXT("FogMS density atlas requires single-GPU D3D12 and the Box bindless runtime.");
+		OutError = TEXT("FogMS density atlas requires single-GPU D3D12.");
 		return MAX_uint32;
 	}
 	RenderThread->Collect(RHICmdList);
@@ -240,6 +244,7 @@ uint32 FFogMSDensityAtlas::EnsureAndGetDescriptor(FRHICommandListImmediate& RHIC
 	if (const TUniquePtr<FRenderThreadState::FAtlas>* Existing = RenderThread->Atlases.Find(Upload->Revision))
 	{
 		OutError = (*Existing)->Error;
+		if (OutTexture && (*Existing)->bUploaded) *OutTexture = (*Existing)->Texture;
 		return (*Existing)->DescriptorIndex;
 	}
 
@@ -276,25 +281,27 @@ uint32 FFogMSDensityAtlas::EnsureAndGetDescriptor(FRHICommandListImmediate& RHIC
 				FRHIViewDesc::CreateTextureSRV().SetDimensionFromTexture(Atlas->Texture));
 			if (Atlas->SRV.IsValid())
 			{
+				// Upload no longer depends on a bindless handle: Transport/World producers bind Texture directly
+				// (the injection-only runtime has no BindlessAll). Same bytes, same order as before.
+				RHICmdList.UpdateTexture2D(Atlas->Texture, 0,
+					FUpdateTextureRegion2D(0, 0, 0, 0, Upload->SizeX, Upload->SizeY * Upload->SizeZ),
+					Upload->SizeX * 4, Upload->Bytes.GetData());
+				Atlas->bUploaded = true;
+				// Heap index only for overlay consumers (row 7.z); present whenever the RHI provides a handle.
 				const FRHIDescriptorHandle Handle = Atlas->SRV->GetBindlessHandle();
-				if (Handle.IsValid())
-				{
-					RHICmdList.UpdateTexture2D(Atlas->Texture, 0,
-						FUpdateTextureRegion2D(0, 0, 0, 0, Upload->SizeX, Upload->SizeY * Upload->SizeZ),
-						Upload->SizeX * 4, Upload->Bytes.GetData());
-					Atlas->DescriptorIndex = Handle.GetIndex();
-				}
+				if (Handle.IsValid()) Atlas->DescriptorIndex = Handle.GetIndex();
 			}
 		}
-		if (Atlas->DescriptorIndex == MAX_uint32)
+		if (!Atlas->bUploaded)
 		{
-			Atlas->Error = FString::Printf(TEXT("FogMS density atlas could not create a bindless BGRA8 SRV for %s. The Box runtime requires -BindlessAll; textured density remains disabled."), *Upload->TexturePath);
+			Atlas->Error = FString::Printf(TEXT("FogMS density atlas could not create a BGRA8 texture/SRV for %s; textured density remains disabled."), *Upload->TexturePath);
 		}
 	}
 #else
 	Atlas->Error = TEXT("FogMS density atlas currently supports Windows D3D12 only.");
 #endif
 	OutError = Atlas->Error;
+	if (OutTexture && Atlas->bUploaded) *OutTexture = Atlas->Texture;
 	const uint32 DescriptorIndex = Atlas->DescriptorIndex;
 	// Cache failures as well: repeated frames report the same error without reallocating.
 	RenderThread->Atlases.Add(Upload->Revision, MoveTemp(Atlas));

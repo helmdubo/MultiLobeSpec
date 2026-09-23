@@ -2,10 +2,14 @@
 
 #include "CoreMinimal.h"
 
+#include "RHIFwd.h"
+
 class FRHICommandListImmediate;
 class UVolumeTexture;
 
-/** Plugin-owned, resident BGRA8 atlas for the unbound FogMS shader descriptor. */
+/** Plugin-owned, resident BGRA8 atlas. Producers bind the texture directly (any bindless configuration);
+ * overlay consumers read it through its bindless heap descriptor (BindlessAll only).
+ */
 class FFogMSDensityAtlas
 {
 public:
@@ -34,10 +38,13 @@ public:
 
 	/** Render thread. Capture the returned Prepare snapshot in the same command as the
 	 * corresponding packet upload, then call this BEFORE uploading that packet.
-	 * Returns MAX_uint32 on failure; the caller must disable that packet's density path.
+	 * OutTexture (optional): the uploaded atlas, left in SRV state, or null on failure (then OutError is set).
+	 * Returns the bindless heap index, or MAX_uint32 when there is none: always on failure, and also for an
+	 * uploaded atlas whose SRV has no bindless handle (no error; only the packet consumers need the index).
 	 * No UObject access, blocking waits or renderer-private dependencies.
 	 */
-	uint32 EnsureAndGetDescriptor(FRHICommandListImmediate& RHICmdList, const FUploadPtr& Upload, FString& OutError);
+	uint32 EnsureAndGetDescriptor(FRHICommandListImmediate& RHICmdList, const FUploadPtr& Upload, FString& OutError,
+		FTextureRHIRef* OutTexture = nullptr);
 
 private:
 	struct FGameThreadState;

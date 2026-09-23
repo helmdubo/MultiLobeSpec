@@ -24,6 +24,11 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	 * the Box Volume material. Null: no field write. An invalid texture fails the request.
 	 */
 	FTextureRHIRef InjectionTexture;
+	/** Render thread only; required. The Box's resident BGRA8 density atlas (FFogMSDensityAtlas, X by Y+Z*SizeY,
+	 * left in SRV state after its upload). Producers bind it as an ordinary SRV, so it works without -BindlessAll;
+	 * packet row 7.z (its heap index) is for overlay consumers only. Null or non-2D fails the request.
+	 */
+	FTextureRHIRef DensityAtlas;
 	/** Render thread only; Transport only. Set when FogMS_TransportPublishesLate(GraphBuilder): the async solver
 	 * writes transient graph textures only, and FogMS_PublishWorldLightingLate copies them into the resident atlas
 	 * and InjectionTexture from PrePostProcessPass of the same graph. Consumers see the field one frame late.
@@ -33,6 +38,8 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 };
 
 /** PostTLAS, graphics queue only. Resident atlas: N x (2*N*N).
+ * Without BindlessAll only Transport + InjectionTexture is accepted: no resident atlas or descriptor is created
+ * (Result.Texture null, DescriptorIndex MAX_uint32); the field reaches fog through InjectionTexture alone.
  * Lower half: additional incident radiance, including per-order damping.
  * Upper half: primary sky + surface/emissive incident radiance.
  * Both are scene-linear, g=0, no receiver sigma_s or camera pre-exposure.
@@ -49,8 +56,9 @@ FOGMSRENDER_API bool FogMS_TransportPublishesLate(const FRDGBuilder& GraphBuilde
  */
 FOGMSRENDER_API bool FogMS_GetLateTransportField(const FSceneView& View, const FVector4f* BoxRows, uint32& OutDescriptorIndex, int32& OutGridSize);
 /** PrePostProcessPass of the graph whose PostTLAS build set bLatePublish. Graphics copies: transient atlas ->
- * resident atlas and, when requested, transient field -> InjectionTexture, each left in external SRV access.
- * False when this graph has no pending late publication for this view (nothing is written).
+ * resident atlas (only when one exists, i.e. BindlessAll) and, when requested, transient field -> InjectionTexture,
+ * each left in external SRV access. False when this graph has no pending late publication for this view or
+ * nothing was copied (nothing is written).
  */
 FOGMSRENDER_API bool FogMS_PublishWorldLightingLate(FRDGBuilder& GraphBuilder, const FSceneView& View, bool& bOutInjectionCopied);
 FOGMSRENDER_API void FogMS_ShutdownWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList);

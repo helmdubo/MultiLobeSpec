@@ -6,6 +6,7 @@
 #include "MultiGPU.h"
 #include "RenderingThread.h"
 #include "RHICommandList.h"
+#include "RHIStrings.h"
 #include "Runtime/Launch/Resources/Version.h"
 #include "ShaderPlatformConfig.h"
 #if PLATFORM_WINDOWS
@@ -32,6 +33,24 @@ void FFogMSRHICompatibility::Startup()
 void FFogMSRHICompatibility::Apply()
 {
 #if PLATFORM_WINDOWS && ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 8 && ENGINE_PATCH_VERSION == 2
+	// One line per process once the RHI exists: bindless configuration -> which FogMS Box modes can run.
+	// BindlessAll: overlay + producers. Other non-Disabled configs with inline RT: injection-only producers.
+	static bool bModesReported = false;
+	if (!bModesReported && GIsRHIInitialized && GDynamicRHI)
+	{
+		bModesReported = true;
+		const bool bValidPlatform = FShaderPlatformConfig::IsValid(GMaxRHIShaderPlatform);
+		const ERHIBindlessConfiguration Bindless = bValidPlatform
+			? FShaderPlatformConfig::GetBindlessConfiguration(GMaxRHIShaderPlatform) : ERHIBindlessConfiguration::Disabled;
+		const bool bD3D12SM6 = bValidPlatform && FCString::Strcmp(GDynamicRHI->GetName(), TEXT("D3D12")) == 0
+			&& GNumExplicitGPUsForRendering == 1 && GMaxRHIShaderPlatform == SP_PCD3D_SM6;
+		const TCHAR* Modes = !bD3D12SM6 ? TEXT("global A1 only (the Box requires single-GPU D3D12/SM6)")
+			: IsBindlessFullyEnabled(Bindless) ? TEXT("all (live Box overlay: A1/A1d/A1e, octaves, Spatial, World, Transport overlay + Emissive Injection)")
+			: GRHISupportsInlineRayTracing ? TEXT("injection-only (Transport + Emissive Injection via the Box Volume material; overlay features need -BindlessAll)")
+			: TEXT("global A1 only (Box transport needs inline hardware ray tracing)");
+		UE_LOG(LogFogMSRHICompatibility, Log, TEXT("FogMS: bindless configuration %s, inline RT %s; available modes: %s."),
+			GetBindlessConfigurationString(Bindless), GRHISupportsInlineRayTracing ? TEXT("yes") : TEXT("no"), Modes);
+	}
 	if (!GIsRHIInitialized || !GDynamicRHI || FCString::Strcmp(GDynamicRHI->GetName(), TEXT("D3D12")) != 0
 		|| GNumExplicitGPUsForRendering != 1
 		|| GMaxRHIShaderPlatform != SP_PCD3D_SM6
