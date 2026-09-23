@@ -189,10 +189,12 @@ public:
 	 * uvw = (Local + Extent) / (2 * Extent). A = 0 when cleared (no current field: the material falls back
 	 * to native albedo lighting); the material treats A >= 0.5 as a valid current field.
 	 * Full field (FogMS_InjectionMode 1, row 23.w 5): RGB = total incident radiance J, A = 1.
-	 * Hybrid (FogMS_InjectionMode 2, row 23.w 6): RGB = J_ms = max(total - uncollided incident, 0), the
-	 * multiple-scattering remainder; A = 0.5 + 0.5 * T_sun with T_sun in [0,1] the cell's transmittance toward
-	 * the atmosphere sun (1 without one). Material: T = saturate(2A - 1), BaseColor = Albedo * lerp(1, T, valid). */
-	UPROPERTY(Transient, DuplicateTransient, VisibleAnywhere, AdvancedDisplay, Category="FogMS|Scattering", meta=(ToolTip="Transport field for Emissive Injection (32^3 FloatRGBA, scene-linear). Texel (x,y,z) = Box-local cell (x,y,z) along the Box axes; uvw = (Local + Extent) / (2 * Extent), cell centres at half texels. Alpha 0 = cleared (fall back to native albedo lighting), alpha >= 0.5 = valid. Full field: RGB total J, alpha 1. Hybrid: RGB multiple-scattering J, alpha 0.5 + 0.5 * sun transmittance."))
+	 * Hybrid v2 (FogMS_InjectionMode 2, row 23.w 6): RGB = max(total - uncollided SUN term, 0): everything but the
+	 * sun's uncollided light (sky with its aureole, local lights, all multiple scattering); A = 0.5 + 0.5 * T_sun * k,
+	 * T_sun the cell's transmittance toward the atmosphere sun, k the sun's share of the uncollided light (luminance);
+	 * no sun: k = 0. Material: S = saturate(2A - 1), BaseColor = Albedo * lerp(1, S, valid): native single scattering
+	 * (sun + sky + local) then contributes about the sun part only. */
+	UPROPERTY(Transient, DuplicateTransient, VisibleAnywhere, AdvancedDisplay, Category="FogMS|Scattering", meta=(ToolTip="Transport field for Emissive Injection (32^3 FloatRGBA, scene-linear). Texel (x,y,z) = Box-local cell (x,y,z) along the Box axes; uvw = (Local + Extent) / (2 * Extent), cell centres at half texels. Alpha 0 = cleared (fall back to native albedo lighting), alpha >= 0.5 = valid. Full field: RGB total J, alpha 1. Hybrid: RGB = J minus the uncollided sun term, alpha 0.5 + 0.5 * T_sun * k (k = sun share of the uncollided light)."))
 	TObjectPtr<UTextureRenderTargetVolume> TransportField;
 
 	/** Requested: Emissive Injection is enabled on a Transport/AngularTransport Box. */

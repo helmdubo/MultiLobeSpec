@@ -2,7 +2,7 @@
 #include "/Engine/Private/Common.ush"
 #include "/Engine/Shared/RayTracingDefinitions.h"
 // Hybrid injection permutation (FTransportCS, passes 2 and 17 only): pass 2 also writes the per-cell
-// atmosphere-sun transmittance, pass 17 publishes (multiple-scattering J, 0.5 + 0.5*T_sun). Other passes: 0.
+// atmosphere-sun transmittance and uncollided sun term; pass 17 publishes (J - Direct_sun, 0.5 + 0.5*T_sun*k). Other passes: 0.
 #ifndef FOGMS_TRANSPORT_HYBRID
 #define FOGMS_TRANSPORT_HYBRID 0
 #endif
@@ -501,10 +501,10 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
     if(I>=N) return;
     uint3 C=Cell(I);
 #if FOGMS_TRANSPORT_HYBRID
-    // Hybrid: native fog owns all single scattering, so publish only the collided remainder
-    // J_ms = slab 0 (Total = Direct + Diffuse) - slab 1 (Base = DirectField + uncollided boundary
-    // sweep, texel (C.x, C.y + C.z*N + N*N)). Alpha 0.5 + 0.5*T_sun stays >= 0.5 (valid) and carries
-    // the sun transmittance the material applies to native single scattering: T = saturate(2A - 1).
+    // Hybrid v2: native fog renders the sun's single scattering (scaled by T_sun*k below), so publish
+    // J - Direct_sun. slab 0 = Total (Direct + Diffuse); slab 1 = Base = Direct + uncollided boundary sweep
+    // (texel (C.x, C.y + C.z*N + N*N)) is used for k = sun share of the uncollided light. Alpha
+    // 0.5 + 0.5*T_sun*k stays >= 0.5 (valid); the material applies S = saturate(2A - 1) to native single scattering.
     int2 XY=int2(C.x,C.y+C.z*GridSize);
     float3 Total=ReconstructionAtlas.Load(int3(XY,0)).rgb;
     float3 Uncollided=ReconstructionAtlas.Load(int3(XY+int2(0,GridSize*GridSize),0)).rgb;
