@@ -11,6 +11,7 @@
 #include "SceneRendererInterface.h"
 #include "SceneUniformBuffer.h"
 #include "SceneView.h"
+#include "ShaderCompilerCore.h" // ECompilerFlags (CFLAG_Wave32, CFLAG_InlineRayTracing); no longer reached through SceneRendering.h
 #include "ShaderParameterStruct.h"
 #include "ShaderPlatformConfig.h"
 #include "SystemTextures.h"
