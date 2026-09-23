@@ -11,8 +11,10 @@
 #include "CoreGlobals.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/ExponentialHeightFog.h"
+#include "Engine/SkyLight.h"
 #include "Engine/TextureRenderTargetVolume.h"
 #include "DynamicRHI.h"
 #include "Engine/World.h"
@@ -317,6 +319,8 @@ namespace
 		FBoxRenderSnapshot RenderSnapshot;
 		int32 LastViewIntegrationMode = 0;
 		FVector3f DirectionToSun = FVector3f::ZeroVector;
+		// Sky light snapshot of the current family (render thread): values + RHI refs only (FFogMSWorldRequest::Sky).
+		FFogMSWorldSky Sky;
 		uint64 Revision = 0;
 		uint64 DensityAtlasRevision = 0;
 		bool bWorldFieldPublished = false;
@@ -433,6 +437,32 @@ namespace
 						DirectionToSun = FVector3f(-Light->GetForwardVector()).GetSafeNormal();
 						break;
 					}
+				}
+			}
+			// Sky light for the public sky-boundary sources (r.FogMS.World.SkySource 0/2/3/4): public component API only.
+			// Values are copied here; the processed cubemap FTexture is only dereferenced inside FogMS_UpdateBox below.
+			// That is safe: FSkyTextureCubeResource::Release (game thread) frees it through BeginReleaseResource + BeginCleanup
+			// (SkyLightComponent.cpp:166-176), i.e. render commands enqueued AFTER this one, and the command keeps only
+			// the RHI refs. Candidates: ASkyLight actors admitted like USkyLightComponent::CreateRenderState_Concurrent
+			// (SkyLightComponent.cpp:436-438). FScene::SkyLight is the last one registered; with several, the status says so.
+			FFogMSWorldSky Sky;
+			const FTexture* ProcessedSky = nullptr;
+			if (World)
+			{
+				for (TActorIterator<ASkyLight> It(World); It; ++It)
+				{
+					const USkyLightComponent* Light = It->GetLightComponent();
+					if (!Light || !Light->IsRegistered() || !Light->bAffectsWorld || !Light->ShouldComponentAddToScene() || !Light->ShouldRender()
+						|| (Light->SourceType == SLS_SpecifiedCubemap && !Light->Cubemap && !Light->IsRealTimeCaptureEnabled()))
+						continue;
+					if (++Sky.Count > 1) continue;
+					Sky.bValid = true;
+					Sky.bRealTimeCapture = Light->IsRealTimeCaptureEnabled();
+					Sky.VolumetricScatteringIntensity = FMath::Max(Light->VolumetricScatteringIntensity, 0.0f); // as the proxy ctor, SkyLightComponent.cpp:251
+					Sky.LightColor = Light->GetLightColor();
+					Sky.bLowerHemisphereIsSolidColor = Light->bLowerHemisphereIsBlack;
+					Sky.LowerHemisphereColor = Light->LowerHemisphereColor;
+					ProcessedSky = Light->GetProcessedSkyTexture();
 				}
 			}
 			FString Problem;
@@ -669,14 +699,19 @@ namespace
 					SpatialProblem = TEXT("Use Enable Indirect Preview to keep the shared payload on the graphics queue.");
 				else if (FogMS_ConsoleFloat(TEXT("r.RDG.AsyncCompute"), 1) > 1)
 					SpatialProblem = TEXT("Forced RDG async compute is unsupported by Spatial Preview.");
-				for (TActorIterator<AExponentialHeightFog> It(World); It; ++It)
-				{
-					const UExponentialHeightFogComponent* Fog = It->GetComponent();
-					const float PhaseTolerance = bWorldLighting ? 0.000001f : 0.00001f;
-					if (Fog && Fog->IsVisible() && Fog->bEnableVolumetricFog
-						&& (!FMath::IsFinite(Fog->VolumetricFogScatteringDistribution) || FMath::Abs(Fog->VolumetricFogScatteringDistribution) > PhaseTolerance))
-						SpatialProblem = TEXT("Spatial scattering requires fog Scattering Distribution=0.");
-				}
+				// Overlay deliveries replace native single scattering with the isotropic field, so the fog's phase must be
+				// isotropic too. Emissive Injection keeps native single scattering native (full field: off via albedo 0;
+				// hybrid: the sun term with the fog's own phase), so the Scattering Distribution is free there: a forward
+				// lobe gives the hybrid its aureole. The solver's own PhaseG stays 0 (multiple scattering is isotropic).
+				if (!Selected->IsEmissiveInjectionActive())
+					for (TActorIterator<AExponentialHeightFog> It(World); It; ++It)
+					{
+						const UExponentialHeightFogComponent* Fog = It->GetComponent();
+						const float PhaseTolerance = bWorldLighting ? 0.000001f : 0.00001f;
+						if (Fog && Fog->IsVisible() && Fog->bEnableVolumetricFog
+							&& (!FMath::IsFinite(Fog->VolumetricFogScatteringDistribution) || FMath::Abs(Fog->VolumetricFogScatteringDistribution) > PhaseTolerance))
+							SpatialProblem = TEXT("Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this).");
+					}
 				if (bWorldLighting && SpatialProblem.IsEmpty())
 				{
 					const FLinearColor Albedo = Selected->DensityAlbedo;
@@ -805,9 +840,17 @@ namespace
 			FTextureRenderTargetResource* InjectionResource = nullptr;
 			if (Selected && Selected->IsEmissiveInjectionActive() && IsValid(Selected->TransportField))
 				InjectionResource = Selected->TransportField->GameThread_GetRenderTargetResource();
-			ENQUEUE_RENDER_COMMAND(FogMS_UpdateBox)([Resource = GPU, Snapshot, DensityUpload, DirectionToSun, Revision = Previous.Revision, InjectionResource](FRHICommandListImmediate& RHICmdList) mutable
+			ENQUEUE_RENDER_COMMAND(FogMS_UpdateBox)([Resource = GPU, Snapshot, DensityUpload, DirectionToSun, Revision = Previous.Revision, InjectionResource,
+				Sky, ProcessedSky](FRHICommandListImmediate& RHICmdList) mutable
 			{
 				FBoxPacket& Packet = Snapshot.Packet;
+				// Sky snapshot: resolve the processed cubemap to RHI refs now (resource alive, see the gather); keep no FTexture*.
+				Resource->Sky = Sky;
+				if (ProcessedSky && ProcessedSky->TextureRHI.IsValid() && ProcessedSky->SamplerStateRHI.IsValid())
+				{
+					Resource->Sky.ProcessedTexture = ProcessedSky->TextureRHI;
+					Resource->Sky.ProcessedSampler = ProcessedSky->SamplerStateRHI;
+				}
 				{
 					FTextureRHIRef Injection = InjectionResource ? InjectionResource->GetTextureRHI() : FTextureRHIRef();
 					if (Injection.GetReference() != Resource->InjectionTexture.GetReference())
@@ -931,6 +974,7 @@ namespace
 				WorldRequest.Strength = Packet.Rows[21].X;
 				WorldRequest.bTransport = bTransport;
 				WorldRequest.DirectionToSun = GPU->DirectionToSun;
+				WorldRequest.Sky = GPU->Sky; // Public sky sources (r.FogMS.World.SkySource); values + RHI refs.
 				if (bTransport)
 				{
 					WorldRequest.Iterations = static_cast<int32>(Packet.Rows[21].Z);
@@ -1049,6 +1093,9 @@ namespace
 							: TEXT("Transport unavailable; native lighting with authored density: ")) + Reason
 						: (bWorldLighting ? TEXT("World unavailable; native lighting: ") + Reason : Reason);
 				}
+				// Sky boundary source of the published field (r.FogMS.World.SkySource; a hold names the held solve's).
+				if (bPublished && bWorldLighting && !Result.SkySource.IsEmpty())
+					GPU->SpatialFieldStatus += FString::Printf(TEXT(" [sky: %s]"), *Result.SkySource);
 			}
 			// UE 5.8 calls PostTLAS after the base-pass extension, before deferred
 			// lighting and volumetric fog. Publish the new spatial descriptor here.
