@@ -286,10 +286,10 @@ namespace
 	// instead of FindConsoleVariable per call (the engine logs a FindConsoleObject performance warning after 500 lookups).
 	IConsoleVariable* CachedCVar(const TCHAR* Name)
 	{
-		static TMap<const TCHAR*, IConsoleVariable*> Cache;
-		if (IConsoleVariable** Found = Cache.Find(Name)) return *Found;
+		static TMap<const void*, IConsoleVariable*> Cache; // keyed by the literal's address
+		if (IConsoleVariable** Found = Cache.Find(static_cast<const void*>(Name))) return *Found;
 		IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name);
-		if (Variable) Cache.Add(Name, Variable);
+		if (Variable) Cache.Add(static_cast<const void*>(Name), Variable);
 		return Variable;
 	}
 	int32 CVarIntValue(const TCHAR* Name) { IConsoleVariable* V = CachedCVar(Name); return V ? V->GetInt() : 0; }
