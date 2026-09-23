@@ -59,7 +59,9 @@ def shot(name):
 
 def dup(label, k):
     # Duplicate the Live Box along its local +X by k x (1.25 x width); the copy keeps material/preset/injection.
-    return py("import unreal\n%s\n%s\n"
+    return py("import unreal
+%s
+"
               "src=[a for a in eas.get_all_level_actors() if a.get_actor_label()=='%s'][0]\n"
               "old=[a for a in eas.get_all_level_actors() if a.get_actor_label()=='%s']\n"
               "for a in old: eas.destroy_actor(a)\n"
