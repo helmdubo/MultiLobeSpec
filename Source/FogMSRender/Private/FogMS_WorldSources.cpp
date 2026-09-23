@@ -210,8 +210,15 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FViewInfo& View,
 			|| (!bDirectional && (!FMath::IsFinite(Light.InvRadius) || Light.InvRadius <= 0))
 			|| !FMath::IsFinite(Light.SpotAngles.X) || !FMath::IsFinite(Light.SpotAngles.Y))
 			return Reject(TEXT("non-finite or invalid light parameters"));
-		if (bDirectional && Proxy.GetUsePerPixelAtmosphereTransmittance())
-			Light.Color *= Proxy.GetAtmosphereTransmittanceTowardSun();
+		if (bDirectional)
+		{
+			// Atmosphere sun light: GetColor() is the outer-space illuminance. The engine applies the atmosphere
+			// transmittance either per pixel in its shaders or by scaling the light colour (DirectionalLightComponent.cpp,
+			// GetSunIlluminanceAccountingForSkyAtmospherePerPixelTransmittance). The transport shaders evaluate no
+			// per-pixel transmittance, so always take the on-ground illuminance: below the horizon the sun fades with the
+			// native sky and clouds instead of lighting the Box from below at night. Non-atmosphere lights: White transmittance.
+			Light.Color = Proxy.GetSunIlluminanceOnGroundPostTransmittance();
+		}
 		const float ExposureScale = Light.GetLightExposureScale(Exposure);
 		const FVector3f Color = FVector3f(Light.Color) * (ExposureScale * VolumeIntensity);
 		if (!Nonnegative(Color)) return Reject(TEXT("invalid exposure-scaled color"));
