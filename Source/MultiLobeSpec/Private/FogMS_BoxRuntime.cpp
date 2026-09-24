@@ -92,7 +92,10 @@ namespace
 		// row 24 = S1 erosion (strength [0,1], depth [0.01,1] in noise units, Detail1 channel index 1..3, 0);
 		// row 25 = S2 height profile (bottom, top, bottom softness, top softness; fractions of Box height);
 		// row 26 = (anvil strength, profile enabled 0/1, 0, 0). Profile off packs rows 25/26 as zero.
-		// Rows 27..31: reserved (weather map, terrain); zero until used.
+		// Rows 27..28: reserved (weather map, terrain); zero until used.
+		// Row 29 = (tan(Sun Softness), 0, 0, 0), W37 F2, Transport modes only (FogMS_WriteScatteringControls; pass 2 of
+		// FogMS_Transport.usf); Sun Softness 0 packs zero. Part of the history key like row 5.z (a change re-solves and resets
+		// native fog history once). Rows 30..31: reserved.
 		FVector4f Rows[FogMS_BoxPacketRowCount];
 		FBoxPacket() { FMemory::Memzero(Rows, sizeof(Rows)); }
 	};
@@ -328,6 +331,10 @@ namespace
 			Packet.Rows[6].Y = GroundAlbedo(Actor.FallbackGroundAlbedo.G);
 			Packet.Rows[6].Z = GroundAlbedo(Actor.FallbackGroundAlbedo.B);
 			Packet.Rows[16].W = Actor.TransportTolerance;
+			// W37 F2 Sun Softness (cone half-angle, Details clamp 0..15 deg enforced here for Blueprint/Python writes; non-finite
+			// = off). 0 leaves row 29 zero: packet, revision and field exactly as before.
+			const float SunSoftnessDeg = FMath::IsFinite(Actor.SunSoftness) ? FMath::Clamp(Actor.SunSoftness, 0.0f, 15.0f) : 0.0f;
+			if (SunSoftnessDeg > 0.0f) Packet.Rows[29].X = FMath::Tan(FMath::DegreesToRadians(SunSoftnessDeg));
 			Packet.Rows[21] = FVector4f(1.0f, BoxDiagonal, static_cast<float>(Actor.TransportIterations),
 				Actor.ScatteringMode == EFogMSScatteringMode::Transport ? 6.0f : (Actor.AngularQuality == EFogMSAngularQuality::High96 ? 96.0f : (Actor.AngularQuality == EFogMSAngularQuality::Low16 ? 16.0f : (Actor.AngularQuality == EFogMSAngularQuality::Medium24 ? 24.0f : 48.0f))));
 			return;
@@ -1371,6 +1378,13 @@ namespace
 					const float Tau = Selected->GetCoreOpticalDepthEstimate();
 					if (Tau >= 0.0f) Selected->SpatialStatus += FString::Printf(TEXT(" [tau core ~%.3g, upper bound]"), Tau);
 					if (Selected->IsFieldOnlyDebugActive()) Selected->SpatialStatus += TEXT(" [debug: field only, full J, native single scattering off]");
+					// W37: the look controls that are in effect (F2 from the packet the solver gets; F1a from the MID mode it needs).
+					if (Packet.Rows[29].X > 0.0f)
+						Selected->SpatialStatus += FString::Printf(TEXT(" [sun softness %.1f\u00B0]"), FMath::RadiansToDegrees(FMath::Atan(Packet.Rows[29].X)));
+					if (Selected->ForwardScattering > 0.0f)
+						Selected->SpatialStatus += Selected->IsHybridInjectionActive()
+							? FString::Printf(TEXT(" [forward lobe %.2f g %.2f]"), FMath::Min(Selected->ForwardScattering, 1.0f), FMath::Clamp(Selected->ForwardAnisotropy, 0.0f, 0.9f))
+							: FString(TEXT(" [Forward Scattering ignored: needs Emissive Injection + Hybrid Single Scattering]"));
 					// The hybrid split exists only in the Emissive Injection material (MID mode 2, row 23.w 6). Without injection the
 					// Box delivers through the overlay: the tick has no effect, and a non-zero fog Scattering Distribution turns the
 					// field off. Status every frame; log once each time the condition starts (game thread, per Box state).

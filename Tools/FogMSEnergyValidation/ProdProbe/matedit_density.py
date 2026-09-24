@@ -33,6 +33,22 @@ Then (W36 depth prefilter) the extinction goes v2 -> v3, the same way as v1 -> v
   Idempotent: a Custom node 'FogMS_Extinction_v3' that feeds MP_SUBSURFACE_COLOR means the step is done (skipped). A v2 node
   whose code is not EXTINCTION_CODE_V2 aborts without changes. With FogMS_DepthPrefilter 0 the v3 node is v2 exactly, and the
   mip bias is 0 (Sample with bias 0 == Sample): the material's own defaults render as before; the Box MID sets its Depth Prefilter.
+Then (W37 F1a forward lobe, patch_forward_lobe) a Custom node 'FogMS_ForwardLobe' (FORWARD_LOBE_CODE_V1, float3) goes between
+the unchanged 'FogMS_EmissiveInjection' node and MP_EMISSIVE_COLOR:
+  1. creates FogMS_ForwardStrength (default 0 = off), FogMS_ForwardG (0.6), FogMS_ForwardDepth (0.5), FogMS_ForwardFloor
+     (0.25) if missing, and a CameraVectorWS node;
+  2. the new node's inputs: Emissive <- FogMS_EmissiveInjection, FieldA / Mode <- the same sources and output pins as the
+     injection node's FieldA / Mode pins, Strength / G / Depth / BackFloor <- the four scalars, CameraVector <- CameraVectorWS;
+  3. re-routes MP_EMISSIVE_COLOR to it, recompiles and waits for the shader result (compile_and_check). On a compile error
+     (or any failure) MP_EMISSIVE_COLOR goes back to the injection node, what this step created is deleted, the material is
+     recompiled and nothing is saved.
+  Idempotent: a Custom node 'FogMS_ForwardLobe' carrying 'FogMS_ForwardLobe v1' that feeds MP_EMISSIVE_COLOR means done
+  (skipped). With FogMS_ForwardStrength 0 (material default; the Box MID sets Forward Scattering, default 0) or an injection
+  mode other than 2 the node returns its Emissive input unchanged (uniform branch): modes 0/1/3 and the default look are as
+  before. The math (mean over view directions 1, minimum >= 1 - Strength * (1 - Floor)) is checked on the CPU by
+  fwd_lobe_check.py, which evaluates FORWARD_LOBE_CODE_V1 itself (read from this file as text).
+Default readback: only parameters created by this run must read back their script default; a pre-existing parameter keeps
+its material default (for example FogMS_ErosionDepth 0.3 from round 32) and is reported, since the Box MID sets it anyway.
 The material is saved once, only if a step changed it; on any error nothing is saved (reload the asset to discard memory state).
 
 EXTINCTION_CODE_V3 must stay formula-identical to FogMS_IndirectLocalDensity in Shaders/Private/FogMS_Indirect.ush at
@@ -116,7 +132,8 @@ FOOTPRINT_DESCRIPTION = 'FogMS_DepthFootprint'
 # Inputs of the v2 node (carried over to v3 with the same sources).
 V2_INPUTS = OLD_INPUTS + tuple(pin for _, _, pin in NEW_SCALARS) + tuple(pin for _, _, pin in NEW_VECTORS)
 # (parameter name, default, pin). Material defaults 0 = v2 math; the Box MID sets them (FogMS_BoxVolume.cpp UpdateDensity:
-# Depth Prefilter, default 1; wavelengths = world feature size [cm] of base / detail 0 / detail 1 noise = tile period / 4).
+# Depth Prefilter, default 0 since W37 (1 in W36); wavelengths = world feature size [cm] of base / detail 0 / detail 1 noise
+# = tile period / 4).
 V3_SCALARS = (('FogMS_DepthPrefilter', 0.0, 'DepthPrefilter'),)
 V3_VECTORS = (('FogMS_PrefilterWavelengths', (0.0, 0.0, 0.0, 0.0), 'Wavelengths'),)
 FOOTPRINT_INPUTS = ('PixelDepth', 'DepthPrefilter')
@@ -225,6 +242,51 @@ INJECTION_ALBEDO_V4_MARKER = 'field contract v4'
 # The Emissive node must emit for every mode > 0.5 with a valid field (mode 3 included); checked, never modified.
 EMISSIVE_DESCRIPTION = 'FogMS_EmissiveInjection'
 EMISSIVE_REQUIRED = 'float V = (Mode > 0.5f && FieldA >= 0.5f) ? 1.0f : 0.0f;'
+
+# W37 F1a forward lobe (patch_forward_lobe). (parameter name, default, pin); names match the MID setters in
+# FogMS_BoxVolume.cpp (Forward Scattering / Forward Anisotropy / Forward Depth / Back Floor).
+FORWARD_DESCRIPTION = 'FogMS_ForwardLobe'
+FORWARD_MARKER = 'FogMS_ForwardLobe v1'
+FORWARD_SCALARS = (('FogMS_ForwardStrength', 0.0, 'Strength'),
+                   ('FogMS_ForwardG', 0.6, 'G'),
+                   ('FogMS_ForwardDepth', 0.5, 'Depth'),
+                   ('FogMS_ForwardFloor', 0.25, 'BackFloor'))
+FORWARD_INPUTS = ('Emissive', 'FieldA', 'Mode') + tuple(pin for _, _, pin in FORWARD_SCALARS) + ('CameraVector',)
+# One statement per line (fwd_lobe_check.py translates the lines between the braces to numpy and integrates them).
+FORWARD_LOBE_CODE_V1 = r"""// FogMS_ForwardLobe v1 (W37 F1a). Forward lobe of the multiply scattered light, hybrid mode 2 only. Emissive = the output of
+// FogMS_EmissiveInjection (sigma_s * J_ms, J_ms = J minus the uncollided sun term: isotropic); returns Emissive * Lobe(mu):
+//   Lobe = 1 + (1 - BackFloor) * (f1 * (p(g1) - 1) + f2 * (p(g2) - 1)),  mu = dot(L, -CameraVector) (1 = looking at the sun)
+//   p(g) = (1 - g^2) / (1 + g^2 - 2 g mu)^1.5 = 4 pi * Henyey-Greenstein, whose mean over the sphere is exactly 1
+//   f1 = Strength * 2/3 * S^Depth, f2 = Strength * 1/3 * S^(Depth^2), g1 = G, g2 = G / 2: two octaves (Wrenninge 2013, a = c = 1/2;
+//   octave i sees the sun transmittance T^(b^i), b = Depth); S = saturate(2 FieldA - 1) = T_sun * k, the hybrid field alpha.
+// Mean over view directions = 1 exactly, the field's energy is unchanged (each octave phase is BackFloor * 1 + (1 - BackFloor) * p,
+// mean 1). Minimum >= 1 - Strength * (1 - BackFloor) (p > 0, f1 + f2 <= Strength). No sun or night (k = 0) or an invalid field:
+// S = 0 and Lobe = 1 exactly (explicit select: max(S, eps)^b would leave eps^0.05 = 0.5); deep shadow: S -> 0, Lobe -> 1.
+// L = View.AtmosphereLightDirection[0], the solver's sun (FScene::AtmosphereLights[0]); the volumetric-fog voxelization pass copies
+// the cached View uniform buffer (VolumetricFogVoxelization.cpp), so it is valid there. CPU proof: ProdProbe/fwd_lobe_check.py.
+// Strength 0 (material default) or FogMS_InjectionMode != 2: returns Emissive unchanged (uniform branch, the lobe ALU is skipped).
+float3 Result = Emissive;
+BRANCH
+if (Strength > 0.0f && Mode > 1.5f && Mode < 2.5f)
+{
+    float s = saturate(Strength);
+    float g1 = clamp(G, 0.0f, 0.9f);
+    float g2 = 0.5f * g1;
+    float b = clamp(Depth, 0.05f, 1.0f);
+    float fl = saturate(BackFloor);
+    float S = saturate(2.0f * FieldA - 1.0f);
+    float3 L = normalize(View.AtmosphereLightDirection[0].xyz);
+    float mu = clamp(dot(L, -CameraVector), -1.0f, 1.0f);
+    float f1 = S > 0.0f ? s * (2.0f / 3.0f) * pow(S, b) : 0.0f;
+    float f2 = S > 0.0f ? s * (1.0f / 3.0f) * pow(S, b * b) : 0.0f;
+    float h1 = 1.0f + g1 * g1 - 2.0f * g1 * mu;
+    float h2 = 1.0f + g2 * g2 - 2.0f * g2 * mu;
+    float p1 = (1.0f - g1 * g1) * rsqrt(h1) / h1;
+    float p2 = (1.0f - g2 * g2) * rsqrt(h2) / h2;
+    Result = Emissive * (1.0f + (1.0f - fl) * (f1 * (p1 - 1.0f) + f2 * (p2 - 1.0f)));
+}
+return Result;
+"""
 
 mel = unreal.MaterialEditingLibrary
 
@@ -365,6 +427,14 @@ def summary(material, exprs):
         src = mel.get_material_property_input_node(material, getattr(unreal.MaterialProperty, prop))
         print('  PROPERTY %s <- %s' % (prop, src.get_name() if src else None))
     print('  %s field contract: %s' % (INJECTION_ALBEDO_DESCRIPTION, injection_albedo_version(exprs)))
+    forward = find_forward_node(exprs)
+    print('  %s: %s' % (FORWARD_DESCRIPTION, ('%s (v1=%s)' % (forward.get_name(), FORWARD_MARKER in normalized_code(forward)))
+                                              if forward else None))
+    if forward:
+        for pin, src, out in input_links(material, forward):
+            print('  FORWARD IN %-12s <- %s.%s' % (pin, src.get_name() if src else None, out))
+        for name, _, _ in FORWARD_SCALARS:
+            print('  PARAM %s = %s' % (name, mel.get_material_default_scalar_parameter_value(material, name)))
 
 
 def normalized_code(node):
@@ -421,9 +491,112 @@ def patch_injection_albedo(material):
     return True
 
 
+def find_forward_node(exprs):
+    found = [e for e in custom_nodes(exprs) if str(e.get_editor_property('description')) == FORWARD_DESCRIPTION]
+    require(len(found) <= 1, 'Several Custom nodes are named %s' % FORWARD_DESCRIPTION)
+    return found[0] if found else None
+
+
+def patch_forward_lobe(material):
+    """W37 F1a: FogMS_ForwardLobe between FogMS_EmissiveInjection and MP_EMISSIVE_COLOR (module docstring). Returns True if it
+    changed the material; the caller saves. Any failure rolls back in memory and raises (nothing saved)."""
+    exprs = expressions(material)
+    emissive_prop = unreal.MaterialProperty.MP_EMISSIVE_COLOR
+    node = find_forward_node(exprs)
+    if node is not None:
+        require(FORWARD_MARKER in normalized_code(node), '%s is named %s but its code is not %s' % (
+            node.get_name(), FORWARD_DESCRIPTION, FORWARD_MARKER))
+        require(mel.get_material_property_input_node(material, emissive_prop) == node,
+                '%s exists but does not feed MP_EMISSIVE_COLOR; fix the graph by hand (no change made)' % node.get_name())
+        print('FORWARD_LOBE already v1 (%s)' % node.get_name())
+        return False
+    emissive = find_single_custom(exprs, EMISSIVE_DESCRIPTION)
+    require(EMISSIVE_REQUIRED in normalized_code(emissive),
+            '%s is not field contract v3 (no FieldA validity); not changed' % emissive.get_name())
+    require(mel.get_material_property_input_node(material, emissive_prop) == emissive,
+            'MP_EMISSIVE_COLOR is not fed by %s; graph differs from the expected layout (no change made)' % emissive.get_name())
+    sources = dict((pin, (src, out)) for pin, src, out in input_links(material, emissive))
+    for pin in ('FieldA', 'Mode'):
+        require(pin in sources and sources[pin][0] is not None, '%s.%s is not connected' % (emissive.get_name(), pin))
+        src, out = sources[pin]
+        if out == '':
+            require(list(mel.get_material_expression_output_names(src)).count('') <= 1,
+                    'Ambiguous unnamed output on %s (pin %s)' % (src.get_name(), pin))
+    pins, props = consumers_of(material, exprs, emissive)
+    print('%s consumers: pins=%s props=%s; FieldA <- %s.%s, Mode <- %s.%s' % (
+        emissive.get_name(), [(e.get_name(), p) for e, p in pins], props, sources['FieldA'][0].get_name(), sources['FieldA'][1],
+        sources['Mode'][0].get_name(), sources['Mode'][1]))
+
+    created = []
+    x, y = mel.get_material_expression_node_position(emissive)
+    try:
+        params = []
+        for index, (name, default, pin) in enumerate(FORWARD_SCALARS):
+            param = find_parameter(exprs, name)
+            if param is None:
+                param = mel.create_material_expression(material, unreal.MaterialExpressionScalarParameter, x, y + 320 + 110 * index)
+                require(param is not None, 'Cannot create scalar ' + name)
+                created.append(param)
+                param.set_editor_property('parameter_name', name)
+                param.set_editor_property('default_value', default)
+                param.set_editor_property('group', 'FogMS')
+            params.append((pin, param, ''))
+        camera = mel.create_material_expression(material, unreal.MaterialExpressionCameraVectorWS, x, y + 320 + 110 * len(FORWARD_SCALARS))
+        require(camera is not None, 'Cannot create the CameraVectorWS node')
+        created.append(camera)
+        lobe = mel.create_material_expression(material, unreal.MaterialExpressionCustom, x + 380, y)
+        require(lobe is not None, 'Cannot create the FogMS_ForwardLobe Custom node')
+        created.append(lobe)
+        lobe.set_editor_property('code', FORWARD_LOBE_CODE_V1)
+        lobe.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT3)
+        lobe.set_editor_property('description', FORWARD_DESCRIPTION)
+        items = []
+        for pin in FORWARD_INPUTS:
+            item = unreal.CustomInput()
+            item.set_editor_property('input_name', pin)
+            items.append(item)
+        lobe.set_editor_property('inputs', items)
+        links = ([('Emissive', emissive, ''), ('FieldA',) + sources['FieldA'], ('Mode',) + sources['Mode']] + params
+                 + [('CameraVector', camera, '')])
+        require(sorted(pin for pin, _, _ in links) == sorted(FORWARD_INPUTS), 'Forward-lobe pin list mismatch')
+        for pin, src, out in links:
+            require(mel.connect_material_expressions(src, out, lobe, pin),
+                    'Cannot wire %s.%s -> FogMS_ForwardLobe.%s' % (src.get_name(), out, pin))
+            back = mel.get_input_node_output_name_for_material_expression(lobe, src)
+            require(back is not None and str(back) == out, 'Readback mismatch on pin %s: %s != %s' % (pin, back, out))
+        require(mel.connect_material_property(lobe, '', emissive_prop), 'Cannot route FogMS_ForwardLobe -> MP_EMISSIVE_COLOR')
+        require(mel.get_material_property_input_node(material, emissive_prop) == lobe, 'MP_EMISSIVE_COLOR readback mismatch')
+
+        errors, note = compile_and_check(material, 'FOGMS_MATEDIT_FWD_%d' % int(time.time() * 1000))
+        print('COMPILE forward lobe:', note)
+        require(not errors, 'Compile errors: %s' % errors)
+    except Exception:
+        # Roll back in memory: MP_EMISSIVE_COLOR back to the injection node, delete what this step created, recompile, do not save.
+        print('ROLLBACK', traceback.format_exc())
+        mel.connect_material_property(emissive, '', emissive_prop)
+        for node in reversed(created):
+            mel.delete_material_expression(material, node)
+        mel.recompile_material(material)
+        print('NOT SAVED; MP_EMISSIVE_COLOR is back on %s (unsaved in-memory state, reload the asset to discard).' % emissive.get_name())
+        raise
+    print('FORWARD_LOBE patched (%s -> %s -> MP_EMISSIVE_COLOR; camera %s)' % (emissive.get_name(), lobe.get_name(), camera.get_name()))
+    return True
+
+
+def parameter_names(exprs):
+    names = set()
+    for e in exprs:
+        try:
+            names.add(str(e.get_editor_property('parameter_name')))
+        except Exception:
+            pass
+    return names
+
+
 def main():
     material = unreal.load_asset(MATERIAL_PATH)
     require(material is not None and isinstance(material, unreal.Material), 'Material not found: ' + MATERIAL_PATH)
+    existing = parameter_names(expressions(material))
     changed = False
     if find_new_node(expressions(material)) or find_v3_node(expressions(material)):
         print('EXTINCTION already patched (FogMS_Extinction v2 or later)')
@@ -432,10 +605,17 @@ def main():
         changed = True
     changed = patch_extinction_v3(material) or changed
     changed = patch_injection_albedo(material) or changed
+    changed = patch_forward_lobe(material) or changed
     if changed:
-        for name, default, _ in NEW_SCALARS + V3_SCALARS:
+        # Exact defaults only for parameters this run created. A pre-existing one keeps its material default (the Box MID
+        # sets every one of them); a difference is reported, not fatal (round 36: FogMS_ErosionDepth 0.3 from round 32).
+        for name, default, _ in NEW_SCALARS + V3_SCALARS + FORWARD_SCALARS:
             value = mel.get_material_default_scalar_parameter_value(material, name)
-            require(abs(value - default) < 1e-6, 'Default readback %s = %s' % (name, value))
+            if name in existing:
+                if abs(value - default) >= 1e-6:
+                    print('NOTE pre-existing %s default %s (script default %s): kept, the Box MID overrides it' % (name, value, default))
+            else:
+                require(abs(value - default) < 1e-6, 'Default readback %s = %s (created by this run with %s)' % (name, value, default))
         saved = unreal.EditorAssetLibrary.save_asset(MATERIAL_PATH, only_if_is_dirty=False)
         print('PATCHED saved=%s' % saved)
     else:

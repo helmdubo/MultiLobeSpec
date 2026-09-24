@@ -157,6 +157,27 @@ float MediumT(float3 P,float3 D,float Limit)
     }
     return exp(-min(Tau,80.f));
 }
+#if FOGMS_TRANSPORT_PASS == 2
+// W37 F2 Sun Softness. Packet row 29.x = tan(theta), theta = the Box's Sun Softness (0..15 deg; 0 packs a zero row and
+// pass 2 skips the tilt: the former code path). Directional lights only (the sun): subcell point K's ray toward the light
+// is tilted inside the cone by point i = FogMSSunConeIndex[K] of an 8-point Vogel disk,
+//   r = tan(theta) * sqrt((i + 0.5) / 8), phi = i * 2.39996 (golden angle), D' = normalize(D + r * (cos(phi) T1 + sin(phi) T2)),
+// (T1, T2) = the branchless orthonormal frame of D around world Z (Duff et al. 2017; it flips only where D.z changes sign,
+// i.e. with the sun on the horizon). The disk is fixed (no per-frame jitter). Permutation: each DirectSamples-4 tetrahedron
+// gets a balanced half of the disk, even {0,3,5,6} -> i {0,1,3,7}, odd {1,2,4,7} -> i {2,4,5,6} (half-disk mean offsets
+// 0.030 and 0.086 tan(theta); their difference, 0.062 tan(theta), is the smallest of the 35 splits, and the split is also the
+// best by mean + largest second-moment difference: fwd_lobe_check.py); DirectSamples 8 uses all eight points. DirectShadow, MediumT, and in the hybrid T_sun and Direct_sun
+// all use the one tilted D', so the field, the published T_sun*k and the subtracted sun term stay consistent.
+static const uint FogMSSunConeIndex[8]={0u,2u,4u,1u,5u,3u,7u,6u};
+float3 FogMS_SunConeDirection(float3 D,uint K,float TanTheta)
+{
+    const float I=float(FogMSSunConeIndex[K]);
+    const float R=TanTheta*sqrt((I+.5f)/8.f),Phi=I*2.39996f;
+    const float Sign=D.z>=0.f?1.f:-1.f,A=-1.f/(Sign+D.z),B=D.x*D.y*A;
+    const float3 T1=float3(1.f+Sign*D.x*D.x*A,Sign*B,-Sign*D.x),T2=float3(B,Sign+D.y*D.y*A,-D.y);
+    return normalize(D+R*(cos(Phi)*T1+sin(Phi)*T2));
+}
+#endif
 #if FOGMS_TRANSPORT_PASS == 1 || FOGMS_TRANSPORT_PASS == 14
 // MediumT for a start anywhere (boundary-ray hits lie inside or outside the Box). Clips the ray to the Box slabs
 // |Local| <= Extent (orthonormal Box axes, D unit, so the local parameter is the world distance) and marches from the
@@ -325,6 +346,8 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
         // bit-identical to the former "/8.f". The branch below is uniform per wave (K, Light and the uniforms).
         const bool SunTetrahedron=DirectSamples==4;
         const float SunWeight=SunTetrahedron?.25f:.125f;
+        // W37 F2: tan(Sun Softness); 0 (default) leaves every ray exactly as before. Uniform: one Box per dispatch.
+        const float SunConeTan=BoxRows[29].x;
         UNROLL for(uint K=0;K<8;++K)
         {
             const bool SunPoint=!SunTetrahedron||((countbits(K)^FogMSSolveParity)&1u)==0u;
@@ -337,6 +360,8 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
                 // FogMS_WorldLight returns Distance 1e27 for a directional light; a local light's is its real distance.
                 const bool Directional=Distance>=1.e26f;
                 if(Directional&&!SunPoint) continue;
+                // Sun Softness: this subcell point's ray inside the sun cone, shared by every use of D below.
+                if(Directional&&SunConeTan>0.f) D=FogMS_SunConeDirection(D,K,SunConeTan);
                 const float Weight=Directional?SunWeight:.125f;
 #if FOGMS_TRANSPORT_HYBRID
                 if(HasSun&&Light==uint(FogMSWorldSunLightIndex))

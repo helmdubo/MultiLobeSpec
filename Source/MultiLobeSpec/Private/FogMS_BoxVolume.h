@@ -215,6 +215,30 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ToolTip="Sets r.RayTracing.Culling 0 and r.Lumen.AsyncCompute 0, which the transport solver requires (engine defaults 3 and 1), and logs the previous values in one line. Game world (packaged or -game): at BeginPlay of an enabled Transport/World Box. Editor: when an enabled Transport Box with Emissive Injection starts itself (first editor tick without -BindlessAll, or BeginPlay in PIE/Simulate), so Enable Indirect Preview is not needed there. Uses game-setting priority everywhere: a value set by the project ini, device profile, command line or console (in the editor also a value restored by Restore Standard Lumen) is kept and reported, and Transport stays off with a status naming it; set such a value to 0 yourself. Not restored when the Box stops: the values stay for the game process / editor session. Off = the project owns these cvars (editor: Enable Indirect Preview)."))
 	bool bApplyRequiredRenderSettings = true;
 
+	/** W37 F1a, MID FogMS_ForwardStrength (material node FogMS_ForwardLobe, matedit_density.py): view-dependent lobe on the
+	 * injected multiple-scattering Emissive, hybrid mode 2 only. Lobe = 1 + (1 - Back Floor) * (f1 (p(g1) - 1) + f2 (p(g2) - 1)),
+	 * p = 4 pi HG, f1 = s 2/3 S^Depth, f2 = s 1/3 S^(Depth^2), g1 = G, g2 = G/2, S = T_sun*k from the field alpha: its mean over
+	 * view directions is exactly 1 (no energy added) and it never drops below 1 - s (1 - Back Floor). Material only (MID update,
+	 * no density revision, no re-solve). 0 (default) = the W36 material result exactly. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Look", meta=(DisplayName="Forward Scattering", EditCondition="bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Silver lining / glow around the sun from the cloud's multiply scattered light. The solver's field is isotropic (it looks the same from every side); this redistributes the part of it that still remembers the sun direction: brighter looking toward the sun (backlit edges, cloud around the sun), a little darker with the sun behind the camera, unchanged deep inside the cloud and at night. Energy-conserving: averaged over all view directions the cloud keeps its brightness. Needs Emissive Injection + Hybrid Single Scattering (ignored otherwise) and the material patched by matedit_density.py (FogMS_ForwardLobe). Suggested 0.5-0.8. 0 = off (default, previous look). Cost: about 50 shader instructions (2 pow, 3 rsqrt) per fog voxel of this Box in the volumetric-fog voxelization, nothing in the solver. Changes apply live."))
+	float ForwardScattering = 0.0f;
+
+	/** W37 F1a, MID FogMS_ForwardG: g1 of the first octave (the second uses G/2). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Look", meta=(DisplayName="Forward Anisotropy", EditCondition="ForwardScattering > 0 && bEmissiveInjection && bHybridSingleScattering", ClampMin="0.0", ClampMax="0.9", UIMin="0.0", UIMax="0.9", ToolTip="How narrow the forward lobe is (Henyey-Greenstein g of the first octave; the second uses half of it). At 0.6 (default) the first octave's phase is x10 of the isotropic value looking straight at the sun and x0.16 with the sun behind; at 0.8 x45 and x0.06. 0.8-0.9 gives a tight bright halo, but the native fog history (0.9) makes a narrow lobe lag when the camera moves fast; keep 0.6-0.7 for gameplay."))
+	float ForwardAnisotropy = 0.6f;
+
+	/** W37 F1a, MID FogMS_ForwardDepth: b of the octave weights S^b, S^(b^2). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Look", meta=(DisplayName="Forward Depth", EditCondition="ForwardScattering > 0 && bEmissiveInjection && bHybridSingleScattering", ClampMin="0.05", ClampMax="1.0", UIMin="0.05", UIMax="1.0", ToolTip="How deep into the cloud the lobe reaches. The lobe fades with the cell's sun transmittance S (T_sun times the sun share): the two octaves are weighted S^Depth and S^(Depth^2). Small values keep the lobe deep inside the cloud, 1 limits it to the sunlit skin. Default 0.5."))
+	float ForwardDepth = 0.5f;
+
+	/** W37 F1a, MID FogMS_ForwardFloor: each octave phase is Floor * isotropic + (1 - Floor) * HG. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Look", meta=(DisplayName="Back Floor", EditCondition="ForwardScattering > 0 && bEmissiveInjection && bHybridSingleScattering", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Back-scatter floor: keeps the side of the cloud facing the sun (sun behind the camera) from going dark. The anti-sun side never drops below 1 - Forward Scattering * (1 - Back Floor) of the isotropic value; the lobe's forward peak shrinks by the same factor, so the average stays exactly 1. 0 = pure forward lobe, 1 = no lobe. Default 0.25."))
+	float BackFloor = 0.25f;
+
+	/** W37 F2, packet row 29.x = tan(theta) (Transport modes). 0 (default) packs a zero row: packet, revision and field unchanged. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Look", meta=(DisplayName="Sun Softness", EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ClampMin="0.0", ClampMax="15.0", UIMin="0.0", UIMax="15.0", Units="Degrees", ToolTip="Softens the sun's shadow inside and behind the cloud in the transport solver: each cell's sun shadow rays (same count) are spread over a cone of this half-angle instead of all pointing exactly at the sun, so the light/shadow boundary inside the cloud and the shadows of geometry on the fog get a penumbra. Energy of the sun unchanged (only its visibility is averaged). With Hybrid Single Scattering the native sun single scattering follows (its per-cell scale is the solver's softened T_sun); engine shadow maps stay sharp. Suggested 2-5 deg; large angles show copies of thin shadows. 0 = off (default, previous result). Cost: pass 2 of the solver, a few ALU per sun ray (same ray count); a change re-solves the field and resets fog history once. Status: 'sun softness X deg'."))
+	float SunSoftness = 0.0f;
+
 	/** Debug view: MID FogMS_InjectionMode 3 while Emissive Injection is active (FDensityState::bFieldOnlyInjection). The solver
 	 * then publishes the FULL field (row 23.w 5, like mode 1), also when Hybrid Single Scattering is on: the hybrid field lacks
 	 * the uncollided sun term, so it could not show the whole solver contribution. Default off: MID and packet unchanged. */
@@ -406,9 +430,11 @@ public:
 
 	/** W36, MID FogMS_DepthPrefilter (material FogMS_Extinction v3 + FogMS_DepthFootprint, matedit_density.py): scales the
 	 * prefilter width w = DepthPrefilter * max(depth-slice thickness, froxel width) of the native volumetric fog at each
-	 * sample. Material only: the solver's density (32^3 cells, FogMS_IndirectLocalDensity) is not filtered. 0 = v2 math. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(DisplayName="Depth Prefilter", EditCondition="bDensityEnabled", ClampMin="0.0", ClampMax="2.0", UIMin="0.0", UIMax="2.0", ToolTip="Band-limits this Box's density to the native volumetric-fog froxel at each sample, so camera moves along the view axis (W/S) no longer make the depth slices shimmer through fine detail. Filter width = this value * the larger of the fog depth-slice thickness and the froxel width at that distance (slices get thick with a large Height Fog View Distance). Detail octaves fade out where the width reaches their feature size, the base noise is read at a matching mip, and the Threshold band widens by the removed noise, so coverage is kept but distant/fine detail softens. 0 = previous material (off), 1 = one froxel (default), 2 = softer. Only the native fog material is filtered; the transport solver keeps the full density, and a Transport Box without Emissive Injection (overlay) injects its own unfiltered density, so there it has no effect. Requires the material patched by matedit_density.py (FogMS_Extinction v3); an older material ignores it. Changes apply live."))
-	float DepthPrefilter = 1.0f;
+	 * sample. Material only: the solver's density (32^3 cells, FogMS_IndirectLocalDensity) is not filtered. 0 = v2 math.
+	 * Default 0 since W37 (opt-in, round 36 measurements in the tooltip). Actors saved with the W36 default 1 did not
+	 * serialize it (UE writes only differences from the class default), so they load with 0. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(DisplayName="Depth Prefilter", EditCondition="bDensityEnabled", ClampMin="0.0", ClampMax="2.0", UIMin="0.0", UIMax="2.0", ToolTip="Opt-in look/stability trade-off. Band-limits this Box's density to the volumetric-fog froxel at each sample (width = this value * max(depth-slice thickness, froxel width)): detail octaves fade, the base noise is read at a coarser mip, the Threshold band widens, so forward/back camera moves (W/S) shimmer less. Round 36, forward dolly at the cloud edge, frame-to-frame change: 0 -> 0.61, 1 -> 0.54, 2 -> 0.35 (sideways ~0.5 for all); but 1 visibly softens the cloud and fills its gaps (x1.02-1.07 brighter) and 2 turns it into haze. Emissive Injection + Hybrid already cut the W/S tremble ~3x vs the overlay. Suggested 0.5-1 for distant or high-detail Boxes. 0 = off (default). Native fog material only: the solver keeps the full density; no effect on an overlay Box. Needs the material patched by matedit_density.py (FogMS_Extinction v3). Changes apply live."))
+	float DepthPrefilter = 0.0f;
 
 	/** S1, packet row 24.x. Zero (default) leaves the density bit-identical to the former formula. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Edge erosion: near the lower edge of the Threshold band, subtracts Erosion Channel of the second detail sample (same texture, no extra loads), carving wispy billowy edges while the cores stay solid. Erosion only removes density. Zero is off (original density). Changes apply live."))
@@ -510,6 +536,12 @@ private:
 		 * world feature size [cm] of the base / detail 0 / detail 1 noise (MID FogMS_PrefilterWavelengths, A unused). */
 		float DepthPrefilterValue = 0.0f;
 		FLinearColor PrefilterWavelengths = FLinearColor(0, 0, 0, 0);
+		/** W37 F1a forward lobe (material only, like the depth prefilter: MID update, no density revision). Sanitized values of
+		 * ForwardScattering / ForwardAnisotropy / ForwardDepth / BackFloor (MID FogMS_ForwardStrength/G/Depth/Floor). */
+		float ForwardStrengthValue = 0.0f;
+		float ForwardGValue = 0.6f;
+		float ForwardDepthValue = 0.5f;
+		float ForwardFloorValue = 0.25f;
 		float DensityValue = 0.0f;
 		FLinearColor Albedo = FLinearColor::Black;
 		FLinearColor WorldExtent = FLinearColor::Black;
