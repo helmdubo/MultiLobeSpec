@@ -190,5 +190,53 @@
   "wob_tiles": 165,
   "first_last": 1.592,
   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau"
+ },
+ "s_high_ih_pf0_start20_r36": {
+  "d2": 0.503,
+  "d2_blur": 0.16,
+  "hp9": 0.071,
+  "d2_p99": 2.67,
+  "frac_d2_gt4": 0.0014,
+  "d1": 0.318,
+  "mean": 133.8,
+  "frames": 40,
+  "wob_med": 0.034,
+  "wob_p75": 0.061,
+  "wob_period": 3.8,
+  "wob_tiles": 165,
+  "first_last": 4.218,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum"
+ },
+ "s_high_ih_pf1_start20_r36": {
+  "d2": 0.504,
+  "d2_blur": 0.157,
+  "hp9": 0.067,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0012,
+  "d1": 0.319,
+  "mean": 138.02,
+  "frames": 40,
+  "wob_med": 0.039,
+  "wob_p75": 0.063,
+  "wob_period": 3.8,
+  "wob_tiles": 165,
+  "first_last": 4.457,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv"
+ },
+ "s_high_ovl_start20_r36": {
+  "d2": 0.611,
+  "d2_blur": 0.253,
+  "hp9": 0.118,
+  "d2_p99": 3.33,
+  "frac_d2_gt4": 0.0053,
+  "d1": 0.435,
+  "mean": 136.06,
+  "frames": 40,
+  "wob_med": 0.074,
+  "wob_p75": 0.195,
+  "wob_period": 6.8,
+  "wob_tiles": 165,
+  "first_last": 5.472,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum"
  }
 }
