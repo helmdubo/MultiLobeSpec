@@ -12,6 +12,7 @@
 #include "Engine/VolumeTexture.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
+#include "HAL/PlatformTime.h"
 #include "MaterialDomain.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -186,12 +187,15 @@ namespace
 		UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS Box Volume: r.FogMS.BoxMode %d needs the editor-only engine-shader overlay; not applied outside the editor."), BoxMode);
 	}
 
-	// Game worlds (bApplyRequiredRenderSettings): the two renderer requirements of the transport/world solver checked by
-	// FogMS_WorldViewProblem and FogMS_BuildWorldLighting (engine defaults 3 and 1). ECVF_SetByGameSetting ranks above
-	// constructor defaults and scalability, but below project settings, [SystemSettings]/ini, device profiles,
-	// ConsoleVariables.ini, the command line and the console: an explicit project value wins and is only reported (the
-	// Set is skipped so the engine logs no priority warning). Not restored at EndPlay: a game-process setting.
-	void FogMS_ApplyRequiredRenderSettings(const AFogMSBoxVolume& Box)
+	// bApplyRequiredRenderSettings (game BeginPlay, and every automatic runtime start incl. the editor world and PIE/Simulate):
+	// the two renderer requirements of the transport/world solver checked by FogMS_WorldViewProblem and
+	// FogMS_BuildWorldLighting (engine defaults 3 and 1). ECVF_SetByGameSetting ranks above constructor defaults and
+	// scalability, but below project settings, [SystemSettings]/ini, device profiles, ConsoleVariables.ini, the command line
+	// and the console: an explicit value wins and is only reported (the Set is skipped so the engine logs no priority
+	// warning). Editor: a value typed in the console, or restored by Restore Standard Lumen (FogMS_RestorePreviewSettings,
+	// SetByConsole), is such an explicit value; Enable Indirect Preview itself sets 0, so it never conflicts. Not restored at
+	// EndPlay or when the Box stops: a process (game) / session (editor) setting. One log line per call.
+	void FogMS_ApplyRequiredRenderSettings(const AFogMSBoxVolume& Box, const TCHAR* Context)
 	{
 		struct FRequiredSetting
 		{
@@ -218,9 +222,15 @@ namespace
 			const int32 Current = Variable->GetInt();
 			Summary += FString::Printf(TEXT(" %s %d -> %d (previous SetBy%s)%s;"), Setting.Name, Previous, Current,
 				GetConsoleVariableSetByName(PreviousSetBy),
-				Current == Setting.Value ? TEXT("") : TEXT(" kept: higher-priority project/ini/command-line value, Transport stays off"));
+				Current == Setting.Value ? TEXT("") : TEXT(" kept: higher-priority project/ini/command-line/console value, Transport stays off"));
 		}
-		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS %s: Apply Required Render Settings (SetByGameSetting):%s"), *Box.GetName(), *Summary);
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS %s: Apply Required Render Settings (%s, SetByGameSetting):%s"), *Box.GetName(), Context, *Summary);
+	}
+
+	float FogMS_SmoothStep(float A, float B, float X)
+	{
+		const float T = FMath::Clamp((X - A) / (B - A), 0.0f, 1.0f);
+		return T * T * (3.0f - 2.0f * T);
 	}
 }
 
@@ -323,26 +333,113 @@ void AFogMSBoxVolume::Tick(float DeltaSeconds)
 void AFogMSBoxVolume::BeginPlay()
 {
 	Super::BeginPlay();
-	// Standalone game worlds only (packaged, -game): PIE and editor worlds keep the editor path (Enable Indirect Preview).
-	// Only an enabled Box whose mode needs the world producer (Transport, World) changes these global settings.
+	// Standalone game worlds (packaged, -game): every enabled Box whose mode needs the world producer (Transport, World)
+	// applies the required settings, as before.
 	const UWorld* World = GetWorld();
-	if (bApplyRequiredRenderSettings && bEnabled && World && World->WorldType == EWorldType::Game
+	if (bEnabled && World && World->WorldType == EWorldType::Game
 		&& (FogMS_IsTransportMode(ScatteringMode) || ScatteringMode == EFogMSScatteringMode::WorldSpace))
-		FogMS_ApplyRequiredRenderSettings(*this);
+		ApplyRequiredRenderSettingsOnce(TEXT("game BeginPlay"));
 	// Game/PIE worlds have no Details button. An enabled Transport Box with Emissive Injection starts its runtime
 	// itself: injection-only registers the view extension only; with BindlessAll (editor PIE) this is the button's path.
-	if (bEnabled && UsesEmissiveInjection()) EnableLiveBox();
+	// PIE/Simulate: this automatic start also applies the required settings (a game world did it above: once per actor).
+	// Marks the start done, so the first tick's AutoStartRuntime does not repeat it.
+	if (bEnabled && UsesEmissiveInjection())
+		StartRuntimeAutomatically(World && World->WorldType == EWorldType::PIE ? TEXT("PIE/Simulate auto-start") : TEXT("BeginPlay auto-start"));
 }
 
 void AFogMSBoxVolume::AutoStartRuntime()
 {
-	// Injection-only configuration (no BindlessAll): starting the runtime changes no global state (no BoxMode cvar,
+	// Injection-only configuration (no BindlessAll): starting the runtime changes no overlay state (no BoxMode cvar,
 	// no engine-shader patch), so an enabled injection Box does it once on its first tick, also in the editor world.
+	// The only global state it changes is Apply Required Render Settings (StartRuntimeAutomatically).
 	// With BindlessAll the editor keeps the explicit Enable Live Box step (it applies the overlay patch).
 	if (bRuntimeAutoStarted || !bEnabled || !UsesEmissiveInjection() || FogMS_IsBindlessAllConfiguration()) return;
 	if (HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || !GetWorld() || GetWorld()->IsPreviewWorld()) return;
+	const EWorldType::Type WorldType = GetWorld()->WorldType;
+	StartRuntimeAutomatically(WorldType == EWorldType::Editor ? TEXT("editor auto-start")
+		: (WorldType == EWorldType::PIE ? TEXT("PIE/Simulate auto-start") : TEXT("game auto-start")));
+}
+
+void AFogMSBoxVolume::StartRuntimeAutomatically(const TCHAR* Context)
+{
 	bRuntimeAutoStarted = true;
+	// Before the runtime starts, so its first frame already passes FogMS_WorldViewProblem: the solver's status then never
+	// asks for Enable Indirect Preview for an automatically started Box (unless an explicit value was kept, see the helper).
+	ApplyRequiredRenderSettingsOnce(Context);
 	EnableLiveBox();
+}
+
+void AFogMSBoxVolume::ApplyRequiredRenderSettingsOnce(const TCHAR* Context)
+{
+	// Once per actor instance: a PIE/Simulate Box is a new instance and applies again (one log line each). Preview worlds
+	// (asset editors, thumbnails) never change process-wide settings.
+	if (!bApplyRequiredRenderSettings || bRequiredRenderSettingsApplied) return;
+	const UWorld* World = GetWorld();
+	if (!World || World->IsPreviewWorld() || HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject)) return;
+	bRequiredRenderSettingsApplied = true;
+	FogMS_ApplyRequiredRenderSettings(*this, Context);
+}
+
+// Status estimate "tau core" (FogMS_BoxRuntime.cpp, AddBoxUpdate). CPU only, from the Box properties validated by the last
+// UpdateDensity; no texture read, no GPU readback. Definition: optical depth of the Box's added medium along a full chord
+// through the Box centre, parallel to one Box axis (face to face), minimum over the three axes (the thinnest direction):
+//   tau_a = integral over the chord of sigma(s) ds,  sigma = Density[1/m] * 0.01 * mask(n_max(h)) * fade(s)  [1/cm, s in cm]
+// with the FogMS_Extinction factors (matedit_density.py EXTINCTION_CODE_V2 / FogMS_IndirectLocalDensity):
+//   fade = smoothstep(0, min(Density Edge Feather, min extent), distance to the nearest face) (step for width 0);
+//   n_max(h) = P(h) * 1 + Detail Strength, the largest possible noise value: texture noise <= 1 (UNORM), detail <= 1,
+//   erosion only subtracts; P = height profile at normalised height h (1 when off); h = 0.5 on the X/Y chords;
+//   mask = smoothstep(Threshold -+ Softness/2, n_max) (step(Threshold) for Softness 0).
+// Accuracy: the analytic factors (Density, feather, height profile, threshold band) are exact up to the 64-point midpoint
+// rule (for a smooth fade well under 1 %; a step edge, Softness or Feather 0, up to 1/64 of the chord). The noise is not on
+// the CPU (a cooked game has no texture source), so tau is an UPPER BOUND: the real optical depth along the same chord is
+// lower by how much of it the noise leaves below the threshold band (coverage) and by erosion. Only this Box's density:
+// height fog and other Boxes are not included. A value well below 1 means a thin medium with little multiple scattering.
+// A trustworthy value needs the solver's per-cell sigma (pass 0): a column-sum reduction plus an async readback.
+float AFogMSBoxVolume::GetCoreOpticalDepthEstimate() const
+{
+	const double Now = FPlatformTime::Seconds();
+	if (CoreOpticalDepthTime > 0.0 && Now - CoreOpticalDepthTime < 1.0) return CoreOpticalDepth;
+	CoreOpticalDepthTime = Now;
+	CoreOpticalDepth = -1.0f;
+	if (!IsDensitySourceActive() || !BoxComponent) return CoreOpticalDepth;
+	// Same inputs as the MID (FogMS_WorldExtent, FogMS_DensityFeather, ...); UpdateDensity validated them this frame.
+	const FVector Extent = BoxComponent->GetScaledBoxExtent().GetAbs();
+	const float MinExtent = static_cast<float>(Extent.GetMin());
+	const float Width = FMath::Min(DensityEdgeFeather, MinExtent);
+	const float SigmaPerCm = FMath::Max(Density, 0.0f) * 0.01f;
+	const auto Mask = [this](float N)
+	{
+		return Softness > 0.0f ? FogMS_SmoothStep(Threshold - Softness * 0.5f, Threshold + Softness * 0.5f, N)
+			: (N >= Threshold ? 1.0f : 0.0f);
+	};
+	const auto SS = [](float A, float W, float X) { return FogMS_SmoothStep(A, A + FMath::Max(W, 1.0e-4f), X); };
+	const auto Profile = [this, &SS](float H)
+	{
+		if (!bHeightProfile) return 1.0f;
+		const float M = HeightBottom + 0.5f * (HeightTop - HeightBottom);
+		return SS(HeightBottom, BottomSoftness, H) * (1.0f - SS(HeightTop - TopSoftness, TopSoftness, H))
+			* (1.0f + AnvilStrength * SS(M, FMath::Max(HeightTop - TopSoftness - M, 1.0e-4f), H));
+	};
+	constexpr int32 Samples = 64;
+	float Result = TNumericLimits<float>::Max();
+	for (int32 Axis = 0; Axis < 3; ++Axis)
+	{
+		const float AxisExtent = static_cast<float>(Extent[Axis]);
+		float Tau = 0.0f;
+		for (int32 Index = 0; Index < Samples; ++Index)
+		{
+			const float S = (Index + 0.5f) / Samples * 2.0f - 1.0f; // Local coordinate along this axis, -1..1.
+			float Inside = (1.0f - FMath::Abs(S)) * AxisExtent;
+			for (int32 Other = 0; Other < 3; ++Other)
+				if (Other != Axis) Inside = FMath::Min(Inside, static_cast<float>(Extent[Other]));
+			const float Fade = Width > 0.0f ? FogMS_SmoothStep(0.0f, Width, Inside) : (Inside >= 0.0f ? 1.0f : 0.0f);
+			const float H = Axis == 2 ? S * 0.5f + 0.5f : 0.5f;
+			Tau += SigmaPerCm * Mask(Profile(H) + DetailStrength) * Fade;
+		}
+		Result = FMath::Min(Result, Tau * 2.0f * AxisExtent / Samples);
+	}
+	CoreOpticalDepth = FMath::IsFinite(Result) ? Result : -1.0f;
+	return CoreOpticalDepth;
 }
 
 void AFogMSBoxVolume::Destroyed()
@@ -409,8 +506,8 @@ void AFogMSBoxVolume::ApplyHeightProfilePreset()
 	switch (HeightProfilePreset)
 	{
 	case EFogMSHeightProfilePreset::Stratus: Values[0] = 0.40f; Values[1] = 0.60f; Values[2] = 0.05f; Values[3] = 0.10f; Values[4] = 0.0f; break;
-	case EFogMSHeightProfilePreset::Cumulus: Values[0] = 0.10f; Values[1] = 0.70f; Values[2] = 0.02f; Values[3] = 0.45f; Values[4] = 0.0f; break;
-	case EFogMSHeightProfilePreset::Cumulonimbus: Values[0] = 0.05f; Values[1] = 0.98f; Values[2] = 0.02f; Values[3] = 0.10f; Values[4] = 0.6f; break;
+	case EFogMSHeightProfilePreset::Cumulus: Values[0] = 0.10f; Values[1] = 0.80f; Values[2] = 0.05f; Values[3] = 0.20f; Values[4] = 0.0f; break;
+	case EFogMSHeightProfilePreset::Cumulonimbus: Values[0] = 0.05f; Values[1] = 0.98f; Values[2] = 0.02f; Values[3] = 0.15f; Values[4] = 1.0f; break;
 	case EFogMSHeightProfilePreset::ValleyFog: Values[0] = 0.0f; Values[1] = 0.35f; Values[2] = 0.0f; Values[3] = 0.30f; Values[4] = 0.0f; break;
 	default: return;
 	}
@@ -528,6 +625,7 @@ bool AFogMSBoxVolume::FDensityState::HasSameDensityParameters(const FDensityStat
 {
 	return bUseNativeDensity == Other.bUseNativeDensity
 		&& bEmissiveInjection == Other.bEmissiveInjection && bHybridInjection == Other.bHybridInjection
+		&& bFieldOnlyInjection == Other.bFieldOnlyInjection
 		&& InjectionField == Other.InjectionField
 		&& Texture == Other.Texture && TextureResource == Other.TextureResource
 		&& ChannelMask == Other.ChannelMask && TileScaleValue == Other.TileScaleValue
@@ -761,8 +859,11 @@ void AFogMSBoxVolume::UpdateDensity()
 				State.bUseNativeDensity = !bEnabled || !FogMS_IsTransportMode(ScatteringMode) || bInjection
 					|| !FogMS_IsBindlessAllConfiguration();
 				State.bEmissiveInjection = bInjection;
+				// Debug field only (MID mode 3): the material shows sigma_s * J alone, so the solver must publish the full
+				// field (row 23.w = 5, as mode 1): the hybrid field lacks the uncollided sun term. It overrides the hybrid.
+				State.bFieldOnlyInjection = bInjection && bDebugFieldOnly;
 				// Hybrid: native fog keeps single scattering; the field carries J_ms and T_sun (packet row 23.w = 6).
-				State.bHybridInjection = bInjection && bHybridSingleScattering;
+				State.bHybridInjection = bInjection && bHybridSingleScattering && !State.bFieldOnlyInjection;
 				State.InjectionField = bInjection ? TransportField.Get() : nullptr;
 				State.Texture = DensityTexture.Get();
 				State.TextureResource = DensityTexture->GetResource();
@@ -845,8 +946,10 @@ void AFogMSBoxVolume::UpdateDensity()
 					// Material contract: valid = Field.a >= 0.5 (cleared field: 0), Emissive = valid*Field.rgb*Albedo*sigma_t.
 					// Mode 1 (full field, J, a = 1): BaseColor = Albedo*(1 - valid). Mode 2 (hybrid, J_ms, a = 0.5 + 0.5*T_sun):
 					// BaseColor = Albedo*lerp(1, saturate(2*Field.a - 1), valid), native single scattering darkened by T_sun.
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_InjectionMode"),
-						State.bEmissiveInjection ? (State.bHybridInjection ? 2.0f : 1.0f) : 0.0f);
+					// Mode 3 (debug field only, full field J, a = 1; field contract v4): BaseColor = 0 even without a valid
+					// field, Emissive as mode 1. A material older than v4 treats 3 like 2 (BaseColor = Albedo with a = 1).
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_InjectionMode"), State.bEmissiveInjection
+						? (State.bFieldOnlyInjection ? 3.0f : (State.bHybridInjection ? 2.0f : 1.0f)) : 0.0f);
 					if (State.bEmissiveInjection)
 						DensityMID->SetTextureParameterValue(TEXT("FogMS_TransportField"), TransportField);
 					LastMaterialState = State;

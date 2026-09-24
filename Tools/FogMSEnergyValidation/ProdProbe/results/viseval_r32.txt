@@ -1,0 +1,24 @@
+SAVED E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogMSEnergyValidation\ProdProbe\measure\vise
+CAM | <Struct 'Vector' (0x00000209F3847C10) {x: 25621.805410, y: 14897.365355, z: 2478.516712}> <Struct 'Rotator' (0x00000209F3847B70) {pitch: 4.675096, yaw: 935.738530, roll: -0.000000}>
+SET frozen | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: 
+SET 00_base | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagno
+SHOT 00_base FAILED (no screenshot in log)
+SET 01_erosion_0.3 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence
+SHOT 01_erosion_0.3 FAILED (no screenshot in log)
+SET 02_erosion_0.6 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics
+SHOT 02_erosion_0.6 FAILED (no screenshot in log)
+SET 03_erosion_0.6_depth_0.6 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see c
+SHOT 03_erosion_0.6_depth_0.6 FAILED (no screenshot in log)
+SET 10_stratus | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence dia
+SHOT 10_stratus FAILED (no screenshot in log)
+SET 11_cumulus | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence dia
+SHOT 11_cumulus FAILED (no screenshot in log)
+SET 12_cumulonimbus | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostic
+SHOT 12_cumulonimbus FAILED (no screenshot in log)
+SET 13_valley_fog | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence 
+SHOT 13_valley_fog FAILED (no screenshot in log)
+SET 20_cumulus_erosion_0.4 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see con
+SHOT 20_cumulus_erosion_0.4 FAILED (no screenshot in log)
+SET 99_base_again | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics)
+SHOT 99_base_again FAILED (no screenshot in log)
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transport_tolerance': '9.999999974752427e-07',

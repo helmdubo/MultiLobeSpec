@@ -1,0 +1,63 @@
+SAVED E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogM
+CLOUDS | hidden 1
+S1 as-is | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: p
+SHOT S1_asis
+DUMP S1 True
+S2a inj off | Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]
+SHOT S2a_inj_off
+S2b inj on | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: p
+SHOT S2b_inj_on
+S3a mode off | Off
+SHOT S3a_mode_off
+S3b mode on | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: processed cap
+SHOT S3b_mode_on
+DUMP S3 True
+S4 hybrid off | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]
+SHOT S4_hybrid_off
+S5 hybrid on | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: p
+SHOT S5_hybrid_on
+S6 indirect 0 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: p
+SHOT S6_indirect0
+S7 indirect 1 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: p
+SHOT S7_indirect1
+LOG plugin lines during the run:
+    LogMultiLobeSpec: Overlay active: D:/PersonalProjects/UE5/MimirHead_portfolio 5.7 5.8 - 3/Saved/MultiLobeSpec/Shaders_03c98cdc9cb220713c4e7498 | MicroShadow=2 | IndirectVisibility=0
+    LogMultiLobeSpec: FogMS A1: enabled=0 steps=16 march_cm=0 max_cm=2000000 exclude_global=0 extinction_scale=1 debug_views=1. Extinction Scale changes require FogMS.Apply.
+    LogMultiLobeSpec: Display: Runtime debug view = 0; no overlay rebuild or shader compile.
+    LogMultiLobeSpec: Warning: FogMS density disabled on /Game/FogMS_Test/FogMS_Box.FogMS_Box:PersistentLevel.FogMSBoxVolume_0: Density Texture is still compiling; the source will resume when it is ready.
+    LogMultiLobeSpec: Display: FogMS indirect preview: Lumen ray tracing enabled with fixed 8x8 angular sampling; radiance cache, spatial filter, depth offset, Lumen async compute and ray-tracing instance
+    LogMultiLobeSpec: Raw MaterialAO overlay transport supports r.GBufferDiffuseSampleOcclusion=0.
+    LogMultiLobeSpec: Patched Private/ShadingModels.ush: SpecularGGX x1, EnvBRDF x0, EnvBRDFApprox x0, DiffuseCallSite x1, MicroShadow x1, EnergyMix x3/3
+    LogMultiLobeSpec: Patched Private/BRDF.ush: SpecularGGX x0, EnvBRDF x2, EnvBRDFApprox x2, DiffuseCallSite x0, MicroShadow x0, EnergyMix x0/3
+    LogMultiLobeSpec: Warning: 'OutDeviceColor / 1.05' line not found — custom tonemap output will be ~5% darker than reference.
+    LogMultiLobeSpec: Lumen dual-blur: rerouted 1 GGX sample call(s) in Private/Lumen/LumenReflections.usf
+    LogMultiLobeSpec: Lumen resolve: 3 site(s) mixture-aware (expected 3: NDF numerator + kernel + effective roughness).
+    LogMultiLobeSpec: Reflection Environment: material visibility separated from screen/geometric specular occlusion (1/1 anchor).
+    LogMultiLobeSpec: Non-Lumen indirect: material RGB visibility separated from scalar geometry AO (2/2 anchors).
+    LogMultiLobeSpec: Lumen indirect diffuse: 3/3 material-visibility sites support DirectOnly/Raw/RGB modes.
+    LogMultiLobeSpec: Skylight indirect: RGB material visibility separated from Screen/DFAO geometry visibility (8/8 anchors).
+    LogMultiLobeSpec: Rect LTC adapter: 2 inner overload(s) — honest mean direction, per-lobe energy.
+    LogMultiLobeSpec: Overlay active: D:/PersonalProjects/UE5/MimirHead_portfolio 5.7 5.8 - 3/Saved/MultiLobeSpec/Shaders_3df3af3a22965958d405c218 | MicroShadow=2 | IndirectVisibility=0
+    LogMultiLobeSpec: FogMS A1: enabled=1 steps=64 march_cm=0 max_cm=2000000 exclude_global=0 extinction_scale=1 debug_views=1. Extinction Scale changes require FogMS.Apply.
+    LogMultiLobeSpec: Display: Runtime debug view = 0; no overlay rebuild or shader compile.
+    LogMultiLobeSpec: Display: FogMS.Debug=0; temporal reprojection=1. Requires an active FogMS overlay with DebugViews=1.
+    LogMultiLobeSpec: Display: === MLS.Status ===
+    LogMultiLobeSpec: Display: Overlay active: YES  (D:/PersonalProjects/UE5/MimirHead_portfolio 5.7 5.8 - 3/Saved/MultiLobeSpec/Shaders_3df3af3a22965958d405c218)
+    LogMultiLobeSpec: Display: Target overlay for current settings: D:/PersonalProjects/UE5/MimirHead_portfolio 5.7 5.8 - 3/Saved/MultiLobeSpec/Shaders_3df3af3a22965958d405c218  (matches active)
+    LogMultiLobeSpec: Display: FogMS requested: enabled=1 steps=64 march_cm=0 max_cm=2000000 exclude_global=0 extinction_scale=1 debug_views=1 error=none
+    LogMultiLobeSpec: Display: /Engine shader mapping: D:/PersonalProjects/UE5/MimirHead_portfolio 5.7 5.8 - 3/Saved/MultiLobeSpec/Shaders_3df3af3a22965958d405c218
+    LogMultiLobeSpec: Display: Effective config: overlayEnabled=1 brdfEnabled=1 microShadowMode=2 microShadowEnabled=1 cavityDepth=0.20 cavityPower=0.25 indirectVisibility=0 rawVisibilityTransport=1 tonem
+    LogMultiLobeSpec: Display: CVar r.Substrate = 0
+    LogMultiLobeSpec: Display: CVar r.AllowStaticLighting = 0
+    LogMultiLobeSpec: Display: CVar r.GBufferDiffuseSampleOcclusion = 0
+    LogMultiLobeSpec: Warning: FogMS indirect bypassed: Box diagonal (43387 cm) must be smaller than this view's trace range (20000 cm, capped for R16F).
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transp
+S2a_inj_off    vs S1: PSNR  35.0 dB | mean ratio 1.0149 | mean abs diff 2.33/255
+S2b_inj_on     vs S1: PSNR  50.3 dB | mean ratio 1.0001 | mean abs diff 0.39/255
+S3a_mode_off   vs S1: PSNR  27.4 dB | mean ratio 0.9465 | mean abs diff 5.51/255
+S3b_mode_on    vs S1: PSNR  50.1 dB | mean ratio 1.0003 | mean abs diff 0.41/255
+S4_hybrid_off  vs S1: PSNR  35.8 dB | mean ratio 1.0132 | mean abs diff 2.04/255
+S5_hybrid_on   vs S1: PSNR  50.6 dB | mean ratio 1.0004 | mean abs diff 0.38/255
+S6_indirect0   vs S1: PSNR  21.9 dB | mean ratio 0.8844 | mean abs diff 11.44/255
+S7_indirect1   vs S1: PSNR  52.0 dB | mean ratio 1.0002 | mean abs diff 0.26/255
+FIELD S3 vs S1: 

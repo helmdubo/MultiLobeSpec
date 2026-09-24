@@ -253,7 +253,23 @@ namespace
 		return FString();
 	}
 
-	FString FogMS_WorldViewProblem(const FSceneViewFamily& Family)
+	// Status for one of the two cvars owned by Apply Required Render Settings (r.RayTracing.Culling, r.Lumen.AsyncCompute;
+	// FogMS_ApplyRequiredRenderSettings in FogMS_BoxVolume.cpp) when it is not 0. A Box that already applied them (game
+	// BeginPlay, or an automatic start in the editor/PIE/Simulate/game) was overruled by a higher-priority value: name it
+	// instead of sending the user to Enable Indirect Preview.
+	FString FogMS_RequiredSettingProblem(const TCHAR* Name, const TCHAR* Reason, const AFogMSBoxVolume* Box)
+	{
+		const IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name);
+		const int32 Value = Variable ? Variable->GetInt() : -1;
+		if (Box && Box->HasAppliedRequiredRenderSettings())
+			return FString::Printf(TEXT("World requires %s=0%s (now %d). A higher-priority value (SetBy%s) was kept over the Box's Apply Required Render Settings: set it to 0 (console or project ini)."),
+				Name, Reason, Value, Variable ? GetConsoleVariableSetByName(static_cast<EConsoleVariableFlags>(Variable->GetFlags() & ECVF_SetByMask)) : TEXT("?"));
+		return FString::Printf(TEXT("World requires %s=0%s (now %d). %s"), Name, Reason, Value, GIsEditor
+			? TEXT("Enable Indirect Preview sets it for this session; a Transport Box with Emissive Injection that starts itself sets it via Apply Required Render Settings.")
+			: TEXT("Apply Required Render Settings on the Box sets it at BeginPlay."));
+	}
+
+	FString FogMS_WorldViewProblem(const FSceneViewFamily& Family, const AFogMSBoxVolume* Box)
 	{
 		// World lighting reads the current surface cache directly. It does not depend
 		// on TLV radiance-cache/filter settings or native volumetric-fog history.
@@ -267,11 +283,11 @@ namespace
 		if (View->FinalPostProcessSettings.DynamicGlobalIlluminationMethod != EDynamicGlobalIlluminationMethod::Lumen)
 			return TEXT("World requires Lumen global illumination for this view.");
 		if (FogMS_ConsoleFloat(TEXT("r.RayTracing.Culling"), -1) != 0)
-			return TEXT("World requires r.RayTracing.Culling=0. Enable Indirect Preview sets it for this session.");
+			return FogMS_RequiredSettingProblem(TEXT("r.RayTracing.Culling"), TEXT(""), Box);
 		if (FogMS_ConsoleFloat(TEXT("r.LumenScene.GPUDrivenUpdate"), 0) != 0)
 			return TEXT("World requires r.LumenScene.GPUDrivenUpdate=0 so Lumen retains card coverage around the Box.");
 		if (FogMS_ConsoleFloat(TEXT("r.Lumen.AsyncCompute"), -1) != 0)
-			return TEXT("World requires r.Lumen.AsyncCompute=0 (graphics queue).");
+			return FogMS_RequiredSettingProblem(TEXT("r.Lumen.AsyncCompute"), TEXT(" (graphics queue)"), Box);
 		if (FogMS_ConsoleFloat(TEXT("r.RDG.AsyncCompute"), 1) > 1)
 			return TEXT("Forced RDG async compute is unsupported by World.");
 		return FString();
@@ -1145,7 +1161,7 @@ namespace
 						IndirectProblem = TEXT("Require finite Strength in [0,1] and Steps in [1,64].");
 					if (IndirectProblem.IsEmpty())
 						IndirectProblem = Selected->ScatteringMode == EFogMSScatteringMode::WorldSpace
-							? FogMS_WorldViewProblem(Family)
+							? FogMS_WorldViewProblem(Family, Selected)
 							: FogMS_IndirectViewProblem(Family, static_cast<float>(Extent.Size() * 2.0));
 					if (IndirectProblem.IsEmpty()) Packet.Rows[7].X = Selected->IndirectShadowStrength;
 					Selected->IndirectShadowStatus = IndirectProblem.IsEmpty()
@@ -1177,7 +1193,7 @@ namespace
 					SpatialProblem = Selected->GetDensityProblem().IsEmpty() ? TEXT("Requires a valid authored density source.") : Selected->GetDensityProblem();
 				else if (!bPacketOwner && !Selected->IsEmissiveInjectionActive())
 					SpatialProblem = TEXT("Emissive Injection field unavailable for this Box; only the packet Box can use the overlay delivery. Native fog lighting with authored density.");
-				else if (bWorldLighting) SpatialProblem = FogMS_WorldViewProblem(Family);
+				else if (bWorldLighting) SpatialProblem = FogMS_WorldViewProblem(Family, Selected);
 				else if (FogMS_ConsoleFloat(TEXT("r.VolumetricFog.TemporalReprojection"), 1) == 0)
 					SpatialProblem = TEXT("Requires native fog history (TemporalReprojection=1).");
 				else if (FogMS_ConsoleFloat(TEXT("r.Lumen.AsyncCompute")) != 0)
@@ -1332,6 +1348,14 @@ namespace
 						if (FogMS_UsesWorldProducer(Packet.Rows[5].Y) || (Packet.Rows[5].Y == 2 && Packet.Rows[21].X > 0))
 							Selected->SpatialStatus = GPU->SpatialFieldStatus;
 					}
+				}
+				// Transport Box with a density source: CPU upper bound of the core optical depth (AFogMSBoxVolume::
+				// GetCoreOpticalDepthEstimate: no GPU readback, re-evaluated at most once per second), and the debug view.
+				if (FogMS_IsTransportMode(Selected->ScatteringMode))
+				{
+					const float Tau = Selected->GetCoreOpticalDepthEstimate();
+					if (Tau >= 0.0f) Selected->SpatialStatus += FString::Printf(TEXT(" [tau core ~%.3g, upper bound]"), Tau);
+					if (Selected->IsFieldOnlyDebugActive()) Selected->SpatialStatus += TEXT(" [debug: field only, full J, native single scattering off]");
 				}
 				// Per-Box tag with several active Boxes: runtime id (FogMS_WorldLighting state key, "FogMS Box #id" RDG scope,
 				// dump "boxId"). One Box: the former status text, unchanged.

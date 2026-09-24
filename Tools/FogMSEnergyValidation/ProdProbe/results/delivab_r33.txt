@@ -1,0 +1,22 @@
+SAVED E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogM
+CLOUDS | hidden [('VolumetricCloud', True)]
+SET A_inj_hybrid | MID FogMS_InjectionMode = 2.0 | status: Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]
+SHOT A_inj_hybrid
+SET B_inj_full | MID FogMS_InjectionMode = 1.0 | status: Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]
+SHOT B_inj_full
+SET C_overlay | MID FogMS_InjectionMode = 0.0 | status: Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]
+SHOT C_overlay
+SET D_direct_only | MID FogMS_InjectionMode = 2.0 | status: Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]
+SHOT D_direct_only
+SET E_native_only | MID FogMS_InjectionMode = 0.0 | status: Off
+SHOT E_native_only
+SET F_inj_hybrid_again | MID FogMS_InjectionMode = 2.0 | status: Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: processed capture (public)]
+SHOT F_inj_hybrid_again
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transp
+F_inj_hybrid_again   vs A: PSNR  17.7 dB | mean ratio 1.3705 | mean abs diff 23.92/255
+B_inj_full           vs A: PSNR  45.6 dB | mean ratio 0.9989 | mean abs diff 0.50/255
+C_overlay            vs A: PSNR  46.6 dB | mean ratio 1.0008 | mean abs diff 0.45/255
+D_direct_only        vs A: PSNR  49.4 dB | mean ratio 0.9991 | mean abs diff 0.35/255
+E_native_only        vs A: PSNR  38.0 dB | mean ratio 1.0028 | mean abs diff 2.20/255
+only        vs A: PSNR  49.4 dB | mean ratio 0.9991 | mean abs diff 0.35/255
+E_native_only        vs A: PSNR  46.6 dB | mean ratio 1.0008 | mean abs diff 0.45/255

@@ -8,8 +8,17 @@ Run in the editor (Python console or `py <this file>`), with no other session ed
   3. re-routes every consumer of Custom_3's output (material properties such as MP_SUBSURFACE_COLOR = extinction,
      and expression pins such as the injection node's 'Extinction') to the new node;
   4. leaves Custom_3 in the graph with its inputs but without any consumer (restore = re-route back);
-  5. recompiles and saves; on compile errors it re-routes back, deletes what it created and does not save.
-Idempotent: a Custom node with description 'FogMS_Extinction' means already patched (prints a summary only).
+  5. recompiles; on compile errors it re-routes back, deletes what it created and does not save.
+Idempotent: a Custom node with description 'FogMS_Extinction' means steps 1-5 are already done (skipped).
+
+Then (field contract v4, W34) the existing Custom node 'FogMS_InjectionAlbedo' (BaseColor) gets FogMS_InjectionMode 3,
+the Box debug view 'Field Only (Debug)': its code is replaced INJECTION_ALBEDO_CODE_V3 -> INJECTION_ALBEDO_CODE_V4 (same
+inputs Albedo/Mode/FieldA, same wiring). Mode 3 = BaseColor 0 always (native single scattering off even without a valid
+field), extinction unchanged; Emissive is the unchanged 'FogMS_EmissiveInjection' node, which already emits
+valid * Field * Albedo * sigma_t for every Mode > 0.5 (the Box publishes the full field J in mode 3). Modes 0/1/2 evaluate
+exactly as in v3 (the v4 factor is 1.0 there). The extinction node stays v2: mode 3 does not change the extinction formula.
+Idempotent: code already carrying 'field contract v4' is left alone; code that is neither v3 nor v4 aborts without changes.
+The material is saved once, only if a step changed it; on a compile error the v3 code is restored and nothing is saved.
 
 EXTINCTION_CODE_V2 must stay formula-identical to FogMS_IndirectLocalDensity in Shaders/Private/FogMS_Indirect.ush;
 the .ush carries a verbatim copy between 'BEGIN EXTINCTION_CODE_V2' / 'END EXTINCTION_CODE_V2'. When the .ush is
@@ -29,7 +38,7 @@ OLD_INPUTS = ('Noise', 'Detail0', 'Detail1', 'ChannelMask', 'DetailStrength', 'S
               'LocalPosition', 'WorldExtent', 'Threshold', 'Softness', 'Density', 'Feather')
 # (parameter name, default, Custom input pin). Names match the MID setters in FogMS_BoxVolume.cpp.
 NEW_SCALARS = (('FogMS_ErosionStrength', 0.0, 'ErosionStrength'),
-               ('FogMS_ErosionDepth', 0.3, 'ErosionDepth'),
+               ('FogMS_ErosionDepth', 0.15, 'ErosionDepth'),
                ('FogMS_HeightProfile', 0.0, 'HeightProfile'),
                ('FogMS_HeightBottom', 0.0, 'HeightBottom'),
                ('FogMS_HeightTop', 1.0, 'HeightTop'),
@@ -80,6 +89,31 @@ float width = min(Feather, min(WorldExtent.x, min(WorldExtent.y, WorldExtent.z))
 float fade = width > 0.0f ? smoothstep(0.0f, width, inside) : step(0.0f, inside);
 return max(Density, 0.0f) * mask * fade;
 """
+
+# BaseColor node of the emissive-injection graph (FogMS_BoxVolume.cpp, MID FogMS_InjectionMode). V3 is the code saved in
+# the repo's M_FogMS_Density.uasset (field contract v3, commit 59ac907); V4 adds mode 3 (debug field only).
+INJECTION_ALBEDO_DESCRIPTION = 'FogMS_InjectionAlbedo'
+INJECTION_ALBEDO_INPUTS = ('Albedo', 'Mode', 'FieldA')
+INJECTION_ALBEDO_CODE_V3 = (
+    "// Injection albedo (field contract v3). Mode 1: albedo 0 so the native path adds no single scattering (extinction still occludes).\n"
+    "// Mode 2 (hybrid): native single scattering stays on, scaled by the per-cell sun transmittance T = 2*FieldA - 1 so the cloud self-shadows.\n"
+    "float V = (Mode > 0.5f && FieldA >= 0.5f) ? 1.0f : 0.0f;\n"
+    "float T = saturate(2.0f * FieldA - 1.0f);\n"
+    "float S = (Mode > 1.5f) ? T : 0.0f;\n"
+    "return Albedo * lerp(1.0f, S, V);")
+INJECTION_ALBEDO_CODE_V4 = (
+    "// Injection albedo (field contract v4). Mode 1: albedo 0 so the native path adds no single scattering (extinction still occludes).\n"
+    "// Mode 2 (hybrid): native single scattering stays on, scaled by the per-cell sun transmittance T = 2*FieldA - 1 so the cloud self-shadows.\n"
+    "// Mode 3 (debug field only): albedo 0 always, also without a valid field: only the injected full field J lights this Box.\n"
+    "float V = (Mode > 0.5f && FieldA >= 0.5f) ? 1.0f : 0.0f;\n"
+    "float T = saturate(2.0f * FieldA - 1.0f);\n"
+    "float S = (Mode > 1.5f && Mode < 2.5f) ? T : 0.0f;\n"
+    "float Native = (Mode > 2.5f) ? 0.0f : 1.0f;\n"
+    "return Albedo * lerp(1.0f, S, V) * Native;")
+INJECTION_ALBEDO_V4_MARKER = 'field contract v4'
+# The Emissive node must emit for every mode > 0.5 with a valid field (mode 3 included); checked, never modified.
+EMISSIVE_DESCRIPTION = 'FogMS_EmissiveInjection'
+EMISSIVE_REQUIRED = 'float V = (Mode > 0.5f && FieldA >= 0.5f) ? 1.0f : 0.0f;'
 
 mel = unreal.MaterialEditingLibrary
 
@@ -198,16 +232,87 @@ def summary(material, exprs):
     for prop in ('MP_BASE_COLOR', 'MP_EMISSIVE_COLOR', 'MP_SUBSURFACE_COLOR'):
         src = mel.get_material_property_input_node(material, getattr(unreal.MaterialProperty, prop))
         print('  PROPERTY %s <- %s' % (prop, src.get_name() if src else None))
+    print('  %s field contract: %s' % (INJECTION_ALBEDO_DESCRIPTION, injection_albedo_version(exprs)))
+
+
+def normalized_code(node):
+    return str(node.get_editor_property('code')).replace('\r\n', '\n').strip()
+
+
+def find_single_custom(exprs, description):
+    found = [e for e in custom_nodes(exprs) if str(e.get_editor_property('description')) == description]
+    require(len(found) == 1, 'Expected one Custom node %s, found %d' % (description, len(found)))
+    return found[0]
+
+
+def injection_albedo_version(exprs):
+    found = [e for e in custom_nodes(exprs) if str(e.get_editor_property('description')) == INJECTION_ALBEDO_DESCRIPTION]
+    if len(found) != 1:
+        return 'missing' if not found else 'several'
+    code = normalized_code(found[0])
+    if INJECTION_ALBEDO_V4_MARKER in code:
+        return 'v4'
+    return 'v3' if code == INJECTION_ALBEDO_CODE_V3.strip() else 'unknown'
+
+
+def patch_injection_albedo(material):
+    """Field contract v3 -> v4 (FogMS_InjectionMode 3) on the existing BaseColor node. Returns True if the code changed."""
+    exprs = expressions(material)
+    node = find_single_custom(exprs, INJECTION_ALBEDO_DESCRIPTION)
+    code = normalized_code(node)
+    if INJECTION_ALBEDO_V4_MARKER in code:
+        print('INJECTION_ALBEDO already v4 (%s)' % node.get_name())
+        return False
+    require(code == INJECTION_ALBEDO_CODE_V3.strip(),
+            '%s code is neither field contract v3 nor v4; not changed:\n%s' % (node.get_name(), code))
+    names = list(mel.get_material_expression_input_names(node))
+    require(sorted(names) == sorted(INJECTION_ALBEDO_INPUTS), 'Unexpected %s inputs: %s' % (node.get_name(), names))
+    require(all(src is not None for _, src, _ in input_links(material, node)), node.get_name() + ' has unconnected inputs')
+    require(mel.get_material_property_input_node(material, unreal.MaterialProperty.MP_BASE_COLOR) == node,
+            'MP_BASE_COLOR is not fed by ' + node.get_name())
+    emissive = find_single_custom(exprs, EMISSIVE_DESCRIPTION)
+    require(EMISSIVE_REQUIRED in normalized_code(emissive),
+            '%s does not emit for every Mode > 0.5 with a valid field; mode 3 would show nothing' % emissive.get_name())
+    old_code = str(node.get_editor_property('code'))
+    try:
+        node.set_editor_property('code', INJECTION_ALBEDO_CODE_V4)
+        require(sorted(mel.get_material_expression_input_names(node)) == sorted(INJECTION_ALBEDO_INPUTS), 'Inputs changed')
+        errors = [str(err) for err in (mel.recompile_material(material) or [])]
+        require(not errors, 'Compile errors: %s' % errors)
+    except Exception:
+        print('ROLLBACK', traceback.format_exc())
+        node.set_editor_property('code', old_code)
+        mel.recompile_material(material)
+        print('NOT SAVED; %s is back on field contract v3 (unsaved in-memory state, reload the asset to discard).' % node.get_name())
+        raise
+    print('INJECTION_ALBEDO v3 -> v4 (%s)' % node.get_name())
+    return True
 
 
 def main():
     material = unreal.load_asset(MATERIAL_PATH)
     require(material is not None and isinstance(material, unreal.Material), 'Material not found: ' + MATERIAL_PATH)
-    exprs = expressions(material)
-    if find_new_node(exprs):
+    changed = False
+    if find_new_node(expressions(material)):
+        print('EXTINCTION already patched (FogMS_Extinction v2)')
+    else:
+        patch_extinction(material)
+        changed = True
+    changed = patch_injection_albedo(material) or changed
+    if changed:
+        for name, default, _ in NEW_SCALARS:
+            value = mel.get_material_default_scalar_parameter_value(material, name)
+            require(abs(value - default) < 1e-6, 'Default readback %s = %s' % (name, value))
+        saved = unreal.EditorAssetLibrary.save_asset(MATERIAL_PATH, only_if_is_dirty=False)
+        print('PATCHED saved=%s' % saved)
+    else:
         print('ALREADY_PATCHED')
-        summary(material, exprs)
-        return
+    summary(material, expressions(material))
+
+
+def patch_extinction(material):
+    """Steps 1-5 of the module docstring (FogMS_Extinction v2). Recompiles; the caller saves."""
+    exprs = expressions(material)
     print('USH_SYNC', ush_sync_check())
     old = find_old_node(exprs)
     old_links = input_links(material, old)
@@ -292,13 +397,7 @@ def main():
         mel.recompile_material(material)
         print('NOT SAVED; the material is back on %s (unsaved in-memory state, reload the asset to discard).' % old.get_name())
         raise
-
-    for name, default, _ in NEW_SCALARS:
-        value = mel.get_material_default_scalar_parameter_value(material, name)
-        require(abs(value - default) < 1e-6, 'Default readback %s = %s' % (name, value))
-    saved = unreal.EditorAssetLibrary.save_asset(MATERIAL_PATH, only_if_is_dirty=False)
-    print('PATCHED saved=%s' % saved)
-    summary(material, expressions(material))
+    print('EXTINCTION patched (FogMS_Extinction v2)')
 
 
 try:

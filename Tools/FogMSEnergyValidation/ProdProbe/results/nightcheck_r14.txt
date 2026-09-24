@@ -1,0 +1,10 @@
+SUN_ROT0 [20.58007812499999, 53.30691909790038, -15.954481124877917]
+pitch -40: no screenshot
+pitch -20: no screenshot
+pitch -8: no screenshot
+pitch -3: no screenshot
+pitch +0: no screenshot
+pitch +3: no screenshot
+pitch +8: no screenshot
+--- box/sky ratio by pitch: []
+DONE

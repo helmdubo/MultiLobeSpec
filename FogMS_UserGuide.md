@@ -34,14 +34,16 @@ J минус нерассеянное солнце, то есть небо с е
 `FogMS_Threshold`, `FogMS_Softness`, `FogMS_DetailStrength`, `FogMS_DetailScale`, `FogMS_DetailSecondOctave`,
 `FogMS_Density`, `FogMS_Albedo`, `FogMS_WorldExtent`, `FogMS_DensityFeather`) и два параметра доставки:
 
-- `FogMS_InjectionMode`: 0 — без инъекции, 1 — полное поле, 2 — гибрид;
+- `FogMS_InjectionMode`: 0 — без инъекции, 1 — полное поле, 2 — гибрид, 3 — отладка «только поле» (`Field Only (Debug)`);
 - `FogMS_TransportField`: текстура поля, uvw = (Local + Extent) / (2·Extent) в осях Box. Alpha 0 — поля нет,
   материал возвращается к штатному освещению по альбедо; alpha ≥ 0,5 — поле валидно.
   Полное поле: RGB = J, A = 1. Гибрид: RGB = J − нерассеянное солнце, A = 0,5 + 0,5·T_sun·k.
 
 Материал должен считать так: valid = (A ≥ 0,5), Emissive = valid·RGB·Albedo·σt. Режим 1: BaseColor = Albedo·(1 − valid).
-Режим 2: BaseColor = Albedo·lerp(1, saturate(2A − 1), valid), где saturate(2A − 1) = T_sun·k. Как устроен сам
-`M_FogMS_Density`, (не проверено): .uasset не читается, контракт взят из кода Box.
+Режим 2: BaseColor = Albedo·lerp(1, saturate(2A − 1), valid), где saturate(2A − 1) = T_sun·k. Режим 3 (контракт v4):
+поле полное, как в режиме 1, BaseColor = 0 всегда (и без валидного поля), Emissive как в режиме 1. В комплектном
+`M_FogMS_Density` это узлы `FogMS_InjectionAlbedo` (BaseColor) и `FogMS_EmissiveInjection` (Emissive); режим 3 в нём
+появляется только после `matedit_density.py` (раздел 4, «Отладка»).
 
 ## 2. Требования и ограничения
 
@@ -51,23 +53,39 @@ J минус нерассеянное солнце, то есть небо с е
 | Аппаратный ray tracing с inline RT (`r.RayTracing=1`) | Иначе «FogMS Box transport requires inline hardware ray tracing…» |
 | Lumen Global Illumination на виде | Иначе «World requires Lumen global illumination for this view.» |
 | UE 5.8, проверено только на **5.8.2** | Lumen surface cache читается только на 5.8.2; иначе `Lumen Bounce` уходит в откат, решатель работает. Работа на других патчах (не проверено). В `.uplugin` стоит `EngineVersion 5.8.0` |
-| `r.RayTracing.Culling 0` (по умолчанию в движке 3) и `r.Lumen.AsyncCompute 0` (по умолчанию 1) | Иначе «World lighting requires r.RayTracing.Culling=0 and r.Lumen.AsyncCompute=0…» |
+| `r.RayTracing.Culling 0` (по умолчанию в движке 3) и `r.Lumen.AsyncCompute 0` (по умолчанию 1) | Иначе «World requires r.RayTracing.Culling=0 (now 3)…». Box ставит их сам, см. «Кто ставит cvar» |
 | `r.LumenScene.GPUDrivenUpdate 0` (так по умолчанию в 5.8) | Проверяется |
 | `r.RayTracing.Nanite.Mode 0` (так по умолчанию) | Нужен только для `bounce: Lumen`, иначе откат |
 | Exponential Height Fog с Volumetric Fog | Scattering Distribution = 0 нужна только overlay-доставке («Overlay scattering requires fog Scattering Distribution=0…»). С Emissive Injection допустим прямой лепесток |
 | Один вид реального времени: не Scene Capture, не стерео | Иначе «World lighting requires one real-time perspective view…» |
 | SkyLight в режиме **Real Time Capture**, если есть смена дня и ночи | Статический SkyLight ночью остаётся «дневным» (раздел 7) |
 
-**Кто ставит cvar.** В игре (упакованная сборка или `-game`) Box с включённым `Apply Required Render Settings`
-(по умолчанию вкл.) в `BeginPlay` сам ставит `r.RayTracing.Culling 0` и `r.Lumen.AsyncCompute 0` с низким приоритетом
-`SetByGameSetting`: значение из ini проекта, device profile или командной строки сохраняется, в лог пишется
-«kept… Transport stays off». В PIE и в редакторе опция не работает: нажмите **Enable Indirect Preview** или пропишите
-оба cvar в `DefaultEngine.ini`. Кнопка меняет и Lumen Translucency Volume до конца сессии; вернуть — **Restore Standard Lumen**.
+**Кто ставит cvar.** Box с включённым `Apply Required Render Settings` (по умолчанию вкл.) сам ставит
+`r.RayTracing.Culling 0` и `r.Lumen.AsyncCompute 0` с низким приоритетом `SetByGameSetting` и пишет в лог одну строку
+с прежними значениями (`Apply Required Render Settings (<где>, SetByGameSetting): r.RayTracing.Culling 3 -> 0 …`):
+- в игре (упакованная сборка или `-game`) — в `BeginPlay` любого включённого Box в режиме Transport или World;
+- в редакторе — когда включённый Transport-Box с `Emissive Injection` запускается сам: на первом тике в редакторе
+  без `-BindlessAll` и в `BeginPlay` в PIE/Simulate. **Enable Indirect Preview** для такого Box не нужна.
+
+Значение, заданное явно (ini проекта, device profile, командная строка, консоль; в редакторе также значение, которое
+вернула **Restore Standard Lumen**), сильнее: Box его не трогает, в логе «kept… Transport stays off», в статусе
+«World requires r.RayTracing.Culling=0 (now 3). A higher-priority value (SetByConsole) was kept…». Поставьте 0 сами.
+Значения остаются до конца процесса/сессии редактора и после выключения Box. В редакторском мире с `-BindlessAll`
+(там Box запускает кнопка **Enable Live Box**), для overlay-Box и режима World по-прежнему нужна **Enable Indirect
+Preview** (она меняет и Lumen Translucency Volume до конца сессии; вернуть — **Restore Standard Lumen**) или оба cvar
+в `DefaultEngine.ini`.
+
+**Редактор без `-BindlessAll`.** Если у Box включена `Emissive Injection`, редактор можно запускать с одними
+`-d3d12 -sm6`: Box запускается сам, cvar ставит сам. Overlay-путь по-прежнему требует `-BindlessAll`. Box без
+инъекции без ключа сам не запускается; после **Enable Live Box** статус «Transport needs Emissive Injection or
+-BindlessAll…» (Transport) или «This Scattering Mode requires -BindlessAll…» (другие режимы), `r.FogMS.BoxMode 1` не
+ставится, плотность Box видна со штатным освещением тумана.
 
 **Что требует `-BindlessAll` (только редактор, «Advanced»).** В упакованной игре ключ не читается, поэтому единственный
 путь в игре — Transport + Emissive Injection. Без `-BindlessAll` недоступны overlay-доставка B2/B3, Octaves,
 `Spatial (Experimental)`, `World (Current Frame)`, A1d/A1e (`Authored Sun Shadow`, `Cast Sun Shadow`, фильтрованный
-shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные виды, `r.FogMS.BoxMode 1`. Статус тогда
+shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные виды overlay (`Field Only (Debug)` работает и без
+ключа: это материал), `r.FogMS.BoxMode 1`. Статус тогда
 «…requires -BindlessAll (injection-only: no BindlessAll; overlay features off)», туман освещается штатно.
 
 **Источники света.** Решатель принимает directional, point и spot. Он **отказывает целиком** (Box переходит на штатное
@@ -104,6 +122,7 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
    scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no BindlessAll;
    overlay features off) [sky: Sky View LUT, 5-tap sector average]`.
    На кадрах удержания вместо `solve every 2 frames` стоит `hold 1/2`; с async-решателем добавится `; one frame late`.
+   В конце статуса Transport-Box — `[tau core ~X, upper bound]`, оценка оптической толщины (раздел 7).
 
 ## 4. Настройки Box
 
@@ -121,7 +140,8 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
 | `Hybrid Single Scattering` | Прямое солнце рендерит штатный туман, остальное идёт через поле | +0,02 мс к полной инъекции. Внутри Box на 1,5–2 % ярче overlay |
 | `Lumen Bounce` | Свет поверхностей, в которые упираются граничные лучи решателя. Auto — Lumen surface cache (сборка 5.8.2, кэш готов), иначе откат. Off — всегда откат: `Fallback Ground Albedo` × (солнце × тень × пропускание среды Box + SH-небо) | Откат против Lumen: в облаке на 3–5 % светлее (раунд 25, до ослабления средой) |
 | `Fallback Ground Albedo` | Линейный цвет земли для отката, по умолчанию серый 0,3. Не действует при `bounce: Lumen` | По локации: снег ~0,8, трава ~0,15, почва/камень 0,2–0,3. Правка пересчитывает поле и один раз сбрасывает историю тумана |
-| `Apply Required Render Settings` | В игре ставит два обязательных cvar (раздел 2) | Держать вкл., если проект сам не задаёт эти cvar |
+| `Apply Required Render Settings` | Ставит два обязательных cvar: в игре в `BeginPlay`, в редакторе/PIE/Simulate при самозапуске Box с инъекцией (раздел 2) | Держать вкл., если проект сам не задаёт эти cvar |
+| `Field Only (Debug)` (FogMS\|Debug) | Отладка инъекции: вклад решателя без штатного однократного рассеяния. Материал получает режим 3: BaseColor 0, экстинкция прежняя, Emissive = σs·J полного поля (гибрид на это время выключается, поле пересчитывается как полное). Box без текущего поля чёрный | По умолчанию выкл. Нужен материал с контрактом v4: один раз запустите `matedit_density.py` в редакторе, со старым материалом Box светится дважды |
 | `Feather Distance`, `Density Edge Feather` | Мягкий край Box и край плотности, см | — |
 
 **Пресеты:**
@@ -142,8 +162,8 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
 
 | Свойство | Что делает | По умолчанию |
 |---|---|---|
-| `Erosion Strength` | Выедает нижнюю кромку полосы порога каналом второй detail-выборки (без новых чтений текстуры). Только убавляет плотность | 0 = выкл. |
-| `Erosion Depth` | Насколько глубоко (в единицах шума над `Threshold − Softness/2`) доходит эрозия, [0.01, 1] | 0.3 |
+| `Erosion Strength` | Выедает нижнюю кромку полосы порога каналом второй detail-выборки (без новых чтений текстуры). Только убавляет плотность. Рабочий диапазон 0,1–0,35; 0,6 разбивает облако на клочья (раунд 32) | 0 = выкл. |
+| `Erosion Depth` | Насколько глубоко (в единицах шума над `Threshold − Softness/2`) доходит эрозия, [0.01, 1]. Выше ~0,3 «краем» становится почти всё облако и эрозия утончает весь объём (раунд 32) | 0.15 |
 | `Erosion Channel` | Канал узора эрозии: G/B/A (в Perlin-Worley там Worley FBM) | G |
 | `Height Profile` | Умножает шум на профиль по высоте Box (0 — нижняя грань, 1 — верхняя, ось Z Box) | выкл. |
 | `Height Bottom` / `Height Top` | Основание и верх облака, доли высоты Box, Bottom < Top | 0 / 1 |
@@ -241,6 +261,10 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
   перекрывается с секторным небом в поле (+1,5–2 %).
 - **Движение Box:** по замыслу, пока Box перетаскивают, он откатывается к штатному освещению и сбрасывает историю
   тумана (не проверено).
+- **`[tau core ~X, upper bound]`** — оптическая толщина среды Box по хорде через центр вдоль самой короткой оси Box:
+  Density × (затухание `Density Edge Feather`) × (профиль высоты и полоса `Threshold`/`Softness` при шуме = 1), считается
+  на CPU раз в секунду. Шум текстуры и эрозия толщину только уменьшают, поэтому это верхняя граница: реальная τ ниже
+  на долю хорды, где шум не дотягивает до порога. X заметно меньше 1 — среда тонкая, многократного рассеяния мало.
 - **Статус «Requires…» / «…requires…»** — не выполнено требование раздела 2.
 - **«Transport needs Emissive Injection or -BindlessAll…»** — включите `Emissive Injection`.
 - **«Waiting for current-frame isotropic transport»** — поле ещё не опубликовано. Если статус не меняется,
