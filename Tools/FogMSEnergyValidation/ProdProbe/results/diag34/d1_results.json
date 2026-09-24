@@ -1,0 +1,177 @@
+{
+ "a_cur_g0.0": {
+  "mean": 95.53,
+  "dark_frac": 0.0001,
+  "grid_period_px": 93.0,
+  "grid_peak_rel": 9.2,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average]"
+ },
+ "a_cur_g0.7": {
+  "mean": 92.7,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 12.2,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "a_cur_g0.7_rep": {
+  "mean": 92.74,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 13.0,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "d_boxoff_g0.0": {
+  "mean": 142.84,
+  "dark_frac": 0.0,
+  "grid_period_px": 85.8,
+  "grid_peak_rel": 9.5,
+  "status": "Off (Box Enabled is false)"
+ },
+ "d_boxoff_g0.7": {
+  "mean": 149.83,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 6.6,
+  "status": "Off (Box Enabled is false)"
+ },
+ "b_injhyb_g0.0": {
+  "mean": 95.01,
+  "dark_frac": 0.0,
+  "grid_period_px": 93.0,
+  "grid_peak_rel": 9.6,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+ },
+ "b_injhyb_g0.7": {
+  "mean": 93.66,
+  "dark_frac": 0.0,
+  "grid_period_px": 93.0,
+  "grid_peak_rel": 9.6,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+ },
+ "c_injfull_g0.0": {
+  "mean": 95.04,
+  "dark_frac": 0.0,
+  "grid_period_px": 93.0,
+  "grid_peak_rel": 8.5,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average]"
+ },
+ "c_injfull_g0.7": {
+  "mean": 93.75,
+  "dark_frac": 0.0,
+  "grid_period_px": 93.0,
+  "grid_peak_rel": 8.2,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average]"
+ },
+ "e_lumtv0_g0.7": {
+  "mean": 128.98,
+  "dark_frac": 0.0003,
+  "grid_period_px": 79.7,
+  "grid_peak_rel": 14.7,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "f_rtl0_g0.7": {
+  "mean": 92.86,
+  "dark_frac": 0.0,
+  "grid_period_px": 159.4,
+  "grid_peak_rel": 10.2,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "g_ltvpx16_g0.7": {
+  "mean": 92.6,
+  "dark_frac": 0.0,
+  "grid_period_px": 15.9,
+  "grid_peak_rel": 14.7,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "h_vfpx8_g0.7": {
+  "mean": 92.79,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 13.7,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "i_ltvfilter_g0.7": {
+  "mean": 93.53,
+  "dark_frac": 0.0,
+  "grid_period_px": 79.7,
+  "grid_peak_rel": 13.3,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "j_modeoff_g0.0": {
+  "mean": 110.35,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 12.6,
+  "status": "Off"
+ },
+ "j_modeoff_g0.7": {
+  "mean": 92.8,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 15.9,
+  "status": "Off"
+ },
+ "k_modeoff_sf1_g0.7": {
+  "mean": 93.54,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 14.8,
+  "status": "Off"
+ },
+ "l_cur_sf1_g0.0": {
+  "mean": 95.11,
+  "dark_frac": 0.0001,
+  "grid_period_px": 93.0,
+  "grid_peak_rel": 9.2,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average]"
+ },
+ "l_cur_sf1_g0.7": {
+  "mean": 93.46,
+  "dark_frac": 0.0,
+  "grid_period_px": 79.7,
+  "grid_peak_rel": 14.0,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "m_cur_tj1_g0.7": {
+  "mean": 92.59,
+  "dark_frac": 0.0,
+  "grid_period_px": 79.7,
+  "grid_peak_rel": 11.9,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "s_cur_g0.30": {
+  "mean": 104.79,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 18.2,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "s_cur_g0.50": {
+  "mean": 99.75,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 15.9,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "s_cur_g0.55": {
+  "mean": 98.24,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 15.3,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "s_cur_g0.60": {
+  "mean": 96.54,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 14.3,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ },
+ "s_cur_g0.80": {
+  "mean": 88.31,
+  "dark_frac": 0.0,
+  "grid_period_px": 186.0,
+  "grid_peak_rel": 12.3,
+  "status": "Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this)."
+ }
+}

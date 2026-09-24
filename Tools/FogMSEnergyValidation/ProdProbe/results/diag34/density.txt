@@ -1,0 +1,22 @@
+D4 density series (round 33 installed). Delivery = owner's current mode: overlay, hybrid off (injection OFF in the Box); *_inj_hyb = Emissive Injection + Hybrid.
+Frozen animation (manual time 100), Volumetric Cloud hidden (it was already hidden), RTC ON: r.SkyLight.RealTimeReflectionCapture 0 leaves this scene's
+real-time sky light without a capture ('sky: none' in the status, image mean 95 -> 39), so the RTC-0 protocol is not usable here.
+r.FogMS.Transport.AsyncCompute was 1 during D4 (typed at the editor console by a person at 23:23 local; one-frame-late publish, same field).
+Authored: {"density": 1.600000023841858, "threshold": 0.550000011920929, "softness": 0.15000000596046448, "detail_strength": 0.20000000298023224, "detail_scale": 2.0, "density_edge_feather": 15259.5576171875, "erosion_strength": 0.0, "height_profile": true, "emissive_injection": false, "hybrid_single_scattering": false}
+Sun (unchanged): SUN rot <Struct 'Rotator' (0x0000025175882720) {pitch: -9.876137, yaw: 78.279533, roll: 177.486167}> intensity 120.0
+Views (loc, rot pitch/yaw/roll): {"owner": [[-1644.241818024519, 17617.726190341542, 2442.208869304058], [1.4750940536441703, -58.26143420987347, 0.0]], "backlit": [[-1029.7331835657185, 20876.5216833197, 3000.0], [3.0, -86.72046700000001, 0.0]], "sunbehind": [[-3656.467385877953, -14718.705565087064, 4000.0], [-3.0, 78.27953300000003, 0.0]]}
+Field stats from FogMS.DumpSpatial: filled cells (sigma_t>0), core50 = cells > 50% of peak sigma_t, MS gain = mean Total J / mean Primary J (overlay only).
+Lum = mean 8-bit luminance (backlit/sunbehind: Box ROI = pixels that change when the Box is disabled, 97%/73% of the frame; owner: whole frame,
+its ROI capture was spoiled by a manual camera move). Ratio vs C0 (owner: C0_authored; others: C0_rep).
+Noise floor C0_authored vs C0_rep: backlit 0.03%, sunbehind 0.01%, field MS gain 2.41 vs 2.42; owner repeat INVALID (camera moved by a person).
+
+config             filled core50  MSgain  sig_p50 |   owner  ratio | backlit  ratio |  sunbeh  ratio
+C0_authored          7768    418    2.41  0.00045 |    95.6  1.000 |   102.1  1.000 |   166.6  1.000
+C0_rep               7768    418    2.42  0.00045 |    n/a    n/a |   102.1  1.000 |   166.6  1.000
+C1_noprofile        16133    556    2.55  0.00030 |    92.8  0.970 |    96.1  0.941 |   170.6  1.024
+C2_feather2000      16413   4221    5.56  0.00195 |    91.4  0.955 |    92.0  0.901 |   198.0  1.189
+C3_thr05_soft01     18909   6947    7.23  0.00407 |    89.6  0.937 |    90.6  0.887 |   215.1  1.291
+C4_2209             19989   7514    4.93  0.00134 |    88.0  0.921 |    90.7  0.888 |   208.3  1.250
+C5_2209_dens1.6     20039   7514    7.67  0.00426 |    87.1  0.910 |    89.2  0.873 |   219.3  1.317
+C0_inj_hyb              -      -       -        - |   124.9  1.306 |   122.9  1.204 |   170.1  1.021
+C4_2209_inj_hyb         -      -       -        - |   122.0  1.276 |   115.8  1.134 |   212.3  1.274

@@ -1,0 +1,47 @@
+{
+ "static": {
+  "d2_roi": 0.319,
+  "d2_p99": 3.33,
+  "frac_d2_gt4": 0.0079,
+  "d1_roi": 0.171,
+  "d2_spot": 40.908,
+  "mean": 38.98,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: none (no visible sky"
+ },
+ "move_a": {
+  "d2_roi": 0.406,
+  "d2_p99": 4.0,
+  "frac_d2_gt4": 0.0094,
+  "d1_roi": 0.24,
+  "d2_spot": 40.813,
+  "mean": 39.33,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: none (no"
+ },
+ "move_b": {
+  "d2_roi": 0.406,
+  "d2_p99": 4.0,
+  "frac_d2_gt4": 0.0094,
+  "d1_roi": 0.241,
+  "d2_spot": 40.851,
+  "mean": 39.34,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: none (no"
+ },
+ "static_ds8": {
+  "d2_roi": 0.243,
+  "d2_p99": 1.33,
+  "frac_d2_gt4": 0.0003,
+  "d1_roi": 0.128,
+  "d2_spot": 0.309,
+  "mean": 39.02,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: none (no"
+ },
+ "move_ds8": {
+  "d2_roi": 0.309,
+  "d2_p99": 1.67,
+  "frac_d2_gt4": 0.0007,
+  "d1_roi": 0.185,
+  "d2_spot": 0.532,
+  "mean": 39.33,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: none (no visible sky"
+ }
+}
