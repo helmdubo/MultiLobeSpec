@@ -198,11 +198,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", HideAlphaChannel, ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Diffuse albedo assumed for the surfaces hit by the solver's boundary rays when the Lumen surface cache is not used (Lumen Bounce Off, or Auto while the cache is unavailable). Set it to this location's ground: fresh snow about 0.8, grass about 0.15, bare soil or rock about 0.2-0.3. An artist input per location, not a guess. Ignored while the status line reports bounce: Lumen. Changing it re-solves the field and resets fog history once."))
 	FLinearColor FallbackGroundAlbedo = FLinearColor(0.3f, 0.3f, 0.3f, 1.0f);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Experimental: deliver the transport field to the native volumetric fog through this Box's Volume material (Emissive = sigma_s * J) instead of the bindless overlay. Native voxelization then owns density, jitter and history for this Box; the overlay skips its density/source injection. Requires the material to read FogMS_TransportField / FogMS_InjectionMode."))
-	bool bEmissiveInjection = false;
+	/** Default true since W36 (recommended path: no froxel tremble on camera dolly, fog phase allowed, no -BindlessAll). Actors
+	 * saved while the default was false did not serialize the value (UE writes only differences from the class default), so
+	 * they load with Emissive Injection on; untick it to return such a Box to the overlay. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ToolTip="Recommended, default on: deliver the transport field to the native volumetric fog through this Box's Volume material (Emissive = sigma_s * J) instead of the bindless overlay. Native voxelization then owns density, jitter and history for this Box; the overlay skips its density/source injection. The only delivery without -BindlessAll (packaged game); allows a non-zero fog Scattering Distribution and several Boxes. Off = overlay delivery (editor with -BindlessAll only, fog Scattering Distribution 0, one Box). Requires the material to read FogMS_TransportField / FogMS_InjectionMode."))
+	bool bEmissiveInjection = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="Hybrid Single Scattering", EditCondition="bEmissiveInjection && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ToolTip="Experimental Emissive Injection split (v2): native volumetric fog renders the direct SUN single scattering (shadow maps, froxel resolution, fog Scattering Distribution phase); the field carries everything else: total incident J minus the uncollided sun term (sky with its aureole, local lights and all multiple scattering stay in the solver, with per-direction self-shadowing). Field alpha = 0.5 + 0.5 * T_sun * k, where T_sun is the solver's per-cell sun transmittance (medium + ray-traced geometry) and k the sun's share of the uncollided light, so native single scattering (which always adds sun + sky + local lights) contributes about the sun part only. At night k -> 0 and the Box behaves like full-field injection. Approximation: k is a luminance ratio; a local light inside the cloud is also scaled by T_sun*k. Requires the material to implement FogMS_InjectionMode 2."))
-	bool bHybridSingleScattering = false;
+	/** Default true since W36, together with bEmissiveInjection (same load note: Boxes saved with the old default load with it on). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="Hybrid Single Scattering", EditCondition="bEmissiveInjection && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ToolTip="Default on (recommended with Emissive Injection; ignored without it). Emissive Injection split (v2): native volumetric fog renders the direct SUN single scattering (shadow maps, froxel resolution, fog Scattering Distribution phase); the field carries everything else: total incident J minus the uncollided sun term (sky with its aureole, local lights and all multiple scattering stay in the solver, with per-direction self-shadowing). Field alpha = 0.5 + 0.5 * T_sun * k, where T_sun is the solver's per-cell sun transmittance (medium + ray-traced geometry) and k the sun's share of the uncollided light, so native single scattering (which always adds sun + sky + local lights) contributes about the sun part only. At night k -> 0 and the Box behaves like full-field injection. Approximation: k is a luminance ratio; a local light inside the cloud is also scaled by T_sun*k. Requires the material to implement FogMS_InjectionMode 2."))
+	bool bHybridSingleScattering = true;
 
 	/** Sets the solver's renderer requirements at ECVF_SetByGameSetting priority, below every project/ini/device-profile/
 	 * command-line/console value: game worlds (packaged or -game) at BeginPlay of an enabled Transport/World Box; the editor
@@ -400,6 +404,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled", ClampMin="0.0", UIMin="0.0", Units="cm", ToolTip="Density feather inside the box edge, in world centimetres. Independent of the A1 Feather Distance."))
 	float DensityEdgeFeather = 100.0f;
 
+	/** W36, MID FogMS_DepthPrefilter (material FogMS_Extinction v3 + FogMS_DepthFootprint, matedit_density.py): scales the
+	 * prefilter width w = DepthPrefilter * max(depth-slice thickness, froxel width) of the native volumetric fog at each
+	 * sample. Material only: the solver's density (32^3 cells, FogMS_IndirectLocalDensity) is not filtered. 0 = v2 math. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(DisplayName="Depth Prefilter", EditCondition="bDensityEnabled", ClampMin="0.0", ClampMax="2.0", UIMin="0.0", UIMax="2.0", ToolTip="Band-limits this Box's density to the native volumetric-fog froxel at each sample, so camera moves along the view axis (W/S) no longer make the depth slices shimmer through fine detail. Filter width = this value * the larger of the fog depth-slice thickness and the froxel width at that distance (slices get thick with a large Height Fog View Distance). Detail octaves fade out where the width reaches their feature size, the base noise is read at a matching mip, and the Threshold band widens by the removed noise, so coverage is kept but distant/fine detail softens. 0 = previous material (off), 1 = one froxel (default), 2 = softer. Only the native fog material is filtered; the transport solver keeps the full density, and a Transport Box without Emissive Injection (overlay) injects its own unfiltered density, so there it has no effect. Requires the material patched by matedit_density.py (FogMS_Extinction v3); an older material ignores it. Changes apply live."))
+	float DepthPrefilter = 1.0f;
+
 	/** S1, packet row 24.x. Zero (default) leaves the density bit-identical to the former formula. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density", meta=(EditCondition="bDensityEnabled", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Edge erosion: near the lower edge of the Threshold band, subtracts Erosion Channel of the second detail sample (same texture, no extra loads), carving wispy billowy edges while the cores stay solid. Erosion only removes density. Zero is off (original density). Changes apply live."))
 	float ErosionStrength = 0.0f;
@@ -496,6 +506,10 @@ private:
 		float BottomSoftnessValue = 0.05f;
 		float TopSoftnessValue = 0.1f;
 		float AnvilStrengthValue = 0.0f;
+		/** W36 depth prefilter (material only: MID update, no density revision; see HasSameEffect). PrefilterWavelengths =
+		 * world feature size [cm] of the base / detail 0 / detail 1 noise (MID FogMS_PrefilterWavelengths, A unused). */
+		float DepthPrefilterValue = 0.0f;
+		FLinearColor PrefilterWavelengths = FLinearColor(0, 0, 0, 0);
 		float DensityValue = 0.0f;
 		FLinearColor Albedo = FLinearColor::Black;
 		FLinearColor WorldExtent = FLinearColor::Black;

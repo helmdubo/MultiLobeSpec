@@ -51,7 +51,21 @@ V = {  # name: (cvars, box assignment, height-fog props)
     "vi3": ({"r.FogMS.ViewIntegration": "3"}, None, None),
     "vi1": ({"r.FogMS.ViewIntegration": "1"}, None, None),
 }
-DBINS = [0, 2000, 5000, 10000, 20000, 1e9]
+# W36 Depth Prefilter A/B (round-36 plugin: the Box property depth_prefilter must exist). Since W36 a Box loads with Emissive
+# Injection + Hybrid on (new defaults, not serialized before), so 'cur' is injection + hybrid at the Box's Depth Prefilter
+# (default 1). 'ovl' = the round-35 'cur' state (overlay: the overlay injects its own unfiltered density, MID density 0, so
+# the prefilter cannot act there). ih_pfX = injection + hybrid at Depth Prefilter X (ih_pf0 = round-35 'inj_hyb').
+# depth_prefilter joins the snapshot/restore list, so every variant (also in d35_slide.py) restores it afterwards.
+if "depth_prefilter" not in L.BOXPROPS: L.BOXPROPS.append("depth_prefilter")
+_IH = "b.set_editor_property('emissive_injection', True); b.set_editor_property('hybrid_single_scattering', True); "
+V.update({
+    "ovl": ({}, "b.set_editor_property('emissive_injection', False); b.set_editor_property('hybrid_single_scattering', False)", None),
+    "ih_pf0": ({}, _IH + "b.set_editor_property('depth_prefilter', 0.0)", None),
+    "ih_pf05": ({}, _IH + "b.set_editor_property('depth_prefilter', 0.5)", None),
+    "ih_pf1": ({}, _IH + "b.set_editor_property('depth_prefilter', 1.0)", None),
+    "ih_pf2": ({}, _IH + "b.set_editor_property('depth_prefilter', 2.0)", None),
+})
+DBINS =[0, 2000, 5000, 10000, 20000, 1e9]
 
 def basis(rot):
     p, y = math.radians(rot[0]), math.radians(rot[1])

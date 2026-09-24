@@ -645,7 +645,8 @@ bool AFogMSBoxVolume::FDensityState::HasSameDensityParameters(const FDensityStat
 bool AFogMSBoxVolume::FDensityState::HasSameMaterialParameters(const FDensityState& Other) const
 {
 	return HasSameDensityParameters(Other)
-		&& WorldPhase0 == Other.WorldPhase0 && WorldPhase1 == Other.WorldPhase1 && WorldPhase2 == Other.WorldPhase2;
+		&& WorldPhase0 == Other.WorldPhase0 && WorldPhase1 == Other.WorldPhase1 && WorldPhase2 == Other.WorldPhase2
+		&& DepthPrefilterValue == Other.DepthPrefilterValue && PrefilterWavelengths == Other.PrefilterWavelengths;
 }
 
 bool AFogMSBoxVolume::FDensityState::HasSameEffect(const FDensityState& Other) const
@@ -654,7 +655,10 @@ bool AFogMSBoxVolume::FDensityState::HasSameEffect(const FDensityState& Other) c
 	if (!bActive) return true;
 	if (!HasSameDensityParameters(Other) || !WorldTransform.Equals(Other.WorldTransform, 0.0)
 		|| bAnimationActive != Other.bAnimationActive) return false;
-	if (!bAnimationActive) return HasSameMaterialParameters(Other);
+	// The W36 depth prefilter changes only the native fog material (MID), never the solver's density: no revision bump
+	// (no cold solve, no fog-history reset). Its wavelengths derive from fields compared above.
+	if (!bAnimationActive)
+		return WorldPhase0 == Other.WorldPhase0 && WorldPhase1 == Other.WorldPhase1 && WorldPhase2 == Other.WorldPhase2;
 	// Continuous phase progression updates the MID and shadow cache, not the global
 	// fog-history revision. Authored edits, explicit seeks and backwards world time do.
 	return bManualAnimationTime == Other.bManualAnimationTime
@@ -894,6 +898,33 @@ void AFogMSBoxVolume::UpdateDensity()
 					State.TopSoftnessValue = TopSoftness;
 					State.AnvilStrengthValue = AnvilStrength;
 				}
+				// W36 depth prefilter (material FogMS_Extinction v3, matedit_density.py). Non-finite = 0 (off); the Details
+				// clamp [0,2] is enforced here too for Blueprint/Python writes.
+				State.DepthPrefilterValue = FMath::IsFinite(DepthPrefilter) ? FMath::Clamp(DepthPrefilter, 0.0f, 2.0f) : 0.0f;
+				{
+					// lambda_i = world feature size of noise band i = its texture tile period / 4 (the bundled Perlin-Worley has a
+					// base lattice of 4 cells per tile: gen_perlin_worley.py perlin_fbm(4, 5), worley_fbm(4)). World aligned: tile =
+					// 1 / frequency (exact, isotropic). Local: tile per Box axis = 2 * extent / Tile Scale; one scalar per band,
+					// the geometric mean of the three axes (exact for isotropic tiling). Detail octaves as the material's detail
+					// UVs: tile / Detail Scale and tile / (2 * Detail Scale). All values validated positive above.
+					constexpr double FeaturesPerTile = 4.0;
+					double Tile0, Tile1, Tile2;
+					if (bWorldAlignedTexture)
+					{
+						Tile0 = 1.0 / WorldFrequencies.R; Tile1 = 1.0 / WorldFrequencies.G; Tile2 = 1.0 / WorldFrequencies.B;
+					}
+					else
+					{
+						Tile0 = FMath::Pow(2.0 * WorldExtent.X / TileValue.R * 2.0 * WorldExtent.Y / TileValue.G
+							* 2.0 * WorldExtent.Z / TileValue.B, 1.0 / 3.0);
+						Tile1 = Tile0 / DetailScale; Tile2 = Tile1 * 0.5;
+					}
+					const FLinearColor Wavelengths(static_cast<float>(Tile0 / FeaturesPerTile), static_cast<float>(Tile1 / FeaturesPerTile),
+						static_cast<float>(Tile2 / FeaturesPerTile), 0.0f);
+					// 0 = unknown: the material leaves that band unfiltered.
+					State.PrefilterWavelengths = FogMS_IsFiniteColor(Wavelengths) && FMath::Min3(Wavelengths.R, Wavelengths.G, Wavelengths.B) > 0.0f
+						? Wavelengths : FLinearColor(0, 0, 0, 0);
+				}
 				State.DensityValue = Density;
 				State.Albedo = FLinearColor(DensityAlbedo.R, DensityAlbedo.G, DensityAlbedo.B, 1.0f);
 				State.WorldExtent = ExtentValue;
@@ -939,6 +970,10 @@ void AFogMSBoxVolume::UpdateDensity()
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightBottomSoftness"), State.BottomSoftnessValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightTopSoftness"), State.TopSoftnessValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightAnvilStrength"), State.AnvilStrengthValue);
+					// W36 (FogMS_DepthFootprint / FogMS_Extinction v3). A material without them ignores both (material defaults
+					// 0 = v2 math).
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_DepthPrefilter"), State.DepthPrefilterValue);
+					DensityMID->SetVectorParameterValue(TEXT("FogMS_PrefilterWavelengths"), State.PrefilterWavelengths);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_Density"), State.bUseNativeDensity ? State.DensityValue : 0.0f);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_Albedo"), State.Albedo);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldExtent"), State.WorldExtent);

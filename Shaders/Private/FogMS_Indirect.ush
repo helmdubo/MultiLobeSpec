@@ -172,21 +172,45 @@ float FogMS_HeightProfile(float h, FogMS_IndirectData Data)
 		* (1.0f + Data.AnvilStrength * FogMS_SS(M, max(Data.HeightTop - Data.TopSoftness - M, 1e-4f), h));
 }
 
-/* Material twin: the FogMS_Extinction Custom node of M_FogMS_Density must stay formula-identical to
-   FogMS_IndirectLocalDensity below. Its HLSL is EXTINCTION_CODE_V2 in
-   Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py, copied verbatim between the markers (diff them).
-   Name map (material -> here): LocalPosition*0.01+0.5 -> Local/Extent*UVSign*0.5+0.5 (UVW and h);
+/* Material twin: the FogMS_Extinction_v3 Custom node of M_FogMS_Density must stay formula-identical to
+   FogMS_IndirectLocalDensity below at prefilter width w = Footprint.x = 0 (Box Depth Prefilter 0, and the material default).
+   The solver always evaluates w = 0: it samples the density per 32^3 cell (TransportCS: 8 points per cell; World/shadow
+   producers per cell or light-space texel), never per froxel, so it needs no footprint. Only the native volumetric-fog
+   voxelization (the Box material) is band-limited, by w = DepthPrefilter * max(depth-slice thickness, froxel width) from the
+   FogMS_DepthFootprint node (W36; formulas in the code below and in matedit_density.py FOOTPRINT_CODE_V1). The overlay's
+   per-froxel reconstruction (FogMS_Reconstruction.ush, overlay delivery only) is not prefiltered.
+   Its HLSL is EXTINCTION_CODE_V3 in Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py, copied verbatim between the
+   markers (diff them). Name map (material -> here): LocalPosition*0.01+0.5 -> Local/Extent*UVSign*0.5+0.5 (UVW and h);
    dot(Noise|Detail0|Detail1, ChannelMask) -> sample[Data.Channel]; dot(Detail1, ErosionMask) -> Detail1[Data.ErosionChannel];
    Threshold - Softness*0.5 -> Lo; Fn.SS -> FogMS_SS; HeightBottom/Top, Bottom/TopSoftness, AnvilStrength -> Data.*;
+   R0..R2 = 0, Dn2 = 0, SEff = Softness (w = 0);
    the material has no early exits (they are exact shortcuts here) and filters in hardware (here: 8 Loads).
-BEGIN EXTINCTION_CODE_V2
-// FogMS_Extinction v2 (S1 edge erosion, S2 height profile); formula-identical to FogMS_IndirectLocalDensity.
+BEGIN EXTINCTION_CODE_V3
+// FogMS_Extinction v3 (W36 depth prefilter; S1 edge erosion, S2 height profile). With Footprint.x = 0 it is v2, formula-
+// identical to FogMS_IndirectLocalDensity (the solver samples 32^3 cells, never froxels: it always evaluates w = 0).
 // LocalPosition is Box-local cube space -50..50: LocalPosition * 0.01f + 0.5f == Local / Extent * UVSign * 0.5f + 0.5f.
+// Prefilter (Nubis-style, width w = Footprint.x [cm] from FogMS_DepthFootprint; Wavelengths.xyz = world feature size
+// lambda of the base / detail 0 / detail 1 noise [cm], MID FogMS_PrefilterWavelengths, 0 = unknown: band unfiltered):
+//   r_i = saturate(w / lambda_i): removed fraction of band i's std (box filter of width w; bundled Perlin-Worley R, 64^3:
+//         0.21 / 0.43 / 0.76 measured at w = lambda/4, lambda/2, lambda).
+//   (a) detail octaves: amplitude * (1 - r_i), the main lobe of the box-filter response sinc(w / lambda_i); the erosion
+//       pattern e -> e * (1 - r_2) + 0.5 * r_2 (fades to its mean).
+//   (b) base noise: its texture sample gets MipBias = log2(w / froxel width) (FogMS_DepthFootprint.y), removing ~r_0.
+//   (c) threshold band: the removed parts act as zero-mean noise of variance
+//       dn^2 = (0.2 P r_0)^2 + (0.4 A_0 r_1)^2 + (0.4 A_1 r_2)^2 + (0.2 E EdgeW r_2)^2,
+//       sigma = 0.2 per texture channel (bundled Perlin-Worley, every channel), 0.4 for (2d - 1); A_0, A_1 = detail octave
+//       amplitudes, E = ErosionStrength. The expected mask is the smoothstep band convolved with that noise; the smoothstep
+//       derivative has variance Softness^2 / 20 and variances add: S_eff = sqrt(Softness^2 + 20 dn^2), k = sqrt(20).
+//   w = 0: r_i = 0, dn^2 = 0, S_eff = Softness, every factor an exact identity (x * 1, + 0).
 struct FogMSDensityFn
 {
     float SS(float a, float w, float x) { return smoothstep(a, a + max(w, 1e-4f), x); }
 };
 FogMSDensityFn Fn;
+float FootW = max(Footprint.x, 0.0f);
+float R0 = Wavelengths.x > 0.0f ? saturate(FootW / Wavelengths.x) : 0.0f;
+float R1 = Wavelengths.y > 0.0f ? saturate(FootW / Wavelengths.y) : 0.0f;
+float R2 = Wavelengths.z > 0.0f ? saturate(FootW / Wavelengths.z) : 0.0f;
 float P = 1.0f;
 if (HeightProfile > 0.5f)
 {
@@ -196,26 +220,32 @@ if (HeightProfile > 0.5f)
         * (1.0f + AnvilStrength * Fn.SS(M, max(HeightTop - TopSoftness - M, 1e-4f), h));
 }
 float n = dot(Noise, ChannelMask) * P;
+float Dn2 = (0.2f * P * R0) * (0.2f * P * R0);
 if (DetailStrength > 0.0f)
 {
     float d0 = dot(Detail0, ChannelMask);
     float d1 = dot(Detail1, ChannelMask);
-    float detail = ((2.0f * d0 - 1.0f) + 0.5f * SecondOctave * (2.0f * d1 - 1.0f))
+    float detail = ((2.0f * d0 - 1.0f) * (1.0f - R1) + 0.5f * SecondOctave * (2.0f * d1 - 1.0f) * (1.0f - R2))
         / (1.0f + 0.5f * SecondOctave);
     n += DetailStrength * detail;
+    float A0 = 0.4f * DetailStrength / (1.0f + 0.5f * SecondOctave);
+    float A1 = A0 * 0.5f * SecondOctave;
+    Dn2 += (A0 * R1) * (A0 * R1) + (A1 * R2) * (A1 * R2);
 }
 if (ErosionStrength > 0.0f)
 {
     float EdgeW = 1.0f - saturate((n - (Threshold - Softness * 0.5f)) / ErosionDepth);
-    n -= ErosionStrength * EdgeW * dot(Detail1, ErosionMask);
+    n -= ErosionStrength * EdgeW * (dot(Detail1, ErosionMask) * (1.0f - R2) + 0.5f * R2);
+    Dn2 += (0.2f * ErosionStrength * EdgeW * R2) * (0.2f * ErosionStrength * EdgeW * R2);
 }
-float mask = Softness > 0.0f ? smoothstep(Threshold - Softness * 0.5f, Threshold + Softness * 0.5f, n) : step(Threshold, n);
+float SEff = Dn2 > 0.0f ? sqrt(Softness * Softness + 20.0f * Dn2) : Softness;
+float mask = SEff > 0.0f ? smoothstep(Threshold - SEff * 0.5f, Threshold + SEff * 0.5f, n) : step(Threshold, n);
 float3 edge = (1.0f - abs(LocalPosition) * 0.02f) * WorldExtent;
 float inside = min(edge.x, min(edge.y, edge.z));
 float width = min(Feather, min(WorldExtent.x, min(WorldExtent.y, WorldExtent.z)));
 float fade = width > 0.0f ? smoothstep(0.0f, width, inside) : step(0.0f, inside);
 return max(Density, 0.0f) * mask * fade;
-END EXTINCTION_CODE_V2
+END EXTINCTION_CODE_V3
 */
 float FogMS_IndirectLocalDensity(float3 LocalPosition, FogMS_IndirectData Data)
 {

@@ -32,7 +32,8 @@ J минус нерассеянное солнце, то есть небо с е
 **Контракт материала (для тех, кто делает свой материал).** Box задаёт в MID параметры плотности (`FogMS_Noise`,
 `FogMS_ChannelMask`, `FogMS_TileScale`, `FogMS_WorldAligned`, `FogMS_WorldFrequencies`, `FogMS_WorldPhase0..2`,
 `FogMS_Threshold`, `FogMS_Softness`, `FogMS_DetailStrength`, `FogMS_DetailScale`, `FogMS_DetailSecondOctave`,
-`FogMS_Density`, `FogMS_Albedo`, `FogMS_WorldExtent`, `FogMS_DensityFeather`) и два параметра доставки:
+`FogMS_Density`, `FogMS_Albedo`, `FogMS_WorldExtent`, `FogMS_DensityFeather`; с раунда 36 ещё `FogMS_DepthPrefilter` и
+`FogMS_PrefilterWavelengths`, префильтр по глубине, раздел 4) и два параметра доставки:
 
 - `FogMS_InjectionMode`: 0 — без инъекции, 1 — полное поле, 2 — гибрид, 3 — отладка «только поле» (`Field Only (Debug)`);
 - `FogMS_TransportField`: текстура поля, uvw = (Local + Extent) / (2·Extent) в осях Box. Alpha 0 — поля нет,
@@ -118,9 +119,9 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
      `Density Albedo` — цвет рассеяния, каждый канал в пределах 0…1;
    - формат `T_FogMS_DefaultVolume` из комплекта и то, подходит ли он как стартовая текстура, (не проверено).
 4. `Scattering Mode` = **Transport (B3 Angular)**, `Transport Preset` = **Production**.
-5. `Emissive Injection` = вкл. Без `-BindlessAll` Box запускается сам: в редакторе на первом тике, в игре
-   в `BeginPlay`. Нажимать ничего не нужно.
-6. По желанию включите `Hybrid Single Scattering`. Для заметного ореола солнца поставьте у тумана
+5. `Emissive Injection` = вкл. (с раунда 36 это умолчание). Без `-BindlessAll` Box запускается сам: в редакторе на
+   первом тике, в игре в `BeginPlay`. Нажимать ничего не нужно.
+6. `Hybrid Single Scattering` тоже включён по умолчанию (раунд 36). Для заметного ореола солнца поставьте у тумана
    `Scattering Distribution` ≈ 0,3–0,6 (предложение, не измерено). На полное поле без гибрида она не влияет.
    **И гибрид, и ненулевая `Scattering Distribution` работают только с включённой `Emissive Injection`.** Без неё
    галка гибрида ничего не делает (статус `[Hybrid Single Scattering is ignored: enable Emissive Injection]`, одно
@@ -148,13 +149,21 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
 | `Angular Quality` | Число направлений переноса: 16/24/48/96 | Цена растёт линейно. Ошибка поля J к эталону 96/64: 16 → 2,2–2,5 %, 24 → 1,2 %, 48 → 0,8 %. Время решателя: 2,26 / 2,75 / 3,94 мс |
 | `Transport Iterations` | До N итераций решателя за кадр (1…64). Благодаря warm start решение продолжается между кадрами | 2–4 уже рабочий бюджет. 96 направлений: 4 ит. — 11,1 мс, 16 ит. — 28,1 мс |
 | `Transport Tolerance` (Advanced) | Порог сходимости: когда он достигнут, оставшиеся итерации кадра пропускаются. −1 — взять из `r.FogMS.Transport.Tolerance` | 1e-4 слишком грубо (тусклые ячейки до 3–8 %), 1e-6 рабочий, 1e-8 для High. 16 направлений: 2,3 / 3,4 / 5,2 мс |
-| `Emissive Injection` | Доставляет J через Volume-материал Box (раздел 1) | На ~0,7 мс дешевле overlay в `LightScattering` (1,575 → 0,870 мс). Единственный путь без `-BindlessAll` |
-| `Hybrid Single Scattering` | Прямое солнце рендерит штатный туман, остальное идёт через поле. **Только с `Emissive Injection`**, без неё игнорируется (статус и лог это говорят) | +0,02 мс к полной инъекции. Внутри Box на 1,5–2 % ярче overlay |
+| `Emissive Injection` | Доставляет J через Volume-материал Box (раздел 1). **По умолчанию вкл. (раунд 36)** | На ~0,7 мс дешевле overlay в `LightScattering` (1,575 → 0,870 мс). Единственный путь без `-BindlessAll`. Убирает дрожание при движении вперёд/назад (тест «сдвиг слоёв», раунд 35: 0,189 → 0,042; Box выкл. 0,035) |
+| `Hybrid Single Scattering` | Прямое солнце рендерит штатный туман, остальное идёт через поле. **Только с `Emissive Injection`**, без неё игнорируется (статус и лог это говорят). **По умолчанию вкл. (раунд 36)** | +0,02 мс к полной инъекции. Внутри Box на 1,5–2 % ярче overlay |
 | `Lumen Bounce` | Свет поверхностей, в которые упираются граничные лучи решателя. Auto — Lumen surface cache (сборка 5.8.2, кэш готов), иначе откат. Off — всегда откат: `Fallback Ground Albedo` × (солнце × тень × пропускание среды Box + SH-небо) | Откат против Lumen: в облаке на 3–5 % светлее (раунд 25, до ослабления средой) |
 | `Fallback Ground Albedo` | Линейный цвет земли для отката, по умолчанию серый 0,3. Не действует при `bounce: Lumen` | По локации: снег ~0,8, трава ~0,15, почва/камень 0,2–0,3. Правка пересчитывает поле и один раз сбрасывает историю тумана |
 | `Apply Required Render Settings` | Ставит два обязательных cvar: в игре в `BeginPlay`, в редакторе/PIE/Simulate при самозапуске Box с инъекцией (раздел 2) | Держать вкл., если проект сам не задаёт эти cvar |
 | `Field Only (Debug)` (FogMS\|Debug) | Отладка инъекции: вклад решателя без штатного однократного рассеяния. Материал получает режим 3: BaseColor 0, экстинкция прежняя, Emissive = σs·J полного поля (гибрид на это время выключается, поле пересчитывается как полное). Box без текущего поля чёрный | По умолчанию выкл. Нужен материал с контрактом v4: один раз запустите `matedit_density.py` в редакторе, со старым материалом Box светится дважды |
 | `Feather Distance`, `Density Edge Feather` | Мягкий край Box и край плотности, см | — |
+
+**Новые умолчания и уже сохранённые Box (раунд 36).** UE пишет в уровень только значения, отличные от умолчаний класса.
+Box, сохранённые до раунда 36 с выключенными `Emissive Injection` и `Hybrid Single Scattering` (тогдашнее умолчание),
+этих полей в файле не имеют и после загрузки получают новые умолчания: **инъекция и гибрид включатся сами**, Transport-Box
+без `-BindlessAll` запустится автоматически. Box в других режимах это не меняет (инъекция действует только в Transport).
+Чтобы оставить Box на overlay, снимите обе галки и пересохраните уровень; если снять только инъекцию, статус покажет
+`[Hybrid Single Scattering is ignored: enable Emissive Injection]`. Функции overlay (FogMS|Sun, FogMS|Indirect, отладочные
+виды) зависят от `-BindlessAll`, а не от этой галки, и ведут себя как раньше.
 
 **Пресеты:**
 
@@ -166,7 +175,43 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
 
 **Плотность (FogMS|Density):** `Density Texture`, `Density Channel`, `World Aligned Texture` + `World Texture Size`
 (размер повтора в см), `Texture Offset (World)`, `Tile Scale` (только без World Aligned), `Threshold`/`Softness`,
-`Detail Strength`/`Detail Scale`/`Detail Second Octave`, `Density`, `Density Albedo`. Правки видны сразу.
+`Detail Strength`/`Detail Scale`/`Detail Second Octave`, `Density`, `Density Albedo`, `Depth Prefilter`. Правки видны сразу.
+
+**Префильтр по глубине (`Depth Prefilter`, FogMS|Density, раунд 36, в редакторе ещё не проверено).** Штатный туман берёт
+плотность Box одной точкой на фроксель. Фроксель узкий на экране (4 px), но толстый по глубине: при `GridSizeZ 208`,
+`DepthDistributionScale 32` и `View Distance` тумана 10 км слой у камеры ~2,5 м, на 50 м ~3,6 м, на 200 м ~6,8 м. При
+движении вперёд/назад слои скользят по мелкому шуму — дрожание (раунд 35). Префильтр ограничивает полосу частот
+плотности размером фрокселя в этой точке, как Nubis — расстоянием:
+
+- ширина фильтра w = `Depth Prefilter` · max(dz, dxy). dz — толщина слоя на глубине d по распределению движка: слой
+  Z(d) = S·log2(d·B + O), (B, O, S) = `View.VolumetricFogGridZParams`, отсюда dz = ln2·(d·B + O)/(S·B); dxy = 2d/(P00·GridSizeX)
+  — ширина фрокселя (P00 = `ViewToClip[0][0]`). Материал читает это из View во время вокселизации, cvar в C++ не нужны;
+- масштаб полосы шума λ = период тайла / 4 (у комплектного Perlin-Worley 4 ячейки на тайл): база, detail 0, detail 1 —
+  `World Texture Size`, он же / `Detail Scale`, / (2·`Detail Scale`); без `World Aligned Texture` период базы — среднее
+  геометрическое 2·Extent/`Tile Scale` по трём осям Box. Снятая доля полосы r = saturate(w/λ);
+- (a) амплитуда detail-октав × (1 − r), узор эрозии стремится к 0,5; (b) база читается из mip со смещением
+  log2(w/dxy) (только если у Volume Texture есть mip-уровни); (c) полоса порога расширяется на снятый шум:
+  S_eff = √(Softness² + 20·Δn²), Δn² = Σ(A·σ·r)², σ = 0,2 на канал текстуры (0,4 для 2d − 1), A — амплитуда полосы.
+
+Покрытие в среднем сохраняется, мелкая деталь, которую фроксели всё равно не показывают, смягчается. 0 — прежняя
+формула материала (выкл.: множители 1, слагаемые 0, mip-смещение 0), 1 (по умолчанию) — один фроксель, 2 — вдвое мягче. Сила зависит от сетки тумана и размера
+шума: при слоях ≥ 2,5 м октава с λ ≤ w пропадает целиком (при `World Texture Size` 2000 см и `Detail Scale` 2 — обе
+detail-октавы и 50–100 % базы), при `World Texture Size` 20000 см база почти не меняется. Если облако стало слишком мягким,
+0,5. Фильтруется только штатный туман (материал Box): решатель (ячейки 32³) видит полную плотность. **Работает только
+с `Emissive Injection`** (и в режимах не Transport): overlay-Box сам кладёт в фроксели свою нефильтрованную плотность,
+плотность материала у него 0.
+
+**Как обновить материал.** Нужен `M_FogMS_Density` с узлом `FogMS_Extinction_v3`; со старым материалом `Depth Prefilter`
+ни на что не влияет. Один раз в редакторе, когда материал никто не редактирует: Python-консоль,
+`py "<репо>/Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py"`. Скрипт идемпотентный: если нужно, сначала
+поднимает экстинкцию v1 → v2 и BaseColor до контракта v4, затем v2 → v3 (новые узлы `FogMS_DepthFootprint`, PixelDepth,
+параметры `FogMS_DepthPrefilter`/`FogMS_PrefilterWavelengths` с умолчанием 0; выборке базового шума ставится Mip Bias).
+Он ждёт компиляции шейдеров материала и при ошибке (трансляции или HLSL, по логу редактора) всё откатывает и не
+сохраняет. Ожидаемый вывод: `EXTINCTION v2 -> v3 (…; base mip bias <узел>.Bias)`, `COMPILE v3: shader compiled (log …)`,
+`PATCHED saved=True`; повторный запуск — `EXTINCTION already v3` и `ALREADY_PATCHED`. `MIP_BIAS skipped: …` значит,
+что база читается без смещения mip (работают только (a) и (c)). `COMPILE v3: shader result NOT verified` — лог не найден:
+проверьте Output Log на «Failed to compile Material … M_FogMS_Density». После патча переключите у Box `Depth Prefilter`
+1 → 0 → 1 (MID получит новые параметры) или переоткройте уровень.
 
 **Форма плотности (FogMS|Density, срезы S1/S2).** По умолчанию выключены, и плотность побитово прежняя.
 Нужен материал с узлом `FogMS_Extinction` (скрипт `Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py`);
@@ -243,6 +288,8 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
   (раунд 25, тогда 4 точки получали все источники). С раунда 35 4 точки только у солнца, point/spot — по 8: оценка
   +0,01–0,02 мс на узкий spot (лучи идут только из ячеек внутри его конуса), не больше +0,1 мс (не измерено).
 - **Гибрид:** стоит столько же, сколько полная инъекция (+0,02 мс).
+- **`Depth Prefilter`:** только ALU в вокселизации Box (узел `FogMS_DepthFootprint` и ~20 операций с одним sqrt в
+  экстинкции), новых чтений текстуры нет; база читается из более грубого mip. Оценка < 0,1 мс (не измерено).
 - **Штатный туман** при 4 px / 208 слоях стоит ещё ~5–6 мс. Отчёт предполагает для продакшена 8–16 px.
 
 **Что влияет на цену:** число направлений (линейно), итерации и tolerance (решатель останавливается, как только
@@ -273,6 +320,10 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
   узкий луч мигал с периодом 2·`SolveInterval` кадров (6 Гц при 24 fps) и был в среднем на ~6 % темнее. Теперь
   локальные источники всегда считаются по 8 точкам. Солнце по-прежнему чередует тетраэдры; если на резкой границе его тени в облаке видно мигание,
   `r.FogMS.Transport.DirectSamples 8`.
+- **Дрожание при движении вперёд/назад (W/S), но не вбок.** Толстые по глубине слои фрокселей скользят по мелкому шуму
+  плотности (раунд 35). Лечится `Emissive Injection` (с раунда 36 по умолчанию) и `Depth Prefilter` (раздел 4); overlay
+  (инъекция выкл.) префильтр не лечит. Ещё помогает `r.VolumetricFog.GridSizeZ 384` (тоньше слои; цена не измерена)
+  или меньший `View Distance` тумана.
 - **Лампа внутри облака при гибриде.** Штатная часть однократного рассеяния от лампы тоже умножается на T_sun·k;
   остальной её свет идёт через поле 32³, без теней на разрешении фрокселей. Как это выглядит, (не проверено).
 - **Приближения гибрида:** k считается по яркости, а не по каналам. Небо из штатного пути (SH Lumen) частично
@@ -304,7 +355,9 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
 
 Замер — `measure.py`, `gpuprofile.py`; A/B — `*ab.sh` и `abinject.sh` (тиры, доставка, гибрид, интервал, async, небо, `Lumen Bounce`,
 проход 2); сравнение — `compare.py`, `fielddiff.py`, `resid_stats.py`; сценарии — `nightcmp.py`, `soak.py`,
-`nobindless_test.sh`, `pie_test.py`; бесшовный 3D-шум для Volume Texture — `gen_perlin_worley.py`.
+`nobindless_test.sh`, `pie_test.py`; бесшовный 3D-шум для Volume Texture — `gen_perlin_worley.py`. Дрожание при
+движении — `d35_slide.py` (камера стоит, слои сдвигаются) и `d35_dolly.py` (проезд W/S/A/D); варианты `ovl` (overlay),
+`ih_pf0`, `ih_pf05`, `ih_pf1`, `ih_pf2` (инъекция + гибрид при `Depth Prefilter` 0/0,5/1/2).
 
 Для A/B полей зафиксируйте небо (`r.SkyLight.RealTimeReflectionCapture 0` на время прогона) и сравнивайте
 с шумовым полом одинаковой конфигурации. При Real Time Capture одинаковые прогоны сами расходятся до ~1,4 %.
