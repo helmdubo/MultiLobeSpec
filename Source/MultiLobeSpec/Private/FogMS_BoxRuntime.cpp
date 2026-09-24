@@ -137,7 +137,17 @@ namespace
 		int32 ViewIntegrationMode = 0;
 	};
 
-	struct FPreviewSetting { const TCHAR* Name; float Value; bool bRequired = true; };
+	// bA1cOnly: needed only by the A1c indirect attenuation (MultiLobeShaderPatcher.cpp FogMS_PatchIndirectIntegration), the one
+	// FogMS reader of the Lumen translucency volume (TLV). Its patched TranslucencyVolumeIntegrateCS attenuates every TLV trace by
+	// the Box medium along that trace, from this cell's origin to this cell's VolumeTraceHitDistance. The engine's spatial filter
+	// (LumenTranslucencyVolumeLighting.cpp: three separable passes over VolumeTraceRadiance before Integrate) would pair that
+	// attenuation with radiance averaged over neighbouring cells, and temporal jitter moves the traces every frame, so the
+	// attenuation pumps through the fog, which consumes the raw TLV SH before the TLV temporal filter. The branch runs only with
+	// packet row 7.x > 0, which Transport modes never write (FillBoxPacket: "Not used by Transport"): Transport and World read the
+	// Lumen surface cache, not the TLV (FogMS_WorldViewProblem), and FogMS_WorldIndirect keeps the native TLV term in every mode
+	// but World. So a Transport Box's Enable Indirect Preview leaves both at the project values (engine default: filter on,
+	// jitter on); forced off they left native fog's own TLV GI term blocky, e.g. with fog Scattering Distribution 0.7 (round 34 D1).
+	struct FPreviewSetting { const TCHAR* Name; float Value; bool bRequired = true; bool bA1cOnly = false; };
 	const FPreviewSetting PreviewSettings[] =
 	{
 		{ TEXT("r.Lumen.HardwareRayTracing"), 1 },
@@ -146,12 +156,12 @@ namespace
 		{ TEXT("r.Lumen.TranslucencyVolume.TraceFromVolume"), 1 },
 		{ TEXT("r.Lumen.TranslucencyVolume.RadianceCache"), 0 },
 		{ TEXT("r.Lumen.TranslucencyVolume.ShareRadianceCacheWithOpaque"), 0 },
-		{ TEXT("r.Lumen.TranslucencyVolume.SpatialFilter"), 0 },
+		{ TEXT("r.Lumen.TranslucencyVolume.SpatialFilter"), 0, true, true },
 		{ TEXT("r.Lumen.TranslucencyVolume.GridCenterOffsetFromDepthBuffer"), -1 },
 		// Fog consumes raw TLV SH before TLV's own temporal filter. Use a fixed
 		// quadrature to avoid pumping the medium attenuation through moving rays.
 		// These are quality defaults, not validity requirements: allow live A/B.
-		{ TEXT("r.Lumen.TranslucencyVolume.Temporal.Jitter"), 0, false },
+		{ TEXT("r.Lumen.TranslucencyVolume.Temporal.Jitter"), 0, false, true },
 		{ TEXT("r.Lumen.TranslucencyVolume.TracingOctahedronResolution"), 8, false },
 		// The resident bindless payload is not an RDG parameter. Keep its producers and
 		// readers on the graphics queue until an explicit cross-queue dependency exists.
@@ -439,6 +449,8 @@ namespace
 		// Injection-only runtime (no packet): the injection volume that this frame's native fog samples holds a
 		// current J. Set by PostTLAS; replaces the row 22 test of the SSFS trigger in that configuration.
 		bool bInjectionFieldConsumed = false;
+		// Game thread only (AddBoxUpdate): the "Hybrid Single Scattering is ignored" warning was logged for the current occurrence.
+		bool bHybridIgnoredLogged = false;
 
 		// False in the injection-only runtime (no BindlessAll): no packet texture, no descriptor, no hidden readers.
 		// With BindlessAll Prepare fails unless the packet exists, so the packet Box sees true; every other Box state
@@ -1211,7 +1223,10 @@ namespace
 						const float PhaseTolerance = bWorldLighting ? 0.000001f : 0.00001f;
 						if (Fog && Fog->IsVisible() && Fog->bEnableVolumetricFog
 							&& (!FMath::IsFinite(Fog->VolumetricFogScatteringDistribution) || FMath::Abs(Fog->VolumetricFogScatteringDistribution) > PhaseTolerance))
-							SpatialProblem = TEXT("Overlay scattering requires fog Scattering Distribution=0 (Emissive Injection lifts this).");
+							// Emissive Injection exists for Transport modes only; World/Spatial get no hint.
+							SpatialProblem = FString::Printf(TEXT("Overlay scattering requires fog Scattering Distribution=0 (now %g)%s"),
+								Fog->VolumetricFogScatteringDistribution,
+								bTransport ? TEXT(": enable Emissive Injection to use a non-zero fog phase.") : TEXT("."));
 					}
 				if (bWorldLighting && SpatialProblem.IsEmpty())
 				{
@@ -1356,6 +1371,18 @@ namespace
 					const float Tau = Selected->GetCoreOpticalDepthEstimate();
 					if (Tau >= 0.0f) Selected->SpatialStatus += FString::Printf(TEXT(" [tau core ~%.3g, upper bound]"), Tau);
 					if (Selected->IsFieldOnlyDebugActive()) Selected->SpatialStatus += TEXT(" [debug: field only, full J, native single scattering off]");
+					// The hybrid split exists only in the Emissive Injection material (MID mode 2, row 23.w 6). Without injection the
+					// Box delivers through the overlay: the tick has no effect, and a non-zero fog Scattering Distribution turns the
+					// field off. Status every frame; log once each time the condition starts (game thread, per Box state).
+					const bool bHybridIgnored = Selected->bHybridSingleScattering && !Selected->IsEmissiveInjectionActive();
+					if (bHybridIgnored) Selected->SpatialStatus += TEXT(" [Hybrid Single Scattering is ignored: enable Emissive Injection]");
+					if (bHybridIgnored != GPU->bHybridIgnoredLogged)
+					{
+						GPU->bHybridIgnoredLogged = bHybridIgnored;
+						if (bHybridIgnored)
+							UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS %s: Hybrid Single Scattering is ignored: enable Emissive Injection (without it the Box uses the overlay delivery, which also requires fog Scattering Distribution=0)."),
+								*Selected->GetActorNameOrLabel());
+					}
 				}
 				// Per-Box tag with several active Boxes: runtime id (FogMS_WorldLighting state key, "FogMS Box #id" RDG scope,
 				// dump "boxId"). One Box: the former status text, unchanged.
@@ -1845,19 +1872,25 @@ bool FFogMSBoxRuntime::IsIndirectPreviewEnabled()
 	return bIndirectPreviewEnabled;
 }
 
-void FFogMSBoxRuntime::ConfigureIndirectPreview(bool bEnable)
+void FFogMSBoxRuntime::ConfigureIndirectPreview(bool bEnable, bool bA1cSettings)
 {
 	if (bEnable)
 	{
+		// Without bA1cSettings (Transport Box) the bA1cOnly entries are neither set nor captured: Restore Standard Lumen restores
+		// exactly the captured entries (FogMS_RestorePreviewSettings), so it never touches a value this call did not set. An
+		// earlier A1c preview of this session keeps its values; an A1c Box set up later asks for them (FogMS_IndirectViewProblem).
 		for (const FPreviewSetting& Setting : PreviewSettings)
 		{
+			if (Setting.bA1cOnly && !bA1cSettings) continue;
 			IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Setting.Name);
 			if (!Variable) continue;
 			if (!PreviewPreviousValues.Contains(Setting.Name)) PreviewPreviousValues.Add(Setting.Name, Variable->GetString());
 			Variable->Set(Setting.Value, ECVF_SetByConsole);
 		}
 		bIndirectPreviewEnabled = true;
-		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS indirect preview: Lumen ray tracing enabled with fixed 8x8 angular sampling; radiance cache, spatial filter, depth offset, Lumen async compute and ray-tracing instance culling disabled for this session. Use Restore Standard Lumen to restore previous values."));
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS indirect preview: Lumen ray tracing enabled with fixed 8x8 angular sampling; radiance cache, %sdepth offset, Lumen async compute and ray-tracing instance culling disabled for this session.%s Use Restore Standard Lumen to restore previous values."),
+			bA1cSettings ? TEXT("spatial filter, temporal jitter, ") : TEXT(""),
+			bA1cSettings ? TEXT("") : TEXT(" Transport Box: r.Lumen.TranslucencyVolume.SpatialFilter and .Temporal.Jitter unchanged (only the A1c indirect attenuation needs them 0)."));
 	}
 	else if (!PreviewPreviousValues.IsEmpty())
 	{

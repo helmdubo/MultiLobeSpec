@@ -59,9 +59,13 @@ namespace
         TEXT("J (slab 0) and uncollided slab 1 of empty cells lose their direct part, and both are interpolated into neighbouring fog by the ")
         TEXT("reconstruction and the injection field. 0 (default) computes every cell."), ECVF_RenderThreadSafe);
     TAutoConsoleVariable<int32> CVarDirectSamples(TEXT("r.FogMS.Transport.DirectSamples"), 4,
-        TEXT("Pass 2 subcell points per cell for the direct light (and hybrid T_sun). 8; default 4 all corners of the half-cell lattice; 4 one ")
-        TEXT("tetrahedron of them, alternating with the complementary tetrahedron on every solve (half the shadow rays; the direct term then ")
-        TEXT("changes between successive solves where the two disagree). Other values: 8."), ECVF_RenderThreadSafe);
+        TEXT("Pass 2 subcell points per cell for DIRECTIONAL lights (the sun; also the hybrid Direct_sun and T_sun). 4 (default): one ")
+        TEXT("tetrahedron of the 8 half-cell-lattice corners, alternating with the complementary tetrahedron on every solve (half the sun ")
+        TEXT("shadow rays). 8: all corners. Point and spot lights always use all 8 points: alternating them made a spot beam narrower than ")
+        TEXT("a cell flicker as a square wave with period 2*SolveInterval frames (about +-20 % of its glow, overlay delivery; round 34). ")
+        TEXT("Caveat of 4: where the two sun tetrahedra disagree (sharp sun-shadow edges inside the cloud) the direct term still ")
+        TEXT("alternates between solves (round 25: 1 % of the field between two solves); set 8 if that flickers. Other values: 8."),
+        ECVF_RenderThreadSafe);
 
 #if RHI_RAYTRACING
     // Bit 29 of the engine's Lumen hit-group user data (CalculateLumenHardwareRayTracingUserData,
@@ -450,8 +454,8 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FSceneView
     }
     if (OutSunTransmittance)
     {
-        // Hybrid injection: pass 2 also writes T_sun per cell (8 subcell points, same RT shadow ray and medium
-        // march as Direct, atmosphere sun only). Created only for a hybrid publish; pass 17 reads it via RDG.
+        // Hybrid injection: pass 2 also writes T_sun per cell (the sun's DirectSamples subcell points, same RT shadow ray
+        // and medium march as the sun's Direct term, atmosphere sun only). Created only for a hybrid publish; pass 17 reads it via RDG.
         FRDGTextureRef SunTransmittance = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(FIntVector(TransportGridSize), PF_FloatRGBA,
             FClearValueBinding::None, Flags), TEXT("FogMS.Transport.SunTransmittance"));
         auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct); P.OutSunTransmittance = GraphBuilder.CreateUAV(SunTransmittance);

@@ -1102,7 +1102,9 @@ void AFogMSBoxVolume::EnableLiveBox()
 void AFogMSBoxVolume::EnableIndirectPreview()
 {
 	bIndirectShadowing = true;
-	FFogMSBoxRuntime::ConfigureIndirectPreview(true);
+	// Transport modes never enable the A1c TLV attenuation (packet row 7.x = 0) and do not read the translucency volume, so
+	// their preview leaves r.Lumen.TranslucencyVolume.SpatialFilter / .Temporal.Jitter at the project values (see PreviewSettings).
+	FFogMSBoxRuntime::ConfigureIndirectPreview(true, !FogMS_IsTransportMode(ScatteringMode));
 	EnableLiveBox();
 }
 

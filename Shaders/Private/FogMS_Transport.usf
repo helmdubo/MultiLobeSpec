@@ -41,8 +41,9 @@ int TestBoundary;
 float TestTau;
 float TestAlbedo;
 // Pass 2 trims (runtime branches, no permutation). DirectSkipEmpty != 0: a cell whose pass-0 sigma_t is 0 traces no
-// rays (Direct = 0; hybrid Direct_sun = 0, T_sun = 1). DirectSamples 4: four subcell points instead of eight, the
-// tetrahedron {0,3,5,6} of the corner bit pattern on even FogMSSolveParity and its complement {1,2,4,7} on odd.
+// rays (Direct = 0; hybrid Direct_sun = 0, T_sun = 1). DirectSamples 4: DIRECTIONAL lights (the sun) at four subcell
+// points instead of eight, the tetrahedron {0,3,5,6} of the corner bit pattern on even FogMSSolveParity and its
+// complement {1,2,4,7} on odd; point and spot lights always at all eight (see pass 2).
 int DirectSkipEmpty;
 int DirectSamples;
 uint FogMSSolveParity;
@@ -305,29 +306,38 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
     // it does reach slab 0 (Total) / slab 1 (Base) that the reconstruction and pass 17 interpolate, hence opt-in.
     const bool Empty=DirectSkipEmpty!=0&&Coefficients.Load(int4(C,0)).a<=0.f;
 #if FOGMS_TRANSPORT_HYBRID
-    // T_sun: same subcell points, shadow ray and medium march as Direct, for the atmosphere sun only
-    // (FogMSWorldSunLightIndex from FogMS_GetWorldSources). No sun in the list, test inputs or a skipped empty cell: T_sun = 1.
+    // T_sun: same subcell points (the sun's: DirectSamples), weights, shadow ray and medium march as the sun's Direct term,
+    // for the atmosphere sun only (FogMSWorldSunLightIndex from FogMS_GetWorldSources), so Direct_sun is exactly the sun's
+    // part of Direct. No sun in the list, test inputs or a skipped empty cell: T_sun = 1.
     float SunT=0; float3 SunDirect=0;
     const bool HasSun=TestMode==0&&!Empty&&FogMSWorldSunLightIndex>=0&&uint(FogMSWorldSunLightIndex)<FogMS_WorldLightCount();
 #endif
     if(TestMode==0&&!Empty)
     {
-        // Weight 1/Samples, exact powers of two: at 8 the sums are bit-identical to the former "/8.f".
-        const uint Samples=DirectSamples==4?4u:8u;
-        const float Weight=Samples==4u?.25f:.125f;
+        // Eight subcell points K = 0..7 (the .25/.75 corners). Local (point/spot) lights: all eight, weight 1/8, always.
+        // Directional lights (the sun): DirectSamples 4 keeps one regular tetrahedron of them, {0,3,5,6} (even bit count)
+        // on even solves and {1,2,4,7} (odd) on odd solves, weight 1/4: exact for linear and quadratic terms, the two
+        // differ in the sign of the xyz term, which cancels over two solves. A local beam narrower than a cell (a 4.8 deg
+        // spot vs 7 m cells) lit the two tetrahedra very differently: a square wave of period 2*SolveInterval frames, about
+        // +-20 % of the spot glow, and a mean ~6 % low (round 34 D3); hence local lights never alternate. The sun is
+        // uniform across a cell up to shadow edges and the medium gradient (round 25: 0.5 % field error, 1 % between solves).
+        // Weights are exact powers of two: at DirectSamples 8 (all lights, all points, same order) the sums are
+        // bit-identical to the former "/8.f". The branch below is uniform per wave (K, Light and the uniforms).
+        const bool SunTetrahedron=DirectSamples==4;
+        const float SunWeight=SunTetrahedron?.25f:.125f;
         UNROLL for(uint K=0;K<8;++K)
         {
-            if(K>=Samples) break;
-            // 8: Sample = K (the unchanged order). 4: K -> 0,3,5,6 (even bit counts: K*2 | parity(K)), XOR 7 on odd
-            // solves -> 7,4,2,1. Each is a regular tetrahedron of the .25/.75 corners centred on the cell (exact for
-            // linear and quadratic terms); the two differ in the sign of the xyz term, which cancels over two solves.
-            uint Sample=Samples==8u?K:(((K<<1)|(countbits(K)&1u))^((FogMSSolveParity&1u)*7u));
-            float3 Offset=float3(Sample&1,(Sample>>1)&1,(Sample>>2)&1)*.5f+.25f;
+            const bool SunPoint=!SunTetrahedron||((countbits(K)^FogMSSolveParity)&1u)==0u;
+            float3 Offset=float3(K&1,(K>>1)&1,(K>>2)&1)*.5f+.25f;
             float3 P=World((float3(C)+Offset)*CellSize-Extent());
             LOOP for(uint Light=0;Light<FogMS_WorldLightCount();++Light)
             {
                 float3 D,J; float Distance; bool Shadow;
                 FogMS_WorldLight(Light,P,D,Distance,J,Shadow);
+                // FogMS_WorldLight returns Distance 1e27 for a directional light; a local light's is its real distance.
+                const bool Directional=Distance>=1.e26f;
+                if(Directional&&!SunPoint) continue;
+                const float Weight=Directional?SunWeight:.125f;
 #if FOGMS_TRANSPORT_HYBRID
                 if(HasSun&&Light==uint(FogMSWorldSunLightIndex))
                 {

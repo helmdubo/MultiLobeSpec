@@ -56,7 +56,7 @@ J минус нерассеянное солнце, то есть небо с е
 | `r.RayTracing.Culling 0` (по умолчанию в движке 3) и `r.Lumen.AsyncCompute 0` (по умолчанию 1) | Иначе «World requires r.RayTracing.Culling=0 (now 3)…». Box ставит их сам, см. «Кто ставит cvar» |
 | `r.LumenScene.GPUDrivenUpdate 0` (так по умолчанию в 5.8) | Проверяется |
 | `r.RayTracing.Nanite.Mode 0` (так по умолчанию) | Нужен только для `bounce: Lumen`, иначе откат |
-| Exponential Height Fog с Volumetric Fog | Scattering Distribution = 0 нужна только overlay-доставке («Overlay scattering requires fog Scattering Distribution=0…»). С Emissive Injection допустим прямой лепесток |
+| Exponential Height Fog с Volumetric Fog | **Ненулевая `Scattering Distribution` тумана требует `Emissive Injection`.** Без инъекции (overlay) нужна 0, иначе поле Box выключается целиком: статус «Overlay scattering requires fog Scattering Distribution=0 (now 0.7): enable Emissive Injection to use a non-zero fog phase.» |
 | Один вид реального времени: не Scene Capture, не стерео | Иначе «World lighting requires one real-time perspective view…» |
 | SkyLight в режиме **Real Time Capture**, если есть смена дня и ночи | Статический SkyLight ночью остаётся «дневным» (раздел 7) |
 
@@ -72,8 +72,17 @@ J минус нерассеянное солнце, то есть небо с е
 «World requires r.RayTracing.Culling=0 (now 3). A higher-priority value (SetByConsole) was kept…». Поставьте 0 сами.
 Значения остаются до конца процесса/сессии редактора и после выключения Box. В редакторском мире с `-BindlessAll`
 (там Box запускает кнопка **Enable Live Box**), для overlay-Box и режима World по-прежнему нужна **Enable Indirect
-Preview** (она меняет и Lumen Translucency Volume до конца сессии; вернуть — **Restore Standard Lumen**) или оба cvar
-в `DefaultEngine.ini`.
+Preview** (она меняет и настройки Lumen Translucency Volume до конца сессии; вернуть — **Restore Standard Lumen**) или
+оба cvar в `DefaultEngine.ini`.
+
+**Translucency Volume и Transport (раунд 35).** Для Box в режиме Transport кнопка **Enable Indirect Preview** больше
+не ставит `r.Lumen.TranslucencyVolume.SpatialFilter 0` и `r.Lumen.TranslucencyVolume.Temporal.Jitter 0`: остаются
+значения проекта (в движке по умолчанию 1 и 1). Эти два нуля нужны только ослаблению A1c (`Indirect Shadowing` вне
+режимов Transport): оно гасит каждый луч Translucency Volume средой Box по длине именно этого луча.
+Transport Translucency Volume не читает, а выключенный фильтр делал штатный Lumen GI тумана блочным (сине-коричневые
+квадраты при `Scattering Distribution` 0,7, раунд 34). Если в текущей сессии они уже 0 (прошлая сборка или Box с A1c),
+верните `r.Lumen.TranslucencyVolume.SpatialFilter 1` и `r.Lumen.TranslucencyVolume.Temporal.Jitter 1` в консоли или
+перезапустите редактор.
 
 **Редактор без `-BindlessAll`.** Если у Box включена `Emissive Injection`, редактор можно запускать с одними
 `-d3d12 -sm6`: Box запускается сам, cvar ставит сам. Overlay-путь по-прежнему требует `-BindlessAll`. Box без
@@ -113,6 +122,9 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
    в `BeginPlay`. Нажимать ничего не нужно.
 6. По желанию включите `Hybrid Single Scattering`. Для заметного ореола солнца поставьте у тумана
    `Scattering Distribution` ≈ 0,3–0,6 (предложение, не измерено). На полное поле без гибрида она не влияет.
+   **И гибрид, и ненулевая `Scattering Distribution` работают только с включённой `Emissive Injection`.** Без неё
+   галка гибрида ничего не делает (статус `[Hybrid Single Scattering is ignored: enable Emissive Injection]`, одно
+   предупреждение в логе), а ненулевая фаза тумана выключает поле Box целиком (раздел 2).
 7. Если статус показывает `bounce: fallback`, задайте `Fallback Ground Albedo` под землю локации (раздел 4).
 8. Анимация: `World Aligned Texture` = вкл. (без него анимация не работает, статус «Static: animation requires World
    Aligned Texture»), затем `Animate Density` = вкл. Направление ветра задаётся поворотом стрелки `WindDirectionComponent`,
@@ -137,7 +149,7 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
 | `Transport Iterations` | До N итераций решателя за кадр (1…64). Благодаря warm start решение продолжается между кадрами | 2–4 уже рабочий бюджет. 96 направлений: 4 ит. — 11,1 мс, 16 ит. — 28,1 мс |
 | `Transport Tolerance` (Advanced) | Порог сходимости: когда он достигнут, оставшиеся итерации кадра пропускаются. −1 — взять из `r.FogMS.Transport.Tolerance` | 1e-4 слишком грубо (тусклые ячейки до 3–8 %), 1e-6 рабочий, 1e-8 для High. 16 направлений: 2,3 / 3,4 / 5,2 мс |
 | `Emissive Injection` | Доставляет J через Volume-материал Box (раздел 1) | На ~0,7 мс дешевле overlay в `LightScattering` (1,575 → 0,870 мс). Единственный путь без `-BindlessAll` |
-| `Hybrid Single Scattering` | Прямое солнце рендерит штатный туман, остальное идёт через поле | +0,02 мс к полной инъекции. Внутри Box на 1,5–2 % ярче overlay |
+| `Hybrid Single Scattering` | Прямое солнце рендерит штатный туман, остальное идёт через поле. **Только с `Emissive Injection`**, без неё игнорируется (статус и лог это говорят) | +0,02 мс к полной инъекции. Внутри Box на 1,5–2 % ярче overlay |
 | `Lumen Bounce` | Свет поверхностей, в которые упираются граничные лучи решателя. Auto — Lumen surface cache (сборка 5.8.2, кэш готов), иначе откат. Off — всегда откат: `Fallback Ground Albedo` × (солнце × тень × пропускание среды Box + SH-небо) | Откат против Lumen: в облаке на 3–5 % светлее (раунд 25, до ослабления средой) |
 | `Fallback Ground Albedo` | Линейный цвет земли для отката, по умолчанию серый 0,3. Не действует при `bounce: Lumen` | По локации: снег ~0,8, трава ~0,15, почва/камень 0,2–0,3. Правка пересчитывает поле и один раз сбрасывает историю тумана |
 | `Apply Required Render Settings` | Ставит два обязательных cvar: в игре в `BeginPlay`, в редакторе/PIE/Simulate при самозапуске Box с инъекцией (раздел 2) | Держать вкл., если проект сам не задаёт эти cvar |
@@ -189,7 +201,7 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
 | `r.FogMS.Transport.SunAligned` | 1 | Поворачивает набор направлений на солнце. При 16 направлениях ошибка падает с 3,1 до 2,5 % |
 | `r.FogMS.Transport.SkipConverged` | 1 | Не трогать |
 | `r.FogMS.Transport.SweepThreads` | 1024 | 256/512/1024. Результат тот же, 1024 быстрее на ~6 % |
-| `r.FogMS.Transport.DirectSamples` | 4 | Точек прямого света на ячейку: 4 — тетраэдр, чередуется между решениями; 8 — все углы |
+| `r.FogMS.Transport.DirectSamples` | 4 | Точек на ячейку для **солнца** (directional; в гибриде также T_sun): 4 — тетраэдр, чередуется между решениями; 8 — все углы. Point и spot с раунда 35 всегда считаются по 8 точкам: при чередовании луч уже ячейки (spot 4,8° против ячейки 7 м) мигал прямоугольной волной с периодом 2·`SolveInterval` кадров (±20 % свечения, раунд 34). Если мигает граница солнечной тени внутри облака, ставьте 8 |
 | `r.FogMS.Transport.DirectSkipEmpty` | 0 | Только диагностика: 1 затемняет края тумана |
 | `r.FogMS.World.SkySource` | 0 | 0 авто: Real Time Capture + SkyAtmosphere → Sky View LUT; статический захват → публичная кубмапа; иначе SH. 2/3/4 — принудительно LUT/кубмапа/SH (недоступный → SH). 1 = 0 с предупреждением в логе. Источник — в статусе `[sky: …]` |
 | `r.FogMS.World.SkyLutSamples` | 5 | Выборок Sky View LUT на сектор (1…13) |
@@ -227,7 +239,9 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
   ~25 МБ при 48 направлениях и ~50 МБ при 96.
 - **`SolveInterval 2` (по умолчанию):** на кадрах удержания решатель стоит 0,00 мс. Картинка против N = 1 — 46 дБ
   при N = 2 и 44 дБ при N = 4.
-- **`DirectSamples 4` (по умолчанию):** проход 2 на графической очереди 0,313 → 0,107 мс, поле в пределах 0,5 % от 8 точек.
+- **`DirectSamples 4` (по умолчанию):** проход 2 на графической очереди 0,313 → 0,107 мс, поле в пределах 0,5 % от 8 точек
+  (раунд 25, тогда 4 точки получали все источники). С раунда 35 4 точки только у солнца, point/spot — по 8: оценка
+  +0,01–0,02 мс на узкий spot (лучи идут только из ячеек внутри его конуса), не больше +0,1 мс (не измерено).
 - **Гибрид:** стоит столько же, сколько полная инъекция (+0,02 мс).
 - **Штатный туман** при 4 px / 208 слоях стоит ещё ~5–6 мс. Отчёт предполагает для продакшена 8–16 px.
 
@@ -255,6 +269,10 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
   пересчёт (локальные источники, небо, Lumen, фаза анимации плотности), приходят с задержкой до N−1 кадров
   (по умолчанию один). Движение солнца пересчитывается каждый кадр. При инъекции J ещё проходит через штатную
   временную историю тумана, поэтому отклик на смену света сглажен.
+- **Мигание spot/point внутри облака (правка раунда 35, в редакторе ещё не проверено).** Было при `DirectSamples 4`:
+  узкий луч мигал с периодом 2·`SolveInterval` кадров (6 Гц при 24 fps) и был в среднем на ~6 % темнее. Теперь
+  локальные источники всегда считаются по 8 точкам. Солнце по-прежнему чередует тетраэдры; если на резкой границе его тени в облаке видно мигание,
+  `r.FogMS.Transport.DirectSamples 8`.
 - **Лампа внутри облака при гибриде.** Штатная часть однократного рассеяния от лампы тоже умножается на T_sun·k;
   остальной её свет идёт через поле 32³, без теней на разрешении фрокселей. Как это выглядит, (не проверено).
 - **Приближения гибрида:** k считается по яркости, а не по каналам. Небо из штатного пути (SH Lumen) частично
