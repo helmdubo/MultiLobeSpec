@@ -1,0 +1,10 @@
+SAVED E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-aud
+AUTHORED | {'density': '1.600000023841858', 'threshold': '0.550000011920929', 'softness': '0.15000000596046448', 'detail_strength': '0.20000000298023224', 'detail_scale': '2.0', 'density_edge_feather': '12000.0', 'erosion_strength': '0.0', 'height_profile': 'True', 'height_profile_preset': '<FogMSHeightProfilePreset.CUMULUS: 2>', 'emissive_injection': 'True', 'hybrid_single_scattering': 'True'}
+CLOUDS | hidden 1
+authored     filled 12969 (40%) core>50%peak 1134 | sigma/cm p50 0.00086 p90 0.00726 max 0.01594 | J p50 3.17 | MS gain Total/Primary 3.50
+noprofile    filled 24139 (74%) core>50%peak 1446 | sigma/cm p50 0.00063 p90 0.00595 max 0.01594 | J p50 3.45 | MS gain Total/Primary 3.60
+feather500   filled 24336 (74%) core>50%peak 12724 | sigma/cm p50 0.00860 p90 0.01600 max 0.01600 | J p50 2.31 | MS gain Total/Primary 11.74
+thr045       filled 29583 (90%) core>50%peak 20968 | sigma/cm p50 0.01260 p90 0.01600 max 0.01600 | J p50 1.81 | MS gain Total/Primary 21.22
+detail0      filled 29543 (90%) core>50%peak 20868 | sigma/cm p50 0.01252 p90 0.01600 max 0.01600 | J p50 1.81 | MS gain Total/Primary 21.59
+dens05       filled 29523 (90%) core>50%peak 20868 | sigma/cm p50 0.00392 p90 0.00500 max 0.00500 | J p50 2.99 | MS gain Total/Primary 14.11
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterat
