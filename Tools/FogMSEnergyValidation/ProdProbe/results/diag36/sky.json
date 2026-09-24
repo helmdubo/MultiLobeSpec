@@ -1,0 +1,193 @@
+{
+ "orig": {
+  "sun": {
+   "cast_cloud_shadows": false,
+   "cast_shadows_on_atmosphere": false,
+   "cloud_shadow_strength": 1.0,
+   "cloud_shadow_on_atmosphere_strength": 1.0,
+   "cloud_shadow_on_surface_strength": 1.0
+  },
+  "vc": {
+   "layer_bottom_altitude": 11.609552383422852,
+   "layer_height": 10.0
+  },
+  "hf": {
+   "volumetric_fog_scattering_distribution": 0.0,
+   "fog_density": 0.0010000000474974513
+  }
+ },
+ "sun_travel_yaw": -52.59599015578139,
+ "views": {
+  "against": [
+   [
+    13250.600216478217,
+    -9276.840141078248,
+    2500.0
+   ],
+   [
+    8.0,
+    137.40400984421862,
+    0.0
+   ]
+  ],
+  "ground": [
+   [
+    -13363.491577268827,
+    20382.186450832603,
+    9000.0
+   ],
+   [
+    -18.0,
+    -52.59599015578139,
+    0.0
+   ]
+  ],
+  "mine": [
+   [
+    -282.70751614825076,
+    8738.93414348489,
+    2438.480836716684
+   ],
+   [
+    4.075094774365425,
+    243.93856991827488,
+    0.0
+   ]
+  ]
+ },
+ "cfg": {
+  "S0_now": {
+   "props": {},
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+   "against": {
+    "mean": 122.6
+   },
+   "ground": {
+    "mean": 165.75
+   },
+   "mine": {
+    "mean": 191.88
+   }
+  },
+  "S1_cloud_shadows": {
+   "props": {
+    "sun": {
+     "cast_cloud_shadows": true,
+     "cast_shadows_on_atmosphere": true,
+     "cloud_shadow_strength": 1.0,
+     "cloud_shadow_on_atmosphere_strength": 1.0,
+     "cloud_shadow_on_surface_strength": 1.0
+    }
+   },
+   "status": "Transport unavailable; native lighting with authored density (emissive injection field cleared): B1 world source 'DirectionalLight': native volumetric-cloud shadow visibility is not bound [tau core ~1",
+   "against": {
+    "mean": 135.46
+   },
+   "ground": {
+    "mean": 143.17
+   },
+   "mine": {
+    "mean": 152.11
+   }
+  },
+  "S2_shadows_low_clouds": {
+   "props": {
+    "sun": {
+     "cast_cloud_shadows": true,
+     "cast_shadows_on_atmosphere": true,
+     "cloud_shadow_strength": 1.0,
+     "cloud_shadow_on_atmosphere_strength": 1.0,
+     "cloud_shadow_on_surface_strength": 1.0
+    },
+    "vc": {
+     "layer_bottom_altitude": 1.5,
+     "layer_height": 3.0
+    }
+   },
+   "status": "Transport unavailable; native lighting with authored density (emissive injection field cleared): B1 world source 'DirectionalLight': native volumetric-cloud shadow visibility is not bound [tau core ~1",
+   "against": {
+    "mean": 126.46
+   },
+   "ground": {
+    "mean": 146.78
+   },
+   "mine": {
+    "mean": 147.8
+   }
+  },
+  "S3_+fog_g07": {
+   "props": {
+    "sun": {
+     "cast_cloud_shadows": true,
+     "cast_shadows_on_atmosphere": true,
+     "cloud_shadow_strength": 1.0,
+     "cloud_shadow_on_atmosphere_strength": 1.0,
+     "cloud_shadow_on_surface_strength": 1.0
+    },
+    "vc": {
+     "layer_bottom_altitude": 1.5,
+     "layer_height": 3.0
+    },
+    "hf": {
+     "volumetric_fog_scattering_distribution": 0.7
+    }
+   },
+   "status": "Transport unavailable; native lighting with authored density (emissive injection field cleared): B1 world source 'DirectionalLight': native volumetric-cloud shadow visibility is not bound [tau core ~1",
+   "against": {
+    "mean": 138.24
+   },
+   "ground": {
+    "mean": 125.74
+   },
+   "mine": {
+    "mean": 129.17
+   }
+  },
+  "S4_+haze_x3": {
+   "props": {
+    "sun": {
+     "cast_cloud_shadows": true,
+     "cast_shadows_on_atmosphere": true,
+     "cloud_shadow_strength": 1.0,
+     "cloud_shadow_on_atmosphere_strength": 1.0,
+     "cloud_shadow_on_surface_strength": 1.0
+    },
+    "vc": {
+     "layer_bottom_altitude": 1.5,
+     "layer_height": 3.0
+    },
+    "hf": {
+     "volumetric_fog_scattering_distribution": 0.7,
+     "fog_density": 0.003000000142492354
+    }
+   },
+   "status": "Transport unavailable; native lighting with authored density (emissive injection field cleared): B1 world source 'DirectionalLight': native volumetric-cloud shadow visibility is not bound [tau core ~1",
+   "against": {
+    "mean": 137.59
+   },
+   "ground": {
+    "mean": 126.02
+   },
+   "mine": {
+    "mean": 130.4
+   }
+  }
+ },
+ "restored": {
+  "sun": {
+   "cast_cloud_shadows": false,
+   "cast_shadows_on_atmosphere": false,
+   "cloud_shadow_strength": 1.0,
+   "cloud_shadow_on_atmosphere_strength": 1.0,
+   "cloud_shadow_on_surface_strength": 1.0
+  },
+  "vc": {
+   "layer_bottom_altitude": 11.609552383422852,
+   "layer_height": 10.0
+  },
+  "hf": {
+   "volumetric_fog_scattering_distribution": 0.0,
+   "fog_density": 0.0010000000474974513
+  }
+ }
+}
