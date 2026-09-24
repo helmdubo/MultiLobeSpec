@@ -204,10 +204,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="Hybrid Single Scattering", EditCondition="bEmissiveInjection && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ToolTip="Experimental Emissive Injection split (v2): native volumetric fog renders the direct SUN single scattering (shadow maps, froxel resolution, fog Scattering Distribution phase); the field carries everything else: total incident J minus the uncollided sun term (sky with its aureole, local lights and all multiple scattering stay in the solver, with per-direction self-shadowing). Field alpha = 0.5 + 0.5 * T_sun * k, where T_sun is the solver's per-cell sun transmittance (medium + ray-traced geometry) and k the sun's share of the uncollided light, so native single scattering (which always adds sun + sky + local lights) contributes about the sun part only. At night k -> 0 and the Box behaves like full-field injection. Approximation: k is a luminance ratio; a local light inside the cloud is also scaled by T_sun*k. Requires the material to implement FogMS_InjectionMode 2."))
 	bool bHybridSingleScattering = false;
 
-	/** Game worlds only (packaged or -game; not PIE/editor): BeginPlay of an enabled Transport/World Box sets the solver's
-	 * renderer requirements at ECVF_SetByGameSetting priority, below every project/ini/command-line value. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ToolTip="In a game world (packaged or -game; not PIE or the editor), BeginPlay of an enabled Transport/World Box sets r.RayTracing.Culling 0 and r.Lumen.AsyncCompute 0, which the transport solver requires (engine defaults 3 and 1), and logs the previous values. Uses game-setting priority: a value set by the project ini, device profile or command line is kept (and reported). Off = the project owns these cvars. The editor keeps Enable Indirect Preview."))
+	/** Sets the solver's renderer requirements at ECVF_SetByGameSetting priority, below every project/ini/device-profile/
+	 * command-line/console value: game worlds (packaged or -game) at BeginPlay of an enabled Transport/World Box; the editor
+	 * (editor world, PIE, Simulate) when an enabled Transport Box with Emissive Injection starts its runtime itself
+	 * (AutoStartRuntime / BeginPlay). Once per actor instance, one log line; not restored when the Box stops. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ToolTip="Sets r.RayTracing.Culling 0 and r.Lumen.AsyncCompute 0, which the transport solver requires (engine defaults 3 and 1), and logs the previous values in one line. Game world (packaged or -game): at BeginPlay of an enabled Transport/World Box. Editor: when an enabled Transport Box with Emissive Injection starts itself (first editor tick without -BindlessAll, or BeginPlay in PIE/Simulate), so Enable Indirect Preview is not needed there. Uses game-setting priority everywhere: a value set by the project ini, device profile, command line or console (in the editor also a value restored by Restore Standard Lumen) is kept and reported, and Transport stays off with a status naming it; set such a value to 0 yourself. Not restored when the Box stops: the values stay for the game process / editor session. Off = the project owns these cvars (editor: Enable Indirect Preview)."))
 	bool bApplyRequiredRenderSettings = true;
+
+	/** Debug view: MID FogMS_InjectionMode 3 while Emissive Injection is active (FDensityState::bFieldOnlyInjection). The solver
+	 * then publishes the FULL field (row 23.w 5, like mode 1), also when Hybrid Single Scattering is on: the hybrid field lacks
+	 * the uncollided sun term, so it could not show the whole solver contribution. Default off: MID and packet unchanged. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Debug", meta=(DisplayName="Field Only (Debug)", EditCondition="bEmissiveInjection && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ToolTip="Debug view for Emissive Injection: the solver's contribution alone. Native single scattering of this Box is off (material BaseColor 0, also while no field is published), extinction is unchanged, and Emissive = sigma_s * J of the full field (Hybrid Single Scattering is overridden while this is on). A Box without a current field renders black. Requires the material to implement FogMS_InjectionMode 3 (matedit_density.py, field contract v4); an older material lights this Box twice. Off = normal rendering."))
+	bool bDebugFieldOnly = false;
 
 	/** Transport field for Emissive Injection: 32^3 PF_FloatRGBA, scene-linear, not pre-exposed.
 	 * Texel (x,y,z) is Box-local cell (x,y,z) along the Box rotation axes, cell centres at half texels:
@@ -228,6 +236,13 @@ public:
 	bool IsEmissiveInjectionActive() const { return LastDensityState.bActive && LastDensityState.bEmissiveInjection; }
 	/** Effective hybrid split (FogMS_InjectionMode 2, packet row 23.w 6) from the last UpdateDensity; implies IsEmissiveInjectionActive(). */
 	bool IsHybridInjectionActive() const { return IsEmissiveInjectionActive() && LastDensityState.bHybridInjection; }
+	/** Effective debug view (FogMS_InjectionMode 3, full field, row 23.w 5) from the last UpdateDensity. */
+	bool IsFieldOnlyDebugActive() const { return IsEmissiveInjectionActive() && LastDensityState.bFieldOnlyInjection; }
+	/** This actor instance ran Apply Required Render Settings (game BeginPlay or an automatic runtime start). */
+	bool HasAppliedRequiredRenderSettings() const { return bRequiredRenderSettingsApplied; }
+	/** CPU upper bound of the optical depth through the Box centre (definition at the implementation); negative without
+	 * an active density source. Re-evaluated at most once per second (wall clock). */
+	float GetCoreOpticalDepthEstimate() const;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS|Scattering")
 	FString SpatialStatus = TEXT("Off");
@@ -453,6 +468,8 @@ private:
 		bool bEmissiveInjection = false;
 		/** bEmissiveInjection with bHybridSingleScattering: MID FogMS_InjectionMode 2. */
 		bool bHybridInjection = false;
+		/** bEmissiveInjection with bDebugFieldOnly: MID FogMS_InjectionMode 3, full field (bHybridInjection false). */
+		bool bFieldOnlyInjection = false;
 		TWeakObjectPtr<UTextureRenderTargetVolume> InjectionField;
 		TWeakObjectPtr<UVolumeTexture> Texture;
 		const FTextureResource* TextureResource = nullptr;
@@ -514,10 +531,20 @@ private:
 	bool bUpdatingDensity = false;
 	/** Injection-only runtime (no BindlessAll) started by this actor itself (editor tick or BeginPlay). */
 	bool bRuntimeAutoStarted = false;
+	/** Apply Required Render Settings ran for this actor instance (at most once). */
+	bool bRequiredRenderSettingsApplied = false;
+	/** GetCoreOpticalDepthEstimate cache: FPlatformTime::Seconds of the last evaluation (0 = never) and its value. */
+	mutable double CoreOpticalDepthTime = 0.0;
+	mutable float CoreOpticalDepth = -1.0f;
 	FString LastDensityProblem;
 
-	/** Injection-only configuration: starts the Box runtime once without user action (no global state changes). */
+	/** Injection-only configuration: starts the Box runtime once without user action (the only global state it changes
+	 * is Apply Required Render Settings). */
 	void AutoStartRuntime();
+	/** Automatic runtime start (AutoStartRuntime, BeginPlay): Apply Required Render Settings once, then EnableLiveBox. */
+	void StartRuntimeAutomatically(const TCHAR* Context);
+	/** bApplyRequiredRenderSettings: runs the shared cvar helper once per actor instance; Context names the caller in the log. */
+	void ApplyRequiredRenderSettingsOnce(const TCHAR* Context);
 	/** Writes AngularQuality/TransportIterations/TransportTolerance from TransportPreset unless it is Custom. */
 	void ApplyTransportPreset();
 	/** Editor: writes the five height-profile values of HeightProfilePreset and enables it; None writes nothing. */
