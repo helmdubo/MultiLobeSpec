@@ -1,0 +1,35 @@
+SAVED E:\GITHUB\MultiLobeSpec\MultiLobeSpec\.claude\worktrees\volumetric-fog-multiple-scattering-audit-494905\Tools\FogM
+CAM0 | (7330.371791, 18172.743377, 7049.5344, -13.924907, -117.461445, -1e-06)
+CLOUDS | hidden 1
+CAM_IN | <Struct 'Vector' (0x0000019F31470B00) {x: -3414.089947, y: 2905.859471, z: 12128.133747}> <Struct 'Vector' (0x0000019F31470B50) {x: 13668.505834, y: 10764.880839, z: 12957.495072}>
+I1 as-is | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum
+SHOT I1_asis
+I2 indirect 0 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum
+SHOT I2_indirect0
+I3 indirect 1 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum
+SHOT I3_indirect1
+I4 mode off | Off
+SHOT I4_mode_off
+I5 mode on | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum
+SHOT I5_mode_on
+I6 indirect 0 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum
+SHOT I6_indirect0
+I7 indirect 1 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv
+SHOT I7_indirect1
+CAM_OUT | <Struct 'Vector' (0x0000019F3144BAD0) {x: -21866.572824, y: 2905.859471, z: 19902.630790}>
+O1 as-is | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum
+SHOT O1_asis
+O2 indirect 0 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum
+SHOT O2_indirect0
+O3 indirect 1 | Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum
+SHOT O3_indirect1
+CAM restore | ok
+RESTORED {'transport_preset': '<FogMSTransportPreset.PRODUCTION: 0>', 'angular_quality': '<FogMSAngularQuality.LOW16: 2>', 'transport_iterations': '16', 'transp
+I2_indirect0  vs I1_asis: PSNR  52.5 dB | mean ratio 0.9999 | mean abs diff 0.32/255
+I3_indirect1  vs I1_asis: PSNR  52.5 dB | mean ratio 1.0000 | mean abs diff 0.32/255
+I4_mode_off   vs I1_asis: PSNR  51.4 dB | mean ratio 0.9997 | mean abs diff 0.40/255
+I5_mode_on    vs I1_asis: PSNR  52.5 dB | mean ratio 1.0001 | mean abs diff 0.32/255
+I6_indirect0  vs I1_asis: PSNR  52.5 dB | mean ratio 0.9999 | mean abs diff 0.32/255
+I7_indirect1  vs I1_asis: PSNR  52.5 dB | mean ratio 1.0000 | mean abs diff 0.32/255
+O2_indirect0  vs O1_asis: PSNR  33.8 dB | mean ratio 0.9916 | mean abs diff 1.29/255
+O3_indirect1  vs O1_asis: PSNR  52.1 dB | mean ratio 1.0000 | mean abs diff 0.33/255
