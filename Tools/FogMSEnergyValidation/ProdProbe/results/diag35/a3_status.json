@@ -1,0 +1,15 @@
+{
+ "hyb_on": "Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+ "hyb_on_later": "Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound] [Hybrid Single Scattering is ignored: enable Emissive Injection]",
+ "log_warnings_after_on": 1,
+ "log_warnings_after_6s": 1,
+ "hyb_off": "Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound] [Hybrid Single Scattering is ignored: enable Emissive Injection]",
+ "g07_status": "Overlay scattering requires fog Scattering Distribution=0 (now 0.7): enable Emissive Injection to use a non-zero fog phase. [tau core ~153, upper bound]",
+ "g0_status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+ "log_ignored_lines_total_before": 0,
+ "log_lines": [
+  "[2026.09.24-20.20.06:246][941]LogMultiLobeSpec: Warning: FogMS FogMS - Live Box: Hybrid Single Scattering is ignored: enable Emissive Injection (without it the Box uses the overlay delivery, which also requires fog Scattering Distribution=0).",
+  "[2026.09.24-20.20.09:337][ 30]LogPython: Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound] [Hybrid Single Scattering is ignored: enable Emissive Injection]",
+  "[2026.09.24-20.20.12:578][124]LogPython: Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound] [Hybrid Single Scattering is ignored: enable Emissive Injection]"
+ ]
+}

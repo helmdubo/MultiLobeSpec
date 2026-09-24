@@ -1,0 +1,17 @@
+{
+ "inj_on": "Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+ "inj_on_status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+ "fo_on": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+ "fo_on_status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound] [debug: field only, full J, native single scattering off]",
+ "fo_off": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound] [debug: field only, full J, native single scattering off]",
+ "restored_status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+ "a4_fieldonly_off_mean": 156.91,
+ "a4_fieldonly_on_mean": 156.99,
+ "hyb_status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+ "hyb_fo_status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound] [debug: field only, full J, native single scattering off]",
+ "hyb_restored_status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+ "hyb_vs_fo_absdiff_mean_p99": [
+  5.08,
+  16.4
+ ]
+}

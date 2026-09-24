@@ -1,0 +1,137 @@
+{
+ "cfg": {
+  "L0_now_overlay": {
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+   "g": 0.0,
+   "mine": {
+    "mean_roi": 186.06,
+    "roi_frac": 0.815,
+    "ratio_vs_L0": 1.0
+   },
+   "backlit": {
+    "mean_roi": 168.42,
+    "roi_frac": 0.733,
+    "ratio_vs_L0": 1.0
+   },
+   "sunbehind": {
+    "mean_roi": 117.94,
+    "roi_frac": 0.953,
+    "ratio_vs_L0": 1.0
+   }
+  },
+  "L1_inj_hyb": {
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+   "g": 0.0,
+   "mine": {
+    "mean_roi": 193.13,
+    "roi_frac": 0.887,
+    "ratio_vs_L0": 1.038
+   },
+   "backlit": {
+    "mean_roi": 175.42,
+    "roi_frac": 0.709,
+    "ratio_vs_L0": 1.042
+   },
+   "sunbehind": {
+    "mean_roi": 116.95,
+    "roi_frac": 0.932,
+    "ratio_vs_L0": 0.992
+   }
+  },
+  "L2_inj_hyb_f2000": {
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+   "g": 0.0,
+   "mine": {
+    "mean_roi": 192.53,
+    "roi_frac": 0.889,
+    "ratio_vs_L0": 1.035
+   },
+   "backlit": {
+    "mean_roi": 171.35,
+    "roi_frac": 0.783,
+    "ratio_vs_L0": 1.017
+   },
+   "sunbehind": {
+    "mean_roi": 114.41,
+    "roi_frac": 0.947,
+    "ratio_vs_L0": 0.97
+   }
+  },
+  "L3_inj_hyb_f2000_g06": {
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+   "g": 0.6,
+   "mine": {
+    "mean_roi": 187.95,
+    "roi_frac": 0.831,
+    "ratio_vs_L0": 1.01
+   },
+   "backlit": {
+    "mean_roi": 166.92,
+    "roi_frac": 0.794,
+    "ratio_vs_L0": 0.991
+   },
+   "sunbehind": {
+    "mean_roi": 114.69,
+    "roi_frac": 0.955,
+    "ratio_vs_L0": 0.972
+   }
+  },
+  "L4_inj_hyb_f2000_g08": {
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+   "g": 0.8,
+   "mine": {
+    "mean_roi": 185.49,
+    "roi_frac": 0.818,
+    "ratio_vs_L0": 0.997
+   },
+   "backlit": {
+    "mean_roi": 166.67,
+    "roi_frac": 0.794,
+    "ratio_vs_L0": 0.99
+   },
+   "sunbehind": {
+    "mean_roi": 113.7,
+    "roi_frac": 0.961,
+    "ratio_vs_L0": 0.964
+   }
+  }
+ },
+ "views": {
+  "mine": [
+   [
+    -282.70751614825076,
+    8738.93414348489,
+    2438.480836716684
+   ],
+   [
+    4.075094774365425,
+    243.93856991827488,
+    0.0
+   ]
+  ],
+  "backlit": [
+   [
+    -1029.7331835657185,
+    20876.5216833197,
+    3000.0
+   ],
+   [
+    3.0,
+    -86.72046700000001,
+    0.0
+   ]
+  ],
+  "sunbehind": [
+   [
+    -3656.467385877953,
+    -14718.705565087064,
+    4000.0
+   ],
+   [
+    -3.0,
+    78.27953300000003,
+    0.0
+   ]
+  ]
+ }
+}

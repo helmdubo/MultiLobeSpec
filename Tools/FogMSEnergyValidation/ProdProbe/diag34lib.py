@@ -35,7 +35,7 @@ def setbox(assign):
 
 def set_g(g):
     return py("import unreal\n" + ACT + "\nhf=A['FogMS - Height Fog'].get_component_by_class(unreal.ExponentialHeightFogComponent)\n"
-              "hf.set_editor_property('volumetric_fog_scattering_distribution', %r)\nhf.mark_render_state_dirty()\n"
+              "hf.set_volumetric_fog_scattering_distribution(%r)\n"
               "print('g=', hf.get_editor_property('volumetric_fog_scattering_distribution'))" % float(g))
 
 def set_cam(loc, rot):

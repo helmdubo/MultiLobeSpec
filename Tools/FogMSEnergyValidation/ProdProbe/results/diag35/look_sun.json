@@ -1,0 +1,122 @@
+{
+ "cfg": {
+  "L0_now_overlay": {
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+   "g": 0.0,
+   "against": {
+    "mean_roi": 119.08,
+    "roi_frac": 0.973,
+    "ratio_vs_L0": 1.0
+   },
+   "front": {
+    "mean_roi": 180.28,
+    "roi_frac": 0.672,
+    "ratio_vs_L0": 1.0
+   },
+   "mine": {
+    "mean_roi": 186.08,
+    "roi_frac": 0.819,
+    "ratio_vs_L0": 1.0
+   }
+  },
+  "L1_inj_hyb": {
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+   "g": 0.0,
+   "against": {
+    "mean_roi": 119.0,
+    "roi_frac": 0.97,
+    "ratio_vs_L0": 0.999
+   },
+   "front": {
+    "mean_roi": 184.34,
+    "roi_frac": 0.648,
+    "ratio_vs_L0": 1.023
+   },
+   "mine": {
+    "mean_roi": 192.54,
+    "roi_frac": 0.882,
+    "ratio_vs_L0": 1.035
+   }
+  },
+  "L3_inj_hyb_f2000_g06": {
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+   "g": 0.6,
+   "against": {
+    "mean_roi": 116.01,
+    "roi_frac": 0.976,
+    "ratio_vs_L0": 0.974
+   },
+   "front": {
+    "mean_roi": 169.36,
+    "roi_frac": 0.675,
+    "ratio_vs_L0": 0.939
+   },
+   "mine": {
+    "mean_roi": 188.68,
+    "roi_frac": 0.836,
+    "ratio_vs_L0": 1.014
+   }
+  },
+  "L4_inj_hyb_f2000_g08": {
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+   "g": 0.8,
+   "against": {
+    "mean_roi": 118.31,
+    "roi_frac": 0.973,
+    "ratio_vs_L0": 0.994
+   },
+   "front": {
+    "mean_roi": 168.1,
+    "roi_frac": 0.675,
+    "ratio_vs_L0": 0.932
+   },
+   "mine": {
+    "mean_roi": 184.98,
+    "roi_frac": 0.82,
+    "ratio_vs_L0": 0.994
+   }
+  }
+ },
+ "views": {
+  "against": [
+   [
+    13250.600216478217,
+    -9276.840141078248,
+    3000.0
+   ],
+   [
+    4.0,
+    137.40400984421862,
+    0.0
+   ]
+  ],
+  "front": [
+   [
+    -13250.600216478218,
+    15088.840141078244,
+    3500.0
+   ],
+   [
+    -2.0,
+    -42.59599015578137,
+    0.0
+   ]
+  ],
+  "mine": [
+   [
+    -282.70751614825076,
+    8738.93414348489,
+    2438.480836716684
+   ],
+   [
+    4.075094774365425,
+    243.93856991827488,
+    0.0
+   ]
+  ]
+ },
+ "sun": [
+  -52.59599015578139,
+  16.436407597898604
+ ]
+}
