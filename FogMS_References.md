@@ -138,3 +138,20 @@
 
 1. Wronski 2014 (слайды) → 2. Frostbite 2016 course notes, главы про participating media и облака → 3. Billeter 2012.
 Этого достаточно, чтобы понимать все три наших режима: самозатенение, октавы, пространственный перенос.
+
+---
+
+## 7. Освещение облаков: облик, фаза, стабильность (добавлено 2026-09-24)
+
+Разбор по восьми пунктам (MS, фаза, тёмные края, ambient, тени, время, лампы, цена) и применимость к Box —
+`FogMS_Cloud_Lighting_Review.md`. Здесь только ссылки, проверенные 24.09.
+
+- **Schneider, Vos — HZD 2015 (PDF, прочитан):** https://d3d3g8mu99pzk9.cloudfront.net/AndrewSchneider/The-Real-time-Volumetric-Cloudscapes-of-Horizon-Zero-Dawn.pdf — Beer-Powder, HG, конус из 6 выборок, 1/16 пикселей за кадр.
+- **Schneider — Nubis 2017 и Nubis, Evolved 2022 (страницы):** https://www.guerrilla-games.com/read/nubis-authoring-real-time-volumetric-cloudscapes-with-the-decima-engine , https://www.guerrilla-games.com/read/nubis-evolved . PDF больше 10 МБ, не прочитаны; модель 2022 года пересказана автором в Nubis³ (стр. PDF 29–39).
+- **Hillaire — SIGGRAPH 2016, слайды (SlideShare, прочитаны):** https://www.slideshare.net/DICEStudio/physically-based-sky-atmosphere-and-cloud-rendering-in-frostbite . Заметки курса по новому адресу: https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/s2016-pbs-frostbite-sky-clouds-new.pdf (больше 10 МБ, не прочитаны). Адрес из §2 24.09 не ответил, страница новости EA — 404.
+- **Wrenninge — Art-Directable Multiple Volumetric Scattering, 2015 (PDF, прочитан):** https://history.siggraph.org/wp-content/uploads/2022/10/2015-Talks-Wrenninge_Art-Directable-Multiple-Volumetric-Scattering.pdf . Ссылка на Oz 2013 из §2 отдаёт 404; запись: https://www.researchgate.net/publication/262309690_Oz_the_great_and_volumetric **[URL не проверен]**.
+- **Jendersie, d'Eon — An Approximate Mie Scattering Function for Fog and Cloud Rendering, SIGGRAPH 2023 Talks (PDF, прочитан):** https://research.nvidia.com/labs/rtr/approximate-mie/publications/approximate-mie.pdf — смесь HG и Draine, диаметр капли 5–50 мкм, без глории и радуги тумана.
+- **Bouthors et al. — Interactive Multiple Anisotropic Scattering in Clouds, I3D 2008 (страница):** https://maverick.inria.fr/Publications/2008/BNMBC08/
+- **Kallweit et al. — Deep Scattering, SIGGRAPH Asia 2017:** https://arxiv.org/abs/1709.05418
+- **Kovalovs — Volumetric Effects of The Last of Us: Part Two, SIGGRAPH 2020 Talks (PDF, прочитан):** https://history.siggraph.org/wp-content/uploads/2022/08/2020-Talks-Kovalovs_Volumetric-Effects-of-The-Last-of-Us-Part-Two.pdf — свет ламп не накапливается во времени, накапливаются только их тени. Заменяет пометку **[URL не проверен]** в §5.
+- **Bauer — RDR2 2019:** PPTX прочитан целиком по тексту слайдов и заметок (слайды 28–57: фаза, тени, фроксели, время, цена).
