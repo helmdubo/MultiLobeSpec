@@ -324,6 +324,114 @@
    "frames_got": 6,
    "flicker_abs": 0.24946953356266022,
    "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv"
+  },
+  "d5_P1|owner": {
+   "frames_got": 6,
+   "flicker_abs": 0.43085193634033203,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv",
+   "host": "p1_d5"
+  },
+  "d5_P1_black|owner": {
+   "frames_got": 6,
+   "flicker_abs": 0.40482139587402344,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum",
+   "host": "p1_d5"
+  },
+  "d5_P1|base": {
+   "frames_got": 6,
+   "flicker_abs": 0.4221011698246002,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv",
+   "host": "p1_d5"
+  },
+  "d5_P1_black|base": {
+   "frames_got": 6,
+   "flicker_abs": 0.297227144241333,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv",
+   "host": "p1_d5"
+  },
+  "d5_P1|against": {
+   "frames_got": 6,
+   "flicker_abs": 0.30979105830192566,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv",
+   "host": "p1_d5"
+  },
+  "d5_P1_black|against": {
+   "frames_got": 6,
+   "flicker_abs": 0.29649674892425537,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv",
+   "host": "p1_d5"
+  },
+  "v2_boxoff|owner": {
+   "frames_got": 6,
+   "flicker_abs": 0.2244296818971634,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv",
+   "host": "p1"
+  },
+  "v2_W38|owner": {
+   "frames_got": 6,
+   "flicker_abs": 0.2564709186553955,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum",
+   "host": "p1"
+  },
+  "v2_P1|owner": {
+   "frames_got": 6,
+   "flicker_abs": 0.2605123519897461,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum",
+   "host": "p1"
+  },
+  "v2_P1_black|owner": {
+   "frames_got": 6,
+   "flicker_abs": 0.20910365879535675,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum",
+   "host": "p1"
+  },
+  "v2_boxoff|base": {
+   "frames_got": 6,
+   "flicker_abs": 0.20937544107437134,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv",
+   "host": "p1"
+  },
+  "v2_W38|base": {
+   "frames_got": 6,
+   "flicker_abs": 0.26922693848609924,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum",
+   "host": "p1"
+  },
+  "v2_P1|base": {
+   "frames_got": 6,
+   "flicker_abs": 0.26523515582084656,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv",
+   "host": "p1"
+  },
+  "v2_P1_black|base": {
+   "frames_got": 6,
+   "flicker_abs": 0.18192999064922333,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum",
+   "host": "p1"
+  },
+  "v2_boxoff|against": {
+   "frames_got": 6,
+   "flicker_abs": 0.25833606719970703,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv",
+   "host": "p1"
+  },
+  "v2_W38|against": {
+   "frames_got": 6,
+   "flicker_abs": 0.2616785764694214,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see conv",
+   "host": "p1"
+  },
+  "v2_P1|against": {
+   "frames_got": 6,
+   "flicker_abs": 0.2628733813762665,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum",
+   "host": "p1"
+  },
+  "v2_P1_black|against": {
+   "frames_got": 6,
+   "flicker_abs": 0.24564094841480255,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum",
+   "host": "p1"
   }
  },
  "views": {
@@ -406,6 +514,7 @@
    "mean_P1_nofield": 72.9,
    "mean_P1_rep": 176.16,
    "mean_W38_rep": 198.77,
+   "mean_d5_P1": 161.35,
    "ratio_W38": 1.0,
    "ratio_W38_nolobe": 0.889,
    "ratio_P1": 0.886,
@@ -416,10 +525,12 @@
    "ratio_P1_nofield": 0.367,
    "ratio_P1_rep": 0.886,
    "ratio_W38_rep": 1.0,
+   "ratio_d5_P1": 0.812,
    "iou_a0.3": 0.477,
    "iou_a0.5": 0.0,
    "iou_a0.7": 0.0,
    "iou_roi": 0.947,
+   "iou_roi_d5": 0.326,
    "rim_core_P1": 0.644,
    "px_edge_core_P1": [
     22117,
@@ -465,6 +576,8 @@
    "rimgeo_own_P1_iso_nolobe": 0.516,
    "rimgeo_lit_P1_nofield": 133.941,
    "rimgeo_own_P1_nofield": -21.386,
+   "rimgeo_lit_d5_P1": 0.931,
+   "rimgeo_own_d5_P1": 0.437,
    "rimgeo_px": [
     22117,
     116319
@@ -488,6 +601,7 @@
    "mean_P1_nofield": 54.64,
    "mean_P1_rep": 173.0,
    "mean_W38_rep": 202.38,
+   "mean_d5_P1": 136.56,
    "ratio_W38": 1.0,
    "ratio_W38_nolobe": 0.896,
    "ratio_P1": 0.855,
@@ -498,10 +612,12 @@
    "ratio_P1_nofield": 0.27,
    "ratio_P1_rep": 0.855,
    "ratio_W38_rep": 1.0,
+   "ratio_d5_P1": 0.675,
    "iou_a0.3": 0.201,
    "iou_a0.5": 0.0,
    "iou_a0.7": 0.0,
    "iou_roi": 0.963,
+   "iou_roi_d5": 0.208,
    "rim_core_P1": 0.506,
    "px_edge_core_P1": [
     36620,
@@ -547,6 +663,8 @@
    "rimgeo_own_P1_iso_nolobe": 0.415,
    "rimgeo_lit_P1_nofield": 199.861,
    "rimgeo_own_P1_nofield": 19.215,
+   "rimgeo_lit_d5_P1": 1.359,
+   "rimgeo_own_d5_P1": 0.531,
    "rimgeo_px": [
     36620,
     220295
@@ -570,6 +688,7 @@
    "mean_P1_nofield": 75.09,
    "mean_P1_rep": 179.16,
    "mean_W38_rep": 203.6,
+   "mean_d5_P1": 167.46,
    "ratio_W38": 1.0,
    "ratio_W38_nolobe": 0.885,
    "ratio_P1": 0.88,
@@ -580,10 +699,12 @@
    "ratio_P1_nofield": 0.369,
    "ratio_P1_rep": 0.88,
    "ratio_W38_rep": 1.0,
+   "ratio_d5_P1": 0.823,
    "iou_a0.3": 0.864,
    "iou_a0.5": 0.0,
    "iou_a0.7": 0.0,
    "iou_roi": 0.839,
+   "iou_roi_d5": 0.295,
    "rim_core_P1": 0.609,
    "px_edge_core_P1": [
     12311,
@@ -629,6 +750,8 @@
    "rimgeo_own_P1_iso_nolobe": 0.44,
    "rimgeo_lit_P1_nofield": 75.751,
    "rimgeo_own_P1_nofield": 103.647,
+   "rimgeo_lit_d5_P1": 0.939,
+   "rimgeo_own_d5_P1": 0.339,
    "rimgeo_px": [
     12311,
     59408
@@ -803,6 +926,53 @@
     "P1_rep": 0.252,
     "W38_rep": 0.249
    }
+  }
+ },
+ "metrics_v2": {
+  "owner": {
+   "mean_v2_W38": 199.77,
+   "mean_v2_P1": 173.59,
+   "mean_d5_P1": 173.98,
+   "ratio_p1": 0.869,
+   "ratio_d5": 0.871,
+   "iou_p1": 0.933,
+   "iou_d5": 0.927,
+   "rim_lit_v2_W38": 1.009,
+   "rim_own_v2_W38": 0.598,
+   "rim_lit_v2_P1": 1.24,
+   "rim_own_v2_P1": 0.694,
+   "rim_lit_d5_P1": 1.23,
+   "rim_own_d5_P1": 0.693
+  },
+  "base": {
+   "mean_v2_W38": 188.28,
+   "mean_v2_P1": 169.5,
+   "mean_d5_P1": 168.77,
+   "ratio_p1": 0.9,
+   "ratio_d5": 0.896,
+   "iou_p1": 0.98,
+   "iou_d5": 0.97,
+   "rim_lit_v2_W38": 1.054,
+   "rim_own_v2_W38": 0.629,
+   "rim_lit_v2_P1": 1.182,
+   "rim_own_v2_P1": 0.678,
+   "rim_lit_d5_P1": 1.154,
+   "rim_own_d5_P1": 0.656
+  },
+  "against": {
+   "mean_v2_W38": 205.39,
+   "mean_v2_P1": 172.28,
+   "mean_d5_P1": 173.25,
+   "ratio_p1": 0.839,
+   "ratio_d5": 0.844,
+   "iou_p1": 0.936,
+   "iou_d5": 0.932,
+   "rim_lit_v2_W38": 1.045,
+   "rim_own_v2_W38": 0.513,
+   "rim_lit_v2_P1": 1.354,
+   "rim_own_v2_P1": 0.629,
+   "rim_lit_d5_P1": 1.345,
+   "rim_own_d5_P1": 0.63
   }
  }
 }

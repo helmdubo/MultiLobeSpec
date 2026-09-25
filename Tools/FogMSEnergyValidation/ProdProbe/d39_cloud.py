@@ -430,6 +430,37 @@ def look(owner, host=LOOK_HOST, cfgs=None, prefix="", views=None):
 
 
 LOOK_D5 = [c for c in LOOK if c[0] in ("P1", "P1_black")]
+# The wind-0 runs re-based the Box's DensityMotionReference (a velocity edit keeps the phase continuous at that moment,
+# FogMS_BoxVolume.cpp EvaluateDirectionalMotion), so the frozen t=100 s cloud of the look_d5 pass differs from the main look
+# pass. look_v2 re-captures the froxel and p1 references under the same motion reference as the d5 images.
+LOOK_V2 = [c for c in LOOK if c[0] in ("boxoff", "W38", "P1", "P1_black")]
+
+
+def look_v2_metrics():
+    """d5 against froxels and p1 on one cloud (the v2_ references + the d5_ images): ROI brightness, IoU, edge/core."""
+    out = {}
+    for vn in ("owner", "base", "against"):
+        P = lambda c: os.path.join(LOOKDIR, "%s_%s.png" % (c, vn))
+        need = ("v2_boxoff", "v2_W38", "v2_P1", "v2_P1_black", "d5_P1", "d5_P1_black")
+        if not all(os.path.isfile(P(c)) for c in need): continue
+        L_ = {c: _lum(P(c)) for c in need}
+        off = L_["v2_boxoff"]; valid = off > 12.0
+        roi = {c: np.abs(L_[c] - off) > 4 for c in ("v2_W38", "v2_P1", "d5_P1")}
+        u = roi["v2_W38"] | roi["v2_P1"] | roi["d5_P1"]
+        e = {"mean_%s" % c: round(float(L_[c][u].mean()), 2) for c in ("v2_W38", "v2_P1", "d5_P1")}
+        e["ratio_p1"] = round(e["mean_v2_P1"] / e["mean_v2_W38"], 3); e["ratio_d5"] = round(e["mean_d5_P1"] / e["mean_v2_W38"], 3)
+        iou = lambda a, b: round(float((a & b).sum() / max((a | b).sum(), 1)), 3)
+        e["iou_p1"] = iou(roi["v2_W38"], roi["v2_P1"]); e["iou_d5"] = iou(roi["v2_W38"], roi["d5_P1"])
+        a = np.clip(1.0 - L_["v2_P1_black"] / np.maximum(off, 1e-3), 0.0, 1.0); a[~valid] = 0.0
+        edge = (a >= 0.1) & (a <= 0.5); core = a >= 0.9
+        if edge.sum() > 200 and core.sum() > 200:
+            for c in ("v2_W38", "v2_P1", "d5_P1"):
+                own = L_[c] - off * (1.0 - a)
+                e["rim_lit_%s" % c] = round(float(L_[c][edge].mean() / max(L_[c][core].mean(), 1e-3)), 3)
+                e["rim_own_%s" % c] = round(float(own[edge].mean() / max(own[core].mean(), 1e-3)), 3)
+        out[vn] = e
+    res = _load(LP); res["metrics_v2"] = out; _atomic_dump(res, LP)
+    return out
 
 
 def _lum(p):
@@ -753,8 +784,11 @@ def sheets(res, lk):
     if not views: return
     W, H, LAB = 480, 407, 210
     cols = [("W38", "froxels (round 38)"), ("P1", "cloud host P1 (D 2 km, S 8, Mode 0)"), ("P1_g2", "P1 + Phase G2 -0.3 / Blend 0.2")]
-    if any(os.path.isfile(os.path.join(LOOKDIR, "d5_P1_%s.png" % v)) for v in views):
-        cols.append(("d5_P1", "cloud host D 5 km (step 6.5 m)"))
+    # second pass on one (later) cloud: froxels, p1 and the D 5 km host side by side (look_v2 + look_d5)
+    views2 = [v for v in ("owner", "base", "against") if all(os.path.isfile(os.path.join(LOOKDIR, "%s_%s.png" % (c, v)))
+                                                            for c in ("v2_W38", "v2_P1", "d5_P1"))]
+    cols2 = [("v2_W38", "froxels"), ("v2_P1", "cloud p1 (step 2.6 m)"), ("d5_P1", "cloud D 5 km (step 6.5 m)")]
+    met2 = lk.get("metrics_v2") or {}
     met = lk.get("metrics") or {}
     rows_img = len(views)
     rows = table_rows(res)
@@ -768,9 +802,29 @@ def sheets(res, lk):
             table.append("cost %-6s base: cloud %s ms, fog %s ms | owner view: cloud %s ms, fog %s ms (probe window)" % (
                 v, fmt((c.get("base") or {}).get("cloud_ms_median")), fmt((c.get("base") or {}).get("fog_ms_median")),
                 fmt((c.get("owner") or {}).get("cloud_ms_median")), fmt((c.get("owner") or {}).get("fog_ms_median"))))
-    sheet = Image.new("RGB", (LAB + W * len(cols), 26 + H * rows_img + 18 * (len(table) + 2)), (18, 18, 18))
+    H2 = (26 + H * len(views2)) if views2 else 0
+    sheet = Image.new("RGB", (LAB + W * len(cols), 26 + H * rows_img + H2 + 18 * (len(table) + 2)), (18, 18, 18))
     dr = ImageDraw.Draw(sheet)
     for j, (_, t) in enumerate(cols): dr.text((LAB + j * W + 6, 6), t, fill=(235, 235, 235))
+    y2 = 26 + H * rows_img
+    if views2:
+        dr.text((6, y2 + 6), "2nd pass, one later cloud", fill=(250, 230, 120))
+        for j, (_, t) in enumerate(cols2): dr.text((LAB + j * W + 6, y2 + 6), t, fill=(250, 230, 120))
+        for i, vn in enumerate(views2):
+            e = met2.get(vn, {})
+            yy = y2 + 26 + i * H
+            dr.text((6, yy + 8), vn + " (2nd pass)", fill=(240, 220, 90))
+            cap = lk.get("cap", {})
+            fl = lambda c: fmt((cap.get("%s|%s" % (c, vn)) or {}).get("flicker_abs"), "%.2f")
+            info = ["ROI p1 x%s  D5 x%s" % (fmt(e.get("ratio_p1")), fmt(e.get("ratio_d5"))),
+                    "IoU p1 %s  D5 %s" % (fmt(e.get("iou_p1")), fmt(e.get("iou_d5"))),
+                    "edge/core lit, froxels %s" % fmt(e.get("rim_lit_v2_W38")),
+                    "   p1 %s  D5 %s" % (fmt(e.get("rim_lit_v2_P1")), fmt(e.get("rim_lit_d5_P1"))),
+                    "frozen flicker p1 %s D5 %s" % (fl("v2_P1"), fl("d5_P1"))]
+            for k, t in enumerate(info): dr.text((6, yy + 30 + 16 * k), t, fill=(200, 200, 200))
+            for j, (c, _) in enumerate(cols2):
+                p = os.path.join(LOOKDIR, "%s_%s.png" % (c, vn))
+                if os.path.isfile(p): sheet.paste(Image.open(p).convert("RGB").resize((W, H)), (LAB + j * W, yy))
     for i, vn in enumerate(views):
         e = met.get(vn, {})
         dr.text((6, 26 + i * H + 8), vn, fill=(240, 220, 90))
@@ -784,7 +838,7 @@ def sheets(res, lk):
         for j, (c, _) in enumerate(cols):
             p = os.path.join(LOOKDIR, "%s_%s.png" % (c, vn))
             if os.path.isfile(p): sheet.paste(Image.open(p).convert("RGB").resize((W, H)), (LAB + j * W, 26 + i * H))
-    y = 26 + H * rows_img + 8
+    y = 26 + H * rows_img + H2 + 8
     for i, l in enumerate(table):
         dr.text((6, y), l[:220], fill=(250, 230, 120) if i == 0 else (220, 220, 220)); y += 18
     sheet.save(os.path.join(RES, "p1_sheet.png"))
@@ -826,6 +880,9 @@ def main(cmd):
         if cmd == "smoke": smoke(owner)
         if cmd == "blackdiag": print(json.dumps(blackdiag(owner), indent=1), flush=True)
         if cmd == "look_d5": look(owner, host="p1_d5", cfgs=LOOK_D5, prefix="d5_", views=("owner", "base", "against"))
+        if cmd == "look_v2":
+            look(owner, host="p1", cfgs=LOOK_V2, prefix="v2_", views=("owner", "base", "against"))
+            print(json.dumps(look_v2_metrics(), indent=1), flush=True)
         if cmd in ("series", "all"): series(owner)
         if cmd in ("series_td", "all"): series(owner, td=True)
         if cmd in ("inside_frz", "all"):
