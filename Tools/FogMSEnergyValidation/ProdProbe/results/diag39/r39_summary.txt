@@ -37,7 +37,7 @@ inside td (W up into the cloud base, 50 m along 'base'): cur_td wob 0.046 d2b 0.
 inside frozen density (W up into the cloud base, 50 m along 'base'): cur_frz wob 0.038 d2b 0.243, p1_frz wob 0.070 d2b 0.264, p1_m1_frz wob 0.332 d2b 1.427, p1_d1_frz wob 0.061 d2b 0.214
 identity (criterion 1, owner view, frozen): {"id_pre_a~id_pre_b": {"mae": 0.2526, "p99": 1.75, "psnr": 54.82}, "id_post_a~id_post_b": {"mae": 0.2088, "p99": 1.5, "psnr": 55.74}, "id_pre_a~id_post_a": {"mae": 0.3634, "p99": 3.0, "psnr": 50.77}, "id_pre_b~id_post_b": {"mae": 0.3677, "p99": 2.75, "psnr": 51.29}, "id_pre_b~id_post_a": {"mae": 0.3804, "p99": 3.0, "psnr": 50.87}, "id_late_a~id_late_b": null, "id_post_a~id_late_a": null, "id_post_b~id_late_b": null, "id_pre_a~id_late_a": null}
 cost (ms, probe window, median of 3; cloud = VolumetricCloud + VolCloudReconstruction + VolCloudComposeOverScene):
-  cur      base cloud 0.000 fog 0.000 frame 0.130 | owner cloud   -   fog   -   frame   -  
+  cur      base cloud   -   fog   -   frame   -   | owner cloud   -   fog   -   frame   -  
   boxoff   base cloud   -   fog   -   frame   -   | owner cloud   -   fog   -   frame   -  
   p1       base cloud   -   fog   -   frame   -   | owner cloud   -   fog   -   frame   -  
   p1_d1    base cloud   -   fog   -   frame   -   | owner cloud   -   fog   -   frame   -  
