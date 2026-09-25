@@ -16,6 +16,13 @@ import diag35lib as L
 import d35_dolly as B
 d = L.d
 
+def _atomic_dump(obj, path):
+    """Write JSON via a temp file + os.replace, so a power loss mid-write cannot corrupt the results file."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=1); f.flush(); os.fsync(f.fileno())
+    os.replace(tmp, path)
+
 def analyse(name):
     r = B.analyse(name); r.update(B.wobble(name))
     F = d.load(name).mean(axis=3); m = B.roi_mask(d.load(name))
@@ -39,7 +46,7 @@ def run(variant, mode="start", step=20.0, N=40, cam="high", tag=""):
     L.set_hf(dict(hf0, **(hf or {})))
     r = analyse(nm); r["status"] = st[:160]; res[nm] = r
     print("%-34s d2 %.3f d2b %.3f hp9 %.3f wob %s/%s per %s first-last %.2f mean %.1f" % (nm, r["d2"], r["d2_blur"], r["hp9"], r.get("wob_med"), r.get("wob_p75"), r.get("wob_period"), r["first_last"], r["mean"]), flush=True)
-    json.dump(res, open(rp, "w"), indent=1)
+    _atomic_dump(res, rp)
     for k, v in pre_cv.items(): d.cmd("%s %s" % (k, ("%d" % v) if float(v).is_integer() else ("%g" % v)))
     if box or hf: d.setbox(L.box_assign(snap["box"]))
     L.set_hf(hf0 if not hf else snap["hf"])

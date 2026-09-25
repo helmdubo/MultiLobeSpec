@@ -844,5 +844,145 @@
   "wob_period": 21.0,
   "wob_tiles": 141,
   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lum"
+ },
+ "b_base_boxoff_W_s20_r38b_0": {
+  "wob_med": 0.017,
+  "wob_p75": 0.115,
+  "wob_period": 3.8,
+  "d2_blur": 0.261,
+  "hp9": 0.123,
+  "d1": 0.479,
+  "mean": 169.8,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_boxoff_D_s20_r38b_0": {
+  "wob_med": 0.1,
+  "wob_p75": 0.451,
+  "wob_period": 21.0,
+  "d2_blur": 0.397,
+  "hp9": 0.187,
+  "d1": 0.916,
+  "mean": 170.3,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_boxoff_0_s20_r38b_0": {
+  "wob_med": 0.015,
+  "wob_p75": 0.043,
+  "wob_period": 5.2,
+  "d2_blur": 0.115,
+  "hp9": 0.058,
+  "d1": 0.24,
+  "mean": 169.3,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_boxoff_W_s20_r38b_1": {
+  "wob_med": 0.019,
+  "wob_p75": 0.122,
+  "wob_period": 3.8,
+  "d2_blur": 0.259,
+  "hp9": 0.124,
+  "d1": 0.479,
+  "mean": 169.8,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_boxoff_D_s20_r38b_1": {
+  "wob_med": 0.092,
+  "wob_p75": 0.455,
+  "wob_period": 21.0,
+  "d2_blur": 0.396,
+  "hp9": 0.185,
+  "d1": 0.914,
+  "mean": 170.3,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_boxoff_0_s20_r38b_1": {
+  "wob_med": 0.013,
+  "wob_p75": 0.042,
+  "wob_period": 5.2,
+  "d2_blur": 0.113,
+  "hp9": 0.058,
+  "d1": 0.24,
+  "mean": 169.3,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_cur_W_s20_r38b_0": {
+  "wob_med": 0.154,
+  "wob_p75": 0.783,
+  "wob_period": 14.0,
+  "d2_blur": 0.509,
+  "hp9": 0.252,
+  "d1": 0.902,
+  "mean": 142.9,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_cur_D_s20_r38b_0": {
+  "wob_med": 0.302,
+  "wob_p75": 0.931,
+  "wob_period": 21.0,
+  "d2_blur": 0.639,
+  "hp9": 0.343,
+  "d1": 1.106,
+  "mean": 160.0,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_cur_0_s20_r38b_0": {
+  "wob_med": 0.235,
+  "wob_p75": 0.581,
+  "wob_period": 21.0,
+  "d2_blur": 0.411,
+  "hp9": 0.221,
+  "d1": 0.742,
+  "mean": 160.2,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_cur_W_s20_r38b_1": {
+  "wob_med": 0.146,
+  "wob_p75": 0.304,
+  "wob_period": 21.0,
+  "d2_blur": 0.361,
+  "hp9": 0.17,
+  "d1": 0.679,
+  "mean": 159.2,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_cur_D_s20_r38b_1": {
+  "wob_med": 0.285,
+  "wob_p75": 0.759,
+  "wob_period": 14.0,
+  "d2_blur": 0.485,
+  "hp9": 0.239,
+  "d1": 1.037,
+  "mean": 173.7,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_cur_0_s20_r38b_1": {
+  "wob_med": 0.108,
+  "wob_p75": 0.393,
+  "wob_period": 14.0,
+  "d2_blur": 0.378,
+  "hp9": 0.177,
+  "d1": 0.842,
+  "mean": 141.5,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_animoff_W_s20_r38b_0": {
+  "wob_med": 0.09,
+  "wob_p75": 0.222,
+  "wob_period": 10.5,
+  "d2_blur": 0.359,
+  "hp9": 0.175,
+  "d1": 0.557,
+  "mean": 153.0,
+  "source": "recovered from r38b_run.log after power loss"
+ },
+ "b_base_animoff_D_s20_r38b_0": {
+  "wob_med": 0.171,
+  "wob_p75": 0.514,
+  "wob_period": 21.0,
+  "d2_blur": 0.489,
+  "hp9": 0.236,
+  "d1": 1.067,
+  "mean": 153.1,
+  "source": "recovered from r38b_run.log after power loss"
  }
 }

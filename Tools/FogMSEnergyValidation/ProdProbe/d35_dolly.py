@@ -16,7 +16,15 @@ import numpy as np
 import diag35lib as L
 d = L.d
 
-CAMS = {"start": ((-5696.867655, -5800.397253, 2370.352606), (-0.324906, 50.138568, 0.0)),
+def _atomic_dump(obj, path):
+    """Write JSON via a temp file + os.replace, so a power loss mid-write cannot corrupt the results file."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=1); f.flush(); os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+CAMS = {"base": ((-3000.0, 2906.0, 6000.0), (35.0, 0.0, 0.0)),  # r38: ~40 m under the stratus base, looking up at the cloud edges
+        "start": ((-5696.867655, -5800.397253, 2370.352606), (-0.324906, 50.138568, 0.0)),
         "high": ((-6000.0, 2906.0, 7000.0), (12.0, 0.0, 0.0)),
         "owner": ((-282.7, 8738.9, 2438.5), (4.08, 243.94, 0.0)),
         "cam0": ((-1644.241818024519, 17617.726190341542, 2442.208869304058), (1.4750940536441703, -58.26143420987347, 0.0))}
@@ -63,6 +71,12 @@ V.update({
     "ih_pf0": ({}, _IH + "b.set_editor_property('depth_prefilter', 0.0)", None),
     "ih_pf05": ({}, _IH + "b.set_editor_property('depth_prefilter', 0.5)", None),
     "ih_pf1": ({}, _IH + "b.set_editor_property('depth_prefilter', 1.0)", None),
+    "hmss16": ({"r.VolumetricFog.HistoryMissSupersampleCount": "16"}, None, None),
+    "gpx8": ({"r.VolumetricFog.GridPixelSize": "8"}, None, None),
+    "tr0": ({"r.VolumetricFog.TemporalReprojection": "0"}, None, None),
+    "lobe0": ({}, "b.set_editor_property('ms_contribution', 0.0)", None),
+    "ss0": ({}, "b.set_editor_property('sun_softness', 0.0)", None),
+    "pf1": ({}, "b.set_editor_property('depth_prefilter', 1.0)", None),
     "lobe05": ({}, "b.set_editor_property('ms_contribution', 0.5); b.set_editor_property('phase_g', 0.6)", None),
     "ih_pf2": ({}, _IH + "b.set_editor_property('depth_prefilter', 2.0)", None),
 })
@@ -196,7 +210,7 @@ def run(variant, dirs=("W", "S", "A", "D"), step=20.0, N=40, cam="owner", tag=""
         r = analyse(nm, rc); r.update(wobble(nm, rc)); r["status"] = d.status()[:160]
         res[nm] = r; out[D] = r
         print("%-34s wob %s/%s per %s | d2b %.3f hp9 %.3f | cloud d2b %s hp9 %s d1 %s | d1 %.3f mean %.1f" % (nm, r.get("wob_med"), r.get("wob_p75"), r.get("wob_period"), r["d2_blur"], r["hp9"], r.get("c_d2_blur"), r.get("c_hp9"), r.get("c_d1"), r["d1"], r["mean"]), flush=True)
-        json.dump(res, open(rp, "w"), indent=1)
+        _atomic_dump(res, rp)
     # revert
     for k, v in pre_cv.items(): d.cmd("%s %s" % (k, ("%d" % v) if float(v).is_integer() else ("%g" % v)))
     if snap:
@@ -213,7 +227,7 @@ if __name__ == "__main__":
         for nm in list(res):
             cam = nm.split("_")[1]; cam = None if cam in PATHS else cam; st = res[nm].get("status", ""); res[nm] = analyse(nm, cam); res[nm].update(wobble(nm, cam)); res[nm]["status"] = st
             print(nm, {k: v for k, v in res[nm].items() if k != "status"}, flush=True)
-        json.dump(res, open(rp, "w"), indent=1); sys.exit(0)
+        _atomic_dump(res, rp); sys.exit(0)
     variant = a[0]
     dirs = tuple(a[1].split(",")) if len(a) > 1 else ("W", "S", "A", "D")
     step = float(a[2]) if len(a) > 2 else 20.0
