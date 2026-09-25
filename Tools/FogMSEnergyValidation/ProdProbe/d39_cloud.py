@@ -748,10 +748,13 @@ def table_rows(res):
 
 def sheets(res, lk):
     from PIL import Image, ImageDraw
-    views = [v for v in ("owner", "base", "against", "front", "mine") if os.path.isfile(os.path.join(LOOKDIR, "W38_%s.png" % v))]
+    # the four views the owner asked for ('mine' is mostly a pillar: metrics only)
+    views = [v for v in ("owner", "base", "against", "front") if os.path.isfile(os.path.join(LOOKDIR, "W38_%s.png" % v))]
     if not views: return
-    W, H, LAB = 480, 407, 190
+    W, H, LAB = 480, 407, 210
     cols = [("W38", "froxels (round 38)"), ("P1", "cloud host P1 (D 2 km, S 8, Mode 0)"), ("P1_g2", "P1 + Phase G2 -0.3 / Blend 0.2")]
+    if any(os.path.isfile(os.path.join(LOOKDIR, "d5_P1_%s.png" % v)) for v in views):
+        cols.append(("d5_P1", "cloud host D 5 km (step 6.5 m)"))
     met = lk.get("metrics") or {}
     rows_img = len(views)
     rows = table_rows(res)
@@ -771,9 +774,12 @@ def sheets(res, lk):
     for i, vn in enumerate(views):
         e = met.get(vn, {})
         dr.text((6, 26 + i * H + 8), vn, fill=(240, 220, 90))
-        info = ["ROI P1/W38 x%s" % fmt(e.get("ratio_P1")), "IoU(a>0.5) %s" % fmt(e.get("iou_a0.5")),
-                "rim/core W38 %s" % fmt(e.get("rim_core_W38")), "rim/core P1 %s" % fmt(e.get("rim_core_P1")),
-                "rim/core P1_g2 %s" % fmt(e.get("rim_core_P1_g2"))]
+        info = ["ROI brightness P1/W38 x%s" % fmt(e.get("ratio_P1")), "  without lobe x%s" % (
+                    fmt(e["mean_P1_nolobe"] / e["mean_W38_nolobe"]) if e.get("mean_P1_nolobe") and e.get("mean_W38_nolobe") else "-"),
+                "IoU (lit masks) %s" % fmt(e.get("iou_roi")),
+                "edge/core lit W38 %s P1 %s" % (fmt(e.get("rimgeo_lit_W38")), fmt(e.get("rimgeo_lit_P1"))),
+                "edge/core own W38 %s P1 %s" % (fmt(e.get("rimgeo_own_W38")), fmt(e.get("rimgeo_own_P1"))),
+                "P1 without field x%s" % fmt(e.get("ratio_P1_nofield"))]
         for k, t in enumerate(info): dr.text((6, 26 + i * H + 30 + 16 * k), t, fill=(200, 200, 200))
         for j, (c, _) in enumerate(cols):
             p = os.path.join(LOOKDIR, "%s_%s.png" % (c, vn))
