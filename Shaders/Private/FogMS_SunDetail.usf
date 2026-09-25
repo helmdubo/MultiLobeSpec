@@ -67,13 +67,19 @@ void SunDetailCS(uint3 Id : SV_DispatchThreadID)
 // column (i, j) sits at Origin[B] + (i + 0.5)/Nu * AxisU[B] + (k + 0.5) * Step[B] (and likewise j along C), so the samples of cell c
 // are a rectangle of columns per slice. Tbar = (sum sigma T + e sum T) / (sum sigma + e n), e = 1e-4 /m: sigma-weighted where the
 // cell holds medium, the plain mean of T where it does not. A cell without map samples (outside the height band) takes the map
-// at its centre (clamped: above the band the entry slice, below it the exit). Strided when a cell holds more than 16 slices or
-// 8 x 8 columns per slice (thin bands, fine maps). G = 1 marks a valid map (a cleared texture reads 0: the material ignores it).
-[numthreads(4, 4, 4)]
-void SunDetailCS(uint3 Cell : SV_DispatchThreadID)
+// at its centre (clamped: above the band the entry slice, below it the exit). G = 1 marks a valid map (a cleared texture reads 0:
+// the material ignores it).
+// One 32-thread group per cell (dispatch 32^3 groups): the cell's (slice, row, column) index box is spread over the lanes (a
+// lane's loads are independent, so they overlap in flight; one thread per cell looping ~400 loads was latency bound, 0.1 ms),
+// then a groupshared sum. The box is the slice range times the largest row / column count over the slices (a slice's rectangle
+// shifts with the shear, its size varies by one); indices outside a slice's own rectangle are skipped. Strided only above 16
+// slices / rows / columns per cell (thin bands, fine maps).
+groupshared float4 FogMSSunCellSums[32];
+[numthreads(32, 1, 1)]
+void SunDetailCS(uint3 GroupId : SV_GroupID, uint Lane : SV_GroupIndex)
 {
 	const uint Grid = 32u; // FogMS_SunDetail.cpp SunCellGrid, the transport grid
-	if (any(Cell >= Grid)) return;
+	const uint3 Cell = GroupId;
 	const float3 Extent = float3(BoxRows[2].w, BoxRows[3].w, BoxRows[4].w);
 	const float3 CellSize = 2.0f * Extent / float(Grid);
 	const float3 Lo = -Extent + float3(Cell) * CellSize;
@@ -85,42 +91,41 @@ void SunDetailCS(uint3 Cell : SV_DispatchThreadID)
 	const float Kb = (Hi[A] - SunMapOrigin[A]) / SunMapStep[A] - 0.5f;
 	const int K0 = max(SunMapStep[A] > 0.0f ? int(ceil(Ka)) : int(floor(Kb)) + 1, 0);
 	const int K1 = min(SunMapStep[A] > 0.0f ? int(ceil(Kb)) - 1 : int(floor(Ka)), int(SunMapSize.z) - 1);
-	float SumST = 0.0f, SumS = 0.0f, SumT = 0.0f, Count = 0.0f;
+	float4 Sum = 0.0f; // (sum sigma T, sum sigma, sum T, count)
 	if (K0 <= K1)
 	{
-		const int KStride = (K1 - K0 + 16) / 16;
+		const float ScaleI = float(SunMapSize.x) / SunMapAxisU[B], ScaleJ = float(SunMapSize.y) / SunMapAxisV[C];
+		const int NI = int(floor((Hi[B] - Lo[B]) * ScaleI)) + 2, NJ = int(floor((Hi[C] - Lo[C]) * ScaleJ)) + 2;
+		const int KStride = (K1 - K0 + 16) / 16, IStride = (NI + 15) / 16, JStride = (NJ + 15) / 16;
+		const int NK = (K1 - K0) / KStride + 1, NIs = (NI + IStride - 1) / IStride, NJs = (NJ + JStride - 1) / JStride;
+		const int Total = NK * NJs * NIs;
 		LOOP
-		for (int K = K0; K <= K1; K += KStride)
+		for (int Q = int(Lane); Q < Total; Q += 32)
 		{
+			const int KQ = Q / (NJs * NIs), R = Q - KQ * (NJs * NIs), JQ = R / NIs, IQ = R - JQ * NIs;
+			const int K = K0 + KQ * KStride;
 			const float Shift = float(K) + 0.5f;
-			const float Ia = (Lo[B] - SunMapOrigin[B] - Shift * SunMapStep[B]) / SunMapAxisU[B] * float(SunMapSize.x) - 0.5f;
-			const float Ib = (Hi[B] - SunMapOrigin[B] - Shift * SunMapStep[B]) / SunMapAxisU[B] * float(SunMapSize.x) - 0.5f;
-			const float Ja = (Lo[C] - SunMapOrigin[C] - Shift * SunMapStep[C]) / SunMapAxisV[C] * float(SunMapSize.y) - 0.5f;
-			const float Jb = (Hi[C] - SunMapOrigin[C] - Shift * SunMapStep[C]) / SunMapAxisV[C] * float(SunMapSize.y) - 0.5f;
-			const int I0 = max(int(ceil(Ia)), 0), I1 = min(int(ceil(Ib)) - 1, int(SunMapSize.x) - 1);
-			const int J0 = max(int(ceil(Ja)), 0), J1 = min(int(ceil(Jb)) - 1, int(SunMapSize.y) - 1);
-			if (I0 > I1 || J0 > J1) continue;
-			const int IStride = (I1 - I0 + 8) / 8, JStride = (J1 - J0 + 8) / 8;
-			LOOP
-			for (int J = J0; J <= J1; J += JStride)
-			{
-				LOOP
-				for (int I = I0; I <= I1; I += IStride)
-				{
-					const float2 V = SunMap.Load(int4(I, J, K, 0));
-					SumST += V.y * V.x;
-					SumS += V.y;
-					SumT += V.x;
-					Count += 1.0f;
-				}
-			}
+			const int I0 = max(int(ceil((Lo[B] - SunMapOrigin[B] - Shift * SunMapStep[B]) * ScaleI - 0.5f)), 0);
+			const int I1 = min(int(ceil((Hi[B] - SunMapOrigin[B] - Shift * SunMapStep[B]) * ScaleI - 0.5f)) - 1, int(SunMapSize.x) - 1);
+			const int J0 = max(int(ceil((Lo[C] - SunMapOrigin[C] - Shift * SunMapStep[C]) * ScaleJ - 0.5f)), 0);
+			const int J1 = min(int(ceil((Hi[C] - SunMapOrigin[C] - Shift * SunMapStep[C]) * ScaleJ - 0.5f)) - 1, int(SunMapSize.y) - 1);
+			const int I = I0 + IQ * IStride, J = J0 + JQ * JStride;
+			if (I > I1 || J > J1) continue;
+			const float2 V = SunMap.Load(int4(I, J, K, 0));
+			Sum += float4(V.y * V.x, V.y, V.x, 1.0f);
 		}
 	}
+	FogMSSunCellSums[Lane] = Sum;
+	GroupMemoryBarrierWithGroupSync();
+	if (Lane != 0u) return;
+	Sum = 0.0f;
+	UNROLL
+	for (uint L = 0u; L < 32u; ++L) Sum += FogMSSunCellSums[L];
 	float Tbar;
-	if (Count > 0.0f)
+	if (Sum.w > 0.0f)
 	{
 		const float Eps = 1.0e-4f;
-		Tbar = (SumST + Eps * SumT) / (SumS + Eps * Count);
+		Tbar = (Sum.x + Eps * Sum.z) / (Sum.y + Eps * Sum.w);
 	}
 	else
 	{
@@ -129,6 +134,6 @@ void SunDetailCS(uint3 Cell : SV_DispatchThreadID)
 			dot(Center, SunMapRowW.xyz) + SunMapRowW.w);
 		Tbar = SunMap.SampleLevel(SunMapSampler, saturate(UVW), 0).x;
 	}
-	OutSunCell[Cell] = float4(saturate(Tbar), 1.0f, SumS / max(Count, 1.0f), SumT / max(Count, 1.0f));
+	OutSunCell[Cell] = float4(saturate(Tbar), 1.0f, Sum.y / max(Sum.w, 1.0f), Sum.z / max(Sum.w, 1.0f));
 }
 #endif

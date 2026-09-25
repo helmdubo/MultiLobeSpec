@@ -137,6 +137,9 @@ def restore(owner):
                  "hf.set_editor_property('volumetric_fog_albedo', unreal.Color(r=%d, g=%d, b=%d, a=%d))\n" % tuple(int(c) for c in x["hf_albedo"]))
     for p, v in x.get("sun_props", {}).items():
         code += "if box.get_editor_property(%r) != %r: box.set_editor_property(%r, %r)\n" % (p, v, p, v)
+    if x.get("animation_time_offset") is not None:   # stability2 seeks through it; an explicit seek back to the owner's phase
+        code += ("if abs(box.get_editor_property('animation_time_offset') - %r) > 1e-9: box.set_editor_property('animation_time_offset', %r)\n"
+                 % (x["animation_time_offset"], x["animation_time_offset"]))
     code += "bmid.set_scalar_parameter_value('FogMS_ZeroEmission', 0.0)\nprint('X41R ok')"
     d.py(code)
     d.cmd("ShowFlag.OverrideDiffuseAndSpecular %d" % int(x.get("showflag_override_diffuse", 2)))
@@ -154,6 +157,8 @@ def restore(owner):
     ref = x.get("motion_reference_r41") or x.get("motion_reference")
     if ref and ref != now["motion_reference"]:
         diff["motion_reference"] = "changed"
+    if x.get("animation_time_offset") is not None and abs(now["animation_time_offset"] - x["animation_time_offset"]) > 1e-9:
+        diff["animation_time_offset"] = (x["animation_time_offset"], now["animation_time_offset"])
     print("RESTORE x41 diff", diff, flush=True)
     r["x41"] = diff
     return r
@@ -384,6 +389,177 @@ def stability(owner):
     stability_metrics()
 
 
+SP2 = os.path.join(RES, "stability2.json")
+STAB2 = [("boxoff", OFFP, {"FogMS_FroxelWeight": 0.0}, {})] + [(c, p, {}, {}) for r in range(3) for c, p in (("off%d" % r, OFFP), ("on%d" % r, ONP))]
+
+
+def _world_time():
+    return float(d.py("import unreal\nw=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()\n"
+                      "print('WT', unreal.GameplayStatics.get_time_seconds(w))").split("WT")[-1].split()[0])
+
+
+def stability2(owner):
+    """Criterion 3, controlled: every run replays the same density sequence. Before each capture the Box's Animation Time Offset
+    is set so that the density time at the capture start equals a fixed reference (an explicit seek: one native history reset,
+    absorbed by the 4 s settle before the capture), with world time dilation 0.25 already on (the dump rate ~6.4 fps then advances
+    the density ~0.038 s per frame, ~25 fps). Alternating off / on, 3 repeats per camera; per-run own cloud mask. The owner's
+    offset is put back at the end (restore)."""
+    res = _load(SP2)
+    VIEWS, _, _ = views()
+    cams = {"base": B.CAMS["base"], "mine": VIEWS["mine"]}
+    off0 = float(owner["x41"]["animation_time_offset"])
+    begin()
+    try:
+        S.set_time_dilation(TD)
+        t_ref = res.get("t_ref")
+        if t_ref is None:
+            t_ref = _world_time() + off0 + 30.0          # a density time a little ahead of the live one
+            res["t_ref"] = t_ref; _atomic_dump(res, SP2)
+        for cam in STAB_CAMS:
+            todo = [c for c in STAB2 if "%s|%s" % (c[0], cam) not in res]
+            if not todo:
+                continue
+            C.set_cam(*cams[cam]); time.sleep(4.0)
+            for cfg in todo:
+                C.flood_check()
+                mid = apply(owner, cfg, frozen=False)
+                settle = 4.0
+                offset = t_ref - (_world_time() + settle * TD)
+                d.setbox("b.set_editor_property('animation_time_offset', %r)" % offset)
+                time.sleep(settle)
+                nm = "stab2_%s_%s" % (cfg[0], cam)
+                _, got = C.capture(nm, NSTAB)
+                if got < NSTAB:
+                    raise RuntimeError("%s: %d of %d frames (editor minimized?)" % (nm, got, NSTAB))
+                r = B.analyse(nm, None); r.update(B.wobble(nm, None))
+                try:
+                    t = np.diff(np.array(json.load(open(os.path.join(d.M, nm, "ticks.json")))["t"]))
+                    r["dump_dt"] = round(float(np.median(t[1:1 + NSTAB])), 4); r["anim_s_per_frame"] = round(r["dump_dt"] * TD, 4)
+                except Exception as e:
+                    r["dump_dt_error"] = str(e)
+                r.update({"frames": got, "mid": mid, "offset": offset, "status": d.status()[:260]})
+                res = _load(SP2); res["%s|%s" % (cfg[0], cam)] = r; _atomic_dump(res, SP2)
+                print("STAB2 %-18s wob %s/%s d2b %.3f d1 %.3f mean %.1f" % (nm, r.get("wob_med"), r.get("wob_p75"), r["d2_blur"], r["d1"], r["mean"]),
+                      flush=True)
+    finally:
+        S.set_time_dilation(owner["extra"].get("time_dilation", 1.0))
+        d.setbox("b.set_editor_property('animation_time_offset', %r)" % off0)
+        restore(owner)
+    stability2_metrics()
+
+
+SP3 = os.path.join(RES, "stability3.json")
+# (name, Box props, map cvars) at the owner camera, same replay procedure as stability2: what reduces the ON flicker?
+STAB3 = [("off", OFFP, {}), ("on", ONP, {}), ("on_steps128", ONP, {"r.FogMS.SunMap.Steps": 128}),
+         ("on_res512", ONP, {"r.FogMS.SunMap.Resolution": 512}), ("on_s05", {"sun_detail_shadow": True, "sun_detail_strength": 0.5}, {}),
+         ("on_steps128_rep", ONP, {"r.FogMS.SunMap.Steps": 128}), ("off_rep", OFFP, {})]
+MAP_CVARS = {"r.FogMS.SunMap.Steps": 64, "r.FogMS.SunMap.Resolution": 256}
+
+
+def stability3(owner):
+    res = _load(SP3)
+    VIEWS, _, _ = views()
+    off0 = float(owner["x41"]["animation_time_offset"])
+    cv0 = L.getcv(list(MAP_CVARS))
+    res["map_cvars_before"] = cv0; _atomic_dump(res, SP3)
+    begin()
+    try:
+        S.set_time_dilation(TD)
+        t_ref = res.get("t_ref")
+        if t_ref is None:
+            t_ref = _world_time() + off0 + 30.0
+            res["t_ref"] = t_ref; _atomic_dump(res, SP3)
+        C.set_cam(*VIEWS["mine"]); time.sleep(4.0)
+        for name, props, cvars in STAB3:
+            if name in res:
+                continue
+            C.flood_check()
+            for k, v in dict(MAP_CVARS, **cvars).items():
+                d.cmd("%s %d" % (k, v))
+            mid = apply(owner, (name, props, {}, {}), frozen=False)
+            settle = 5.0
+            offset = t_ref - (_world_time() + settle * TD)
+            d.setbox("b.set_editor_property('animation_time_offset', %r)" % offset)
+            time.sleep(settle)
+            nm = "stab3_%s" % name
+            _, got = C.capture(nm, NSTAB)
+            if got < NSTAB:
+                raise RuntimeError("%s: %d of %d frames (editor minimized?)" % (nm, got, NSTAB))
+            r = B.analyse(nm, None); r.update(B.wobble(nm, None))
+            r.update({"frames": got, "mid": mid, "cvars": L.getcv(list(MAP_CVARS)), "status": d.status()[-200:]})
+            res = _load(SP3); res[name] = r; _atomic_dump(res, SP3)
+            print("STAB3 %-16s wob %s/%s d2b %.3f d1 %.3f mean %.1f %s" % (name, r.get("wob_med"), r.get("wob_p75"), r["d2_blur"], r["d1"], r["mean"], r["cvars"]), flush=True)
+    finally:
+        for k, v in cv0.items():
+            d.cmd("%s %d" % (k, int(v)))
+        S.set_time_dilation(owner["extra"].get("time_dilation", 1.0))
+        d.setbox("b.set_editor_property('animation_time_offset', %r)" % off0)
+        restore(owner)
+        print("MAP CVARS restored", L.getcv(list(MAP_CVARS)), flush=True)
+    # own-cloud metrics against the Box-off background of the same frame size
+    import glob as _glob
+    bos = {}
+    for p in _glob.glob(os.path.join(d.M, "stab2_boxoff_mine*")):
+        if _glob.glob(os.path.join(p, "f*.png")):
+            A = d.load(os.path.basename(p)).mean(axis=3).mean(0); bos[A.shape] = A
+    res = _load(SP3)
+    for name, _, _ in STAB3:
+        if name not in res:
+            continue
+        nm = "stab3_%s" % name
+        Lm = d.load(nm).mean(axis=3); bo = bos.get(Lm.shape[1:])
+        if bo is None:
+            continue
+        np.save(os.path.join(d.M, "roi_own_%s.npy" % nm), np.abs(Lm.mean(0) - bo) > 4)
+        w = B.wobble(nm, "own_" + nm); a = B.analyse(nm, "own_" + nm)
+        res[name].update({"own_cloud_wob_med": w.get("wob_med"), "own_cloud_wob_p75": w.get("wob_p75"), "own_cloud_d2b": a.get("c_d2_blur"),
+                          "own_cloud_d1": a.get("c_d1"), "own_cloud_frac": a.get("c_frac")})
+        print("%-16s own cloud %s wob %s/%s d2b %s d1 %s" % (name, a.get("c_frac"), w.get("wob_med"), w.get("wob_p75"), a.get("c_d2_blur"), a.get("c_d1")), flush=True)
+    _atomic_dump(res, SP3)
+
+
+def stability2_metrics():
+    """Own-cloud metrics per run (|run mean - boxoff mean| > 4) and the mean frame-to-frame image difference between runs of the
+    same frame index (replay check: off vs off, on vs on, off vs on)."""
+    res = _load(SP2)
+    import glob as _glob
+    for cam in STAB_CAMS:
+        # Box-off backgrounds by frame size (the owner's layout changed the viewport width once during the series).
+        bos = {}
+        for p in [os.path.join(d.M, "stab2_boxoff_%s" % cam)] + _glob.glob(os.path.join(d.M, "stab2_boxoff_%s_w*" % cam)):
+            if os.path.isdir(p) and _glob.glob(os.path.join(p, "f*.png")):
+                A = d.load(os.path.basename(p)).mean(axis=3).mean(0)
+                bos[A.shape] = A
+        if not bos:
+            continue
+        runs = [c[0] for c in STAB2[1:] if "%s|%s" % (c[0], cam) in res]
+        means = {}
+        for c in runs:
+            nm = "stab2_%s_%s" % (c, cam)
+            Lm = d.load(nm).mean(axis=3)
+            res["%s|%s" % (c, cam)]["frame_size"] = [int(Lm.shape[2]), int(Lm.shape[1])]
+            bo = bos.get(Lm.shape[1:])
+            if bo is None:
+                res["%s|%s" % (c, cam)]["own_cloud_note"] = "no Box-off capture of this frame size"
+                continue
+            means[c] = Lm
+            own = np.abs(Lm.mean(0) - bo) > 4
+            np.save(os.path.join(d.M, "roi_own_%s.npy" % nm), own)
+            w = B.wobble(nm, "own_" + nm); a = B.analyse(nm, "own_" + nm)
+            res["%s|%s" % (c, cam)].update({"own_cloud_frac": round(float(own.mean()), 3), "own_cloud_wob_med": w.get("wob_med"),
+                                           "own_cloud_wob_p75": w.get("wob_p75"), "own_cloud_d2b": a.get("c_d2_blur"), "own_cloud_d1": a.get("c_d1")})
+        if "off0" in means:
+            ref = means["off0"]
+            res["replay|%s" % cam] = {c: round(float(np.abs(means[c] - ref).mean()), 3) for c in means if c != "off0" and means[c].shape == ref.shape}
+    _atomic_dump(res, SP2)
+    for k, r in sorted(res.items()):
+        if isinstance(r, dict) and "own_cloud_d2b" in r:
+            print("%-10s own cloud %.3f wob %s/%s d2b %s d1 %s | all wob %s d2b %s" % (k, r["own_cloud_frac"], r["own_cloud_wob_med"],
+                  r["own_cloud_wob_p75"], r["own_cloud_d2b"], r["own_cloud_d1"], r.get("wob_med"), r.get("d2_blur")), flush=True)
+        elif k.startswith("replay"):
+            print(k, r, flush=True)
+
+
 def stability_metrics():
     """Cloud-only wobble: the same tiles restricted to the cloud of each camera (|mean off - mean boxoff| > 4 over the capture)."""
     res = _load(SP)
@@ -541,6 +717,32 @@ def sheet():
     out = os.path.join(RES, "w41_sheet.png")
     sh.save(out)
     print("SHEET", out, flush=True)
+    # Zoom sheet: the cloud band of each view at full resolution (top 300 px), OFF / ON / ON - OFF (x6 around mid grey) and the
+    # same with fog Scattering Distribution 0.6.
+    pairs = [("off", "on", "fog phase 0 (owner)"), ("off_g06", "on_g06", "fog Scattering Distribution 0.6")]
+    tiles = []
+    for vn in VW:
+        for a, b, lab in pairs:
+            pa, pb = (os.path.join(LOOKDIR, "%s_%s.png" % (c, vn)) for c in (a, b))
+            if not (os.path.isfile(pa) and os.path.isfile(pb)):
+                continue
+            A = np.asarray(Image.open(pa).convert("RGB"), dtype=np.float64)[:300]
+            Bm = np.asarray(Image.open(pb).convert("RGB"), dtype=np.float64)[:300]
+            D = np.clip(128.0 + 6.0 * (Bm - A).mean(axis=2, keepdims=True), 0, 255).repeat(3, axis=2)
+            tiles.append(("%s, %s" % (vn, lab), [A, Bm, D]))
+    if tiles:
+        Wd = tiles[0][1][0].shape[1]
+        zs = Image.new("RGB", (3 * Wd + 8, len(tiles) * 330 + 24), (18, 18, 18)); zd = ImageDraw.Draw(zs)
+        for j, t in enumerate(("Sun Detail Shadow OFF", "Sun Detail Shadow ON", "ON - OFF (x6, grey = equal)")):
+            zd.text((j * (Wd + 4) + 6, 6), t, fill=(235, 235, 235))
+        for i, (lab, ims) in enumerate(tiles):
+            y = 24 + i * 330
+            zd.text((6, y + 2), lab, fill=(240, 220, 90))
+            for j, im in enumerate(ims):
+                zs.paste(Image.fromarray(np.clip(im, 0, 255).astype(np.uint8)), (j * (Wd + 4), y + 22))
+        zout = os.path.join(RES, "w41_zoom_sheet.png")
+        zs.save(zout)
+        print("SHEET", zout, flush=True)
 
 
 # ------------------------------------------------------------------ main
@@ -567,6 +769,54 @@ def main(argv):
         frozen_series(owner, LOOK, LP, "", ("mine", "against", "front")); look_metrics(); return
     if cmd == "stability":
         record_x41(owner); stability(owner); return
+    if cmd == "stability2":
+        record_x41(owner); stability2(owner); return
+    if cmd == "stability2_metrics":
+        stability2_metrics(); return
+    if cmd == "stability3":
+        record_x41(owner); stability3(owner); return
+    if cmd == "regress":
+        # Build-to-build check of the map (e.g. round 41 vs 43, cell-pass rewrite): frozen off / on / on_rep at 'against' and
+        # 'mine' under a build tag prefix; 'regress_metrics A B' compares two tags.
+        tag = argv[1]
+        record_x41(owner)
+        frozen_series(owner, [("off", OFFP, {}, {}), ("on", ONP, {}, {}), ("on_rep", ONP, {}, {})],
+                      os.path.join(RES, "regress.json"), tag + "_", ("against", "mine"))
+        return
+    if cmd == "regress_metrics":
+        a, b = argv[1], argv[2]; out = {}
+        for vn in ("against", "mine"):
+            P = lambda t, c: os.path.join(LOOKDIR, "%s_%s_%s.png" % (t, c, vn))
+            if not all(os.path.isfile(P(t, c)) for t in (a, b) for c in ("off", "on", "on_rep")):
+                continue
+            I = {(t, c): _lum(P(t, c)) for t in (a, b) for c in ("off", "on", "on_rep")}
+            if I[(a, "on")].shape != I[(b, "on")].shape:
+                out[vn] = "frame sizes differ"; continue
+            roi = np.abs(I[(a, "on")] - I[(a, "off")]) > 2.0      # where the map changes the image
+            mae = lambda x, y: round(float(np.abs(x - y)[roi].mean()), 3)
+            out[vn] = {"roi_frac": round(float(roi.mean()), 3), "on_%s_vs_%s" % (a, b): mae(I[(a, "on")], I[(b, "on")]),
+                       "floor_%s" % a: mae(I[(a, "on")], I[(a, "on_rep")]), "floor_%s" % b: mae(I[(b, "on")], I[(b, "on_rep")]),
+                       "off_%s_vs_%s" % (a, b): mae(I[(a, "off")], I[(b, "off")]), "on_vs_off_%s" % a: mae(I[(a, "on")], I[(a, "off")])}
+        res = _load(os.path.join(RES, "regress.json")); res["metrics_%s_%s" % (a, b)] = out; _atomic_dump(res, os.path.join(RES, "regress.json"))
+        print(json.dumps(out, indent=1)); return
+    if cmd == "stability2_boxoff":
+        # A Box-off background at the current viewport size for the owner camera (static background: sky + ground).
+        from PIL import Image
+        import glob as _glob
+        VIEWS, _, _ = views()
+        begin()
+        try:
+            C.set_cam(*VIEWS["mine"]); time.sleep(4.0)
+            apply(owner, ("boxoff", OFFP, {"FogMS_FroxelWeight": 0.0}, {}), frozen=False); time.sleep(5.0)
+            _, got = C.capture("stab2_boxoff_mine_tmp", 8)
+            w = Image.open(sorted(_glob.glob(os.path.join(d.M, "stab2_boxoff_mine_tmp", "f*.png")))[0]).size[0]
+            import shutil
+            dst = os.path.join(d.M, "stab2_boxoff_mine_w%d" % w)
+            shutil.rmtree(dst, ignore_errors=True); os.replace(os.path.join(d.M, "stab2_boxoff_mine_tmp"), dst)
+            print("BOXOFF", dst, got)
+        finally:
+            restore(owner)
+        stability2_metrics(); return
     if cmd == "cost":
         record_x41(owner); cost(owner); return
     if cmd == "night":

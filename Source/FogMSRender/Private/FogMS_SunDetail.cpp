@@ -240,7 +240,7 @@ bool FogMS_BuildSunDetailMap(FRDGBuilder& GraphBuilder, const FSceneView& View, 
 		Permutation.Set<FFogMSSunDetailCS::FPass>(1);
 		TShaderMapRef<FFogMSSunDetailCS> Shader(ShaderMap, Permutation);
 		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS SunDetail cell average 32^3"), ERDGPassFlags::Compute, Shader, Parameters,
-			FIntVector(SunCellGrid / 4, SunCellGrid / 4, SunCellGrid / 4));
+			FIntVector(SunCellGrid, SunCellGrid, SunCellGrid)); // one 32-thread group per cell
 	}
 	// The Box Volume material binding is invisible to RDG: hand both back as SRVs (the injection field's rule).
 	GraphBuilder.UseExternalAccessMode(MapTexture, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
