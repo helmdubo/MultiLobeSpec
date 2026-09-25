@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "FogMS_WorldLighting.h" // FFogMSSunDetailBasis (W41 Sun Detail Shadow)
 #include "FogMS_BoxVolume.generated.h"
 
 class UBoxComponent;
@@ -119,6 +120,11 @@ inline bool FogMS_IsTransportMode(EFogMSScatteringMode Mode)
 	return Mode == EFogMSScatteringMode::Transport || Mode == EFogMSScatteringMode::AngularTransport;
 }
 
+/** World unit vector toward the atmosphere sun: the first visible, world-affecting ADirectionalLight with Atmosphere Sun Light and
+ * index 0 (zero without one). Shared by the Box runtime (the solver's DirectionToSun) and the Box's W41 sun map basis, so both see
+ * the same light in the same frame. */
+FVector3f FogMS_FindAtmosphereSunDirection(UWorld* World);
+
 /** Defines the live fog region, directional/spatial scattering and authored volume density. */
 UCLASS(BlueprintType, Blueprintable, ClassGroup=(FogMS), meta=(DisplayName="FogMS Box Volume"))
 class MULTILOBESPEC_API AFogMSBoxVolume : public AActor
@@ -230,6 +236,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="MS Back Floor", EditCondition="bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Transport forward lobe only (Octaves ignore it; no UE equivalent). Keeps the side of the cloud facing the sun (sun behind the camera) from going dark: it never drops below 1 - MS Contribution x (1 - MS Back Floor) of the isotropic value, and the forward peak shrinks by the same factor, so the average stays exactly 1. 0 = pure forward lobe, 1 = no lobe. Default 0.25. Changes apply live."))
 	float MSBackFloor = 0.25f;
 
+	/** W41 Sun Detail Shadow. Hybrid injection only: a per-Box sun-space map of this Box's fine density (Resolution^2 x Steps,
+	 * r.FogMS.SunMap.Resolution / .Steps, rebuilt every frame on the render thread, FogMS_SunDetail.usf) redistributes the
+	 * solver's per-cell sun share S inside each 32^3 cell: S_hi = min(1, S * T_hi / Tbar), T_hi = the map's sun transmittance at
+	 * the fog sample, Tbar = its sigma-weighted mean over the cell (MID FogMS_SunDetail / FogMS_SunMap / FogMS_SunMapCell /
+	 * FogMS_SunMapU/V/W, material node FogMS_SunDetail v1, matedit_density.py). S_hi scales native sun single scattering and is the
+	 * forward lobe's S. Off, night, no sun: the W40 material exactly. Material only: no density revision, no re-solve. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="Sun Detail Shadow", EditCondition="bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ToolTip="Sharp sun self-shadowing inside the cloud. Without it the sun light of the cloud comes from the solver's cells (32 per Box side, about 7 m here), so a whole cell is equally lit: no thin bright rim, no dark core. With it, a sun map of this Box's own density (256 x 256 x 64 by default, rebuilt every frame so it follows the animated density) redistributes the sun light inside every cell: the sunlit skin and thin edges get brighter, the dense inside darker; with a forward fog phase (Height Fog Scattering Distribution about 0.6) backlit edges show a silver lining. Energy per solver cell is kept: the light is moved inside the cell, not added. Also sharpens the forward lobe (MS Contribution). Hybrid Single Scattering only; needs the material patched by matedit_density.py (FogMS_SunDetail). Off = the previous look exactly; at night nothing changes. Cost: one small GPU pass per Box and frame (see the user guide), 16.25 MB of video memory per Box. Changes apply live."))
+	bool bSunDetailShadow = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="Sun Detail Strength", EditCondition="bSunDetailShadow && bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Blend of Sun Detail Shadow: 0 = the solver's per-cell sun light (as with the switch off), 1 = the full sun-map detail (default). In between the rims and cores are proportionally softer. Changes apply live."))
+	float SunDetailStrength = 1.0f;
+
+	/** W41: the Box's sun-space map (FFogMSSunDetailRequest::MapTexture), R = mean sun transmittance over the step, G = sigma
+	 * [1/m]; and the per-cell sigma-weighted mean (CellTexture, 32^3, texel = transport cell, G = 1 valid). Created while Sun Detail
+	 * Shadow is requested on a hybrid Box, released otherwise; written only by the render thread. */
+	UPROPERTY(Transient, DuplicateTransient, VisibleAnywhere, AdvancedDisplay, Category="FogMS|Multiple Scattering Look", meta=(ToolTip="Sun Detail Shadow map of this Box: Resolution x Resolution x Steps (r.FogMS.SunMap.Resolution / .Steps), R = sun transmittance averaged over each depth step, G = extinction [1/m]. Written by the render thread every frame."))
+	TObjectPtr<UTextureRenderTargetVolume> SunDetailMap;
+
+	UPROPERTY(Transient, DuplicateTransient, VisibleAnywhere, AdvancedDisplay, Category="FogMS|Multiple Scattering Look", meta=(ToolTip="Sun Detail Shadow per-cell average (32^3, one texel per transport cell like the transport field): R = extinction-weighted mean sun transmittance of the cell, G = 1 when valid (0 = the material ignores the map)."))
+	TObjectPtr<UTextureRenderTargetVolume> SunDetailCell;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves", ClampMin="1", ClampMax="2", UIMin="1", UIMax="2", ToolTip="Octaves (legacy, overlay) only: number of directional octaves added to the native first order, one or two (like 'MultiScattering Approximation Octave Count' of UE's Volumetric Cloud material). The Transport forward lobe always uses two. Changes apply live."))
 	int32 ExtraOctaves = 2;
 
@@ -264,6 +291,14 @@ public:
 	bool IsHybridInjectionActive() const { return IsEmissiveInjectionActive() && LastDensityState.bHybridInjection; }
 	/** Effective debug view (FogMS_InjectionMode 3, full field, row 23.w 5) from the last UpdateDensity. */
 	bool IsFieldOnlyDebugActive() const { return IsEmissiveInjectionActive() && LastDensityState.bFieldOnlyInjection; }
+	/** W41: Sun Detail Shadow in effect after the last UpdateDensity (hybrid active, switch on, strength > 0, patched material,
+	 * map textures, a sun above the horizon). Then the MID's FogMS_SunDetail is the strength and the render thread must build the
+	 * map with OutBasis into OutMap / OutCell this frame. False: the MID strength is 0 (the W40 material). */
+	bool GetSunDetailRenderData(FFogMSSunDetailBasis& OutBasis, UTextureRenderTargetVolume*& OutMap, UTextureRenderTargetVolume*& OutCell) const;
+	/** W41: why Sun Detail Shadow is requested but not in effect (empty when in effect or not requested); for the status line. */
+	const FString& GetSunDetailProblem() const { return SunDetailProblem; }
+	/** W41: MID strength of the last UpdateDensity (0 = off). */
+	float GetSunDetailStrengthInEffect() const { return LastDensityState.SunDetailValue; }
 	/** This actor instance ran Apply Required Render Settings (game BeginPlay or an automatic runtime start). */
 	bool HasAppliedRequiredRenderSettings() const { return bRequiredRenderSettingsApplied; }
 	/** CPU upper bound of the optical depth through the Box centre (definition at the implementation); negative without
@@ -541,6 +576,16 @@ private:
 		float ForwardDepthValue = 0.5f;
 		float ForwardEccValue = 0.5f;
 		float ForwardFloorValue = 0.25f;
+		/** W41 Sun Detail Shadow (material only: MID update, no density revision). SunDetailValue = MID FogMS_SunDetail (0 = off);
+		 * SunMapRow* = MID FogMS_SunMapU/V/W (the basis rows in the material's cube space -50..50); SunBasis = the same map in
+		 * Box-axis centimetres for the render thread (compared through the rows). */
+		float SunDetailValue = 0.0f;
+		FLinearColor SunMapRowU = FLinearColor(0, 0, 0, 0);
+		FLinearColor SunMapRowV = FLinearColor(0, 0, 0, 0);
+		FLinearColor SunMapRowW = FLinearColor(0, 0, 0, 0);
+		TWeakObjectPtr<UTextureRenderTargetVolume> SunMap;
+		TWeakObjectPtr<UTextureRenderTargetVolume> SunCell;
+		FFogMSSunDetailBasis SunBasis;
 		float DensityValue = 0.0f;
 		FLinearColor Albedo = FLinearColor::Black;
 		FLinearColor WorldExtent = FLinearColor::Black;
@@ -599,6 +644,13 @@ private:
 	bool EnsureTransportField();
 	/** Drops TransportField, clears the MID overrides (re-applied on the next active update); GC releases the resource. */
 	void ReleaseTransportField();
+	/** W41: creates (or re-creates at the r.FogMS.SunMap.Resolution / .Steps size) SunDetailMap and SunDetailCell; true when both
+	 * have a render resource. */
+	bool EnsureSunDetailMaps();
+	/** W41: drops both maps and clears the MID overrides like ReleaseTransportField (the next active update re-applies them). */
+	void ReleaseSunDetailMaps();
+	/** W41: status note of the last UpdateDensity (GetSunDetailProblem). */
+	FString SunDetailProblem;
 
 	bool GetDensityMotionVelocities(FVector& Out0, FVector& Out1, FVector& Out2) const;
 	bool EvaluateDirectionalMotion(double Time, const FVector& Velocity0, const FVector& Velocity1,

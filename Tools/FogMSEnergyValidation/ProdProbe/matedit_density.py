@@ -80,8 +80,27 @@ nothing infers an output name from another pin any more (the ambiguous API is no
 wired by connect_output() from the FogMS_TransportField sample's named output ('A' / 'RGB') and verified the same way. The repair
 checks FIELD_PINS (lobe FieldA <- A, injection Field <- RGB and FieldA <- A, albedo FieldA <- A), rewires only a wrong pin,
 recompiles (compile_and_check) and saves; on a compile error the old links go back and nothing is saved.
+W41 Sun Detail Shadow (patch_sun_detail, after the field-wiring repair): the hybrid's per-cell sun share S (field alpha) is
+redistributed inside each 32^3 cell by the Box's high-resolution sun map (C++ FogMS_SunDetail.usf, per Box and frame):
+  FogMS_SunMapUVW (Custom float3, SUN_UVW_CODE_V1): LocalPosition (TransformPosition_0, the source of FogMS_TransportUVW's
+      LocalPosition) and the vectors FogMS_SunMapU/V/W (default 0) -> the map uvw (the Box MID writes the rows every frame);
+  FogMS_SunMap (TextureSampleParameterVolume, UVs <- FogMS_SunMapUVW) and FogMS_SunMapCell (TextureSampleParameterVolume, UVs <- the
+      field sample's own UVs node FogMS_TransportUVW: texel = transport cell like the field), placeholder = the field's texture;
+  FogMS_SunDetail (Custom float1, SUN_DETAIL_CODE_V1): FieldA <- FogMS_TransportField.A, Mode <- FogMS_InjectionMode, Strength <-
+      FogMS_SunDetail (scalar, default 0 = off), SunT <- FogMS_SunMap.R, Cell <- FogMS_SunMapCell.RGBA; returns
+      FieldA' = 0.5 + 0.5 * lerp(S, min(1, S * T_hi / Tbar), Strength) (pass-through = FieldA exactly when off / not mode 2 / no
+      valid field / no valid map);
+  FogMS_InjectionAlbedo.FieldA and FogMS_ForwardLobe.FieldA <- FogMS_SunDetail: both keep their code (v4 / v2) and read
+      S = saturate(2 FieldA' - 1) = S_hi, so one node carries the math for native single scattering and for the lobe.
+  Why one node instead of InjectionAlbedo v5 + ForwardLobe v3: the same S_hi reaches both consumers from one implementation, the two
+  existing codes stay byte-identical (so do their CPU checks, fwd_lobe_check.py), and the off path is a plain pass-through.
+  Idempotent: FogMS_SunDetail carrying SUN_DETAIL_MARKER with both consumers reading it = done. A partial W41 graph aborts. On a
+  compile error (or any failure) both consumers go back to FogMS_TransportField.A, what the step created is deleted, recompiled,
+  nothing saved. Explicit rollback (the W40 graph again): FOGMS_MATEDIT_MODE=rollback_w41 (rewires, deletes the W41 nodes and
+  parameters, recompiles, saves). repair_field_wiring knows the W41 layout: consumers <- FogMS_SunDetail, FogMS_SunDetail.FieldA <- A.
 Default readback: only parameters created by this run must read back their script default; a pre-existing parameter keeps
 its material default (for example FogMS_ErosionDepth 0.3 from round 32) and is reported, since the Box MID sets it anyway.
+FogMS_SunDetail must read back 0 in any case (the material default must be the pass-through).
 The material is saved once, only if a step changed it; on any error nothing is saved (reload the asset to discard memory state).
 
 EXTINCTION_CODE_V3 must stay formula-identical to FogMS_IndirectLocalDensity in Shaders/Private/FogMS_Indirect.ush at
@@ -381,7 +400,60 @@ WEIGHT_TARGETS = (('MP_SUBSURFACE_COLOR', 'FogMS_FroxelWeight extinction'), ('MP
 FIELD_PARAM = 'FogMS_TransportField'
 FIELD_PINS = ((FORWARD_DESCRIPTION, 'FieldA', 'A'), (EMISSIVE_DESCRIPTION, 'Field', 'RGB'), (EMISSIVE_DESCRIPTION, 'FieldA', 'A'),
               (INJECTION_ALBEDO_DESCRIPTION, 'FieldA', 'A'))
-FIELD_TYPES = {'A': 15, 'RGB': 4}
+# Value types a pin may report: one texture channel MCT_Float (15), RGB MCT_Float3 (4), a CMOT_FLOAT1 Custom output MCT_Float1 (1).
+FIELD_TYPES = {'A': (15,), 'RGB': (4,), '': (1, 15)}
+
+# W41 Sun Detail Shadow (patch_sun_detail). Names match the MID setters in FogMS_BoxVolume.cpp (UpdateDensity).
+SUN_DETAIL_DESCRIPTION = 'FogMS_SunDetail'
+SUN_DETAIL_MARKER = 'FogMS_SunDetail v1'
+SUN_UVW_DESCRIPTION = 'FogMS_SunMapUVW'
+SUN_UVW_MARKER = 'FogMS_SunMapUVW v1'
+SUN_SCALAR = ('FogMS_SunDetail', 0.0, 'Strength')
+SUN_VECTORS = (('FogMS_SunMapU', (0.0, 0.0, 0.0, 0.0), 'U'), ('FogMS_SunMapV', (0.0, 0.0, 0.0, 0.0), 'V'),
+               ('FogMS_SunMapW', (0.0, 0.0, 0.0, 0.0), 'W'))
+SUN_MAP_PARAM = 'FogMS_SunMap'
+SUN_CELL_PARAM = 'FogMS_SunMapCell'
+SUN_UVW_INPUTS = ('LocalPosition', 'U', 'V', 'W')
+SUN_DETAIL_INPUTS = ('FieldA', 'Mode', 'Strength', 'SunT', 'Cell')
+# The pins that read S = saturate(2 FieldA - 1); after W41 they read FogMS_SunDetail instead of the field alpha.
+SUN_CONSUMERS = ((INJECTION_ALBEDO_DESCRIPTION, 'FieldA'), (FORWARD_DESCRIPTION, 'FieldA'))
+FIELD_UVW_DESCRIPTION = 'FogMS_TransportUVW'
+SUN_UVW_CODE_V1 = r"""// FogMS_SunMapUVW v1 (W41 Sun Detail Shadow). Box cube space LocalPosition (-50..50, TransformPosition_0) -> uvw of the Box's
+// sun-space map (C++ FogMS_SunDetail.usf; layout FogMS_WorldLighting.h FFogMSSunDetailBasis). U, V, W = FogMS_SunMapU/V/W, the rows
+// of the affine map (xyz . LocalPosition + w), written by the Box MID every frame from the atmosphere sun (FogMS_BoxVolume.cpp).
+// The map texture clamps outside [0, 1].
+return float3(dot(LocalPosition, U.xyz) + U.w, dot(LocalPosition, V.xyz) + V.w, dot(LocalPosition, W.xyz) + W.w);
+"""
+SUN_DETAIL_CODE_V1 = r"""// FogMS_SunDetail v1 (W41 Sun Detail Shadow). Hybrid mode 2: redistributes the solver's per-cell sun share S inside each 32^3
+// cell with the Box's high-resolution sun transmittance, keeping the native single-scattering energy of the cell.
+//   FieldA   <- FogMS_TransportField.A = 0.5 + 0.5 * S_cell, S_cell = T_sun * k (solver, per cell; trilinear between cells)
+//   SunT     <- FogMS_SunMap.R at FogMS_SunMapUVW = T_hi(x): sun transmittance from x to the Box's sun-side exit through the FINE
+//               density (rebuilt every frame from the solver's density function, same noise and phases; mean over each depth
+//               step of the map, trilinear)
+//   Cell     <- FogMS_SunMapCell.RGBA at the field's uvw: R = Tbar = sigma-weighted mean of T_hi over the cell, G = 1 valid map
+//   Strength <- FogMS_SunDetail (Box 'Sun Detail Shadow' x 'Sun Detail Strength'; 0 = off, the material default)
+//   Mode     <- FogMS_InjectionMode
+// S_hi = min(1, S_cell * T_hi / Tbar); returns FieldA' = 0.5 + 0.5 * lerp(S_cell, S_hi, Strength).
+// Energy: per cell, sum over the medium of sigma * S_hi = S_cell * (sum sigma T_hi) / Tbar = S_cell * sum sigma (Tbar is the
+// sigma-weighted mean), so the native sun single scattering of a cell (sigma_s * S * sun summed over its fog voxels) keeps what the
+// solver subtracted from the field (J - Direct_sun), up to the S <= 1 clamp and the trilinear blend between neighbouring cells;
+// only its place inside the cell changes: the sunlit skin and thin edges get more, the shadowed core less.
+// Consumers (their FieldA pins): FogMS_InjectionAlbedo (BaseColor = Albedo * lerp(1, S, V)) and FogMS_ForwardLobe (the lobe's S),
+// both S = saturate(2 FieldA' - 1) = S_hi; the injection validity V (FieldA >= 0.5) is unchanged (FieldA' >= 0.5 when FieldA is).
+// Pass-through (returns FieldA, the W40 material exactly): Strength <= 0, Mode != 2, invalid field (FieldA < 0.5), invalid map
+// (Cell.g < 0.5: cleared, no sun, before the first build). Tbar <= 1e-4 (a cell in deep shadow): ratio 1, S_cell unchanged.
+float Result = FieldA;
+BRANCH
+if (Strength > 0.0f && Mode > 1.5f && Mode < 2.5f && FieldA >= 0.5f && Cell.g > 0.5f)
+{
+    float S = saturate(2.0f * FieldA - 1.0f);
+    float Tbar = Cell.r;
+    float Ratio = Tbar > 1.0e-4f ? saturate(SunT) / Tbar : 1.0f;
+    float Shi = min(S * Ratio, 1.0f);
+    Result = 0.5f + 0.5f * lerp(S, Shi, saturate(Strength));
+}
+return Result;
+"""
 
 mel = unreal.MaterialEditingLibrary
 
@@ -561,11 +633,17 @@ def connect_output(material, src, output, node, pin):
 
 
 def field_pin_report(material, exprs):
-    """[(description, pin, wanted output, node, stored source, stored output name, stored index, source value type)] for FIELD_PINS
-    (lobe absent: skipped)."""
+    """[(description, pin, wanted source, wanted output, node, stored source, stored output name, stored index, source value type)]
+    for FIELD_PINS (lobe absent: skipped). W41: with a FogMS_SunDetail node the SUN_CONSUMERS pins want that node's output ''
+    and the node's own FieldA wants the field's A."""
     field = find_field_sample(exprs)
+    sun = find_sun_detail(exprs)
     rows = []
-    for desc, pin, want in FIELD_PINS:
+    wanted = [(desc, pin, field, want) for desc, pin, want in FIELD_PINS]
+    if sun is not None:
+        wanted = [(desc, pin, sun, '') if (desc, pin) in SUN_CONSUMERS else (desc, pin, src, want) for desc, pin, src, want in wanted]
+        wanted.append((SUN_DETAIL_DESCRIPTION, 'FieldA', field, 'A'))
+    for desc, pin, want_src, want in wanted:
         found = [e for e in custom_nodes(exprs) if str(e.get_editor_property('description')) == desc]
         if desc == FORWARD_DESCRIPTION and not found:
             continue
@@ -574,30 +652,31 @@ def field_pin_report(material, exprs):
         link = dict((p, (s, o, i)) for p, s, o, i in custom_links(material, node)).get(pin)
         require(link is not None, '%s has no pin %s' % (node.get_name(), pin))
         types = dict(zip(mel.get_material_expression_input_names(node), mel.get_material_expression_input_types(node)))
-        rows.append((desc, pin, want, node, link[0], link[1], link[2], types.get(pin)))
+        rows.append((desc, pin, want_src, want, node, link[0], link[1], link[2], types.get(pin)))
     return field, rows
 
 
 def repair_field_wiring(material):
-    """W40: every FIELD_PINS pin reads its wanted output of the FogMS_TransportField sample (module docstring). Idempotent: a pin
-    that already stores (field sample, wanted output) is left alone. Returns True if it rewired; the caller saves. A compile error
-    (or any failure) puts the old links back, recompiles and raises (nothing saved)."""
+    """W40: every FIELD_PINS pin reads its wanted output of the FogMS_TransportField sample (module docstring); W41: the S consumers
+    read FogMS_SunDetail when it exists. Idempotent: a pin that already stores (wanted source, wanted output) is left alone. Returns
+    True if it rewired; the caller saves. A compile error (or any failure) puts the old links back, recompiles and raises (nothing
+    saved)."""
     exprs = expressions(material)
     field, rows = field_pin_report(material, exprs)
-    wrong = [r for r in rows if not (r[4] == field and r[5] == r[2])]
-    for desc, pin, want, node, src, out, index, vtype in rows:
+    wrong = [r for r in rows if not (r[5] == r[2] and r[6] == r[3])]
+    for desc, pin, want_src, want, node, src, out, index, vtype in rows:
         print('FIELD_PIN %s.%s <- %s.%s (index %s, value type %s)%s' % (desc, pin, src.get_name() if src else None, out, index, vtype,
-              '' if (src == field and out == want) else '  WRONG: want %s.%s' % (field.get_name(), want)))
+              '' if (src == want_src and out == want) else '  WRONG: want %s.%s' % (want_src.get_name(), want)))
     if not wrong:
         print('FIELD_WIRING ok (%d pins)' % len(rows))
         return False
     done = []
     try:
-        for desc, pin, want, node, src, out, index, vtype in wrong:
-            connect_output(material, field, want, node, pin)
+        for desc, pin, want_src, want, node, src, out, index, vtype in wrong:
+            connect_output(material, want_src, want, node, pin)
             done.append((node, pin, src, out))
-        for desc, pin, want, node, src, out, index, vtype in field_pin_report(material, expressions(material))[1]:
-            require(src == field and out == want and vtype == FIELD_TYPES[want],
+        for desc, pin, want_src, want, node, src, out, index, vtype in field_pin_report(material, expressions(material))[1]:
+            require(src == want_src and out == want and vtype in FIELD_TYPES[want],
                     'After repair %s.%s <- %s.%s type %s' % (desc, pin, src.get_name() if src else None, out, vtype))
         errors, note = compile_and_check(material, 'FOGMS_MATEDIT_FIELD_%d' % int(time.time() * 1000))
         print('COMPILE field wiring:', note)
@@ -612,8 +691,173 @@ def repair_field_wiring(material):
         mel.recompile_material(material)
         print('NOT SAVED; the field pins are back on their previous links (unsaved in-memory state, reload the asset to discard).')
         raise
-    print('FIELD_WIRING repaired: %s' % ', '.join('%s.%s <- %s.%s (was %s.%s)' % (d, p, field.get_name(), w, s.get_name() if s else None, o)
-                                               for d, p, w, n, s, o, i, t in wrong))
+    print('FIELD_WIRING repaired: %s' % ', '.join('%s.%s <- %s.%s (was %s.%s)' % (d, p, ws.get_name(), w, s.get_name() if s else None, o)
+                                               for d, p, ws, w, n, s, o, i, t in wrong))
+    return True
+
+
+# ------------------------------------------------------------------ W41 Sun Detail Shadow
+def find_sun_detail(exprs):
+    found = [e for e in custom_nodes(exprs) if str(e.get_editor_property('description')) == SUN_DETAIL_DESCRIPTION]
+    require(len(found) <= 1, 'Several Custom nodes are named %s' % SUN_DETAIL_DESCRIPTION)
+    return found[0] if found else None
+
+
+def find_volume_sample(exprs, param):
+    found = [e for e in exprs if isinstance(e, unreal.MaterialExpressionTextureSampleParameterVolume)
+             and str(e.get_editor_property('parameter_name')) == param]
+    require(len(found) <= 1, 'Several %s samples' % param)
+    return found[0] if found else None
+
+
+def sun_pieces(exprs):
+    """Everything W41 creates (for idempotency / partial-graph detection / rollback), name -> expression or None."""
+    uvw = [e for e in custom_nodes(exprs) if str(e.get_editor_property('description')) == SUN_UVW_DESCRIPTION]
+    require(len(uvw) <= 1, 'Several Custom nodes are named %s' % SUN_UVW_DESCRIPTION)
+    out = {'detail': find_sun_detail(exprs), 'uvw': uvw[0] if uvw else None,
+           'map': find_volume_sample(exprs, SUN_MAP_PARAM), 'cell': find_volume_sample(exprs, SUN_CELL_PARAM),
+           'strength': find_parameter(exprs, SUN_SCALAR[0])}
+    for name, _, _ in SUN_VECTORS:
+        out[name] = find_parameter(exprs, name)
+    return out
+
+
+def patch_sun_detail(material):
+    """W41: FogMS_SunDetail between the field alpha and the two S consumers (module docstring). Returns True if it changed the
+    material; the caller saves. Any failure rolls back in memory and raises (nothing saved)."""
+    exprs = expressions(material)
+    parts = sun_pieces(exprs)
+    field = find_field_sample(exprs)
+    albedo = find_single_custom(exprs, INJECTION_ALBEDO_DESCRIPTION)
+    lobe = find_forward_node(exprs)
+    require(lobe is not None and forward_lobe_version(lobe) == 'v2', 'FogMS_ForwardLobe v2 is required first (patch_forward_lobe)')
+    require(injection_albedo_version(exprs) == 'v4', 'FogMS_InjectionAlbedo field contract v4 is required first')
+    consumers = [(albedo, 'FieldA'), (lobe, 'FieldA')]
+    detail = parts['detail']
+    if detail is not None:
+        require(SUN_DETAIL_MARKER in normalized_code(detail), '%s is named %s but its code is not %s; not changed' % (
+            detail.get_name(), SUN_DETAIL_DESCRIPTION, SUN_DETAIL_MARKER))
+        for node, pin in consumers:
+            src, out = dict((p, (s, o)) for p, s, o in input_links(material, node))[pin]
+            require(src == detail and out == '', '%s.%s reads %s.%s, not %s; fix by hand or FOGMS_MATEDIT_MODE=rollback_w41' % (
+                node.get_name(), pin, src.get_name() if src else None, out, detail.get_name()))
+        print('SUN_DETAIL already v1 (%s)' % detail.get_name())
+        return False
+    partial = [k for k, v in parts.items() if v is not None]
+    require(not partial, 'Partial W41 graph (%s) without a FogMS_SunDetail node; not changed (FOGMS_MATEDIT_MODE=rollback_w41 removes it)'
+            % partial)
+    for node, pin in consumers:
+        src, out = dict((p, (s, o)) for p, s, o in input_links(material, node))[pin]
+        require(src == field and out == 'A', '%s.%s reads %s.%s, not %s.A (W40 contract); run the field repair first' % (
+            node.get_name(), pin, src.get_name() if src else None, out, field.get_name()))
+    field_uvw = dict(input_sources(material, field)).get('UVs')
+    require(isinstance(field_uvw, unreal.MaterialExpressionCustom)
+            and str(field_uvw.get_editor_property('description')) == FIELD_UVW_DESCRIPTION,
+            'The field sample UVs are not fed by %s; graph differs from the expected layout (no change made)' % FIELD_UVW_DESCRIPTION)
+    local = dict(input_sources(material, field_uvw)).get('LocalPosition')
+    require(local is not None, '%s.LocalPosition is not connected' % field_uvw.get_name())
+    mode = find_parameter(exprs, 'FogMS_InjectionMode')
+    require(mode is not None, 'FogMS_InjectionMode parameter missing')
+    placeholder = field.get_editor_property('texture')
+    print('SUN_DETAIL sources: LocalPosition <- %s, field UVs <- %s, Mode <- %s, placeholder %s' % (
+        local.get_name(), field_uvw.get_name(), mode.get_name(), placeholder.get_path_name() if placeholder else None))
+
+    created = []
+    x, y = mel.get_material_expression_node_position(field)
+    try:
+        strength = mel.create_material_expression(material, unreal.MaterialExpressionScalarParameter, x - 300, y + 900)
+        require(strength is not None, 'Cannot create scalar ' + SUN_SCALAR[0])
+        created.append(strength)
+        strength.set_editor_property('parameter_name', SUN_SCALAR[0])
+        strength.set_editor_property('default_value', SUN_SCALAR[1])
+        strength.set_editor_property('group', 'FogMS')
+        rows = []
+        for index, (name, default, pin) in enumerate(SUN_VECTORS):
+            vec = mel.create_material_expression(material, unreal.MaterialExpressionVectorParameter, x - 700, y + 600 + 110 * index)
+            require(vec is not None, 'Cannot create vector ' + name)
+            created.append(vec)
+            vec.set_editor_property('parameter_name', name)
+            vec.set_editor_property('default_value', unreal.LinearColor(*default))
+            vec.set_editor_property('group', 'FogMS')
+            rows.append((pin, vec, 'RGBA'))
+        uvw = mel.create_material_expression(material, unreal.MaterialExpressionCustom, x - 400, y + 600)
+        require(uvw is not None, 'Cannot create the FogMS_SunMapUVW Custom node')
+        created.append(uvw)
+        uvw.set_editor_property('code', SUN_UVW_CODE_V1)
+        uvw.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT3)
+        uvw.set_editor_property('description', SUN_UVW_DESCRIPTION)
+        set_custom_inputs(uvw, SUN_UVW_INPUTS)
+        wire_inputs(material, uvw, [('LocalPosition', local, '')] + rows)
+        samples = {}
+        for param, uv_src, dy in ((SUN_MAP_PARAM, uvw, 600), (SUN_CELL_PARAM, field_uvw, 800)):
+            tex = mel.create_material_expression(material, unreal.MaterialExpressionTextureSampleParameterVolume, x - 100, y + dy)
+            require(tex is not None, 'Cannot create the %s sample' % param)
+            created.append(tex)
+            tex.set_editor_property('parameter_name', param)
+            tex.set_editor_property('group', 'FogMS')
+            tex.set_editor_property('sampler_type', unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+            if placeholder:
+                tex.set_editor_property('texture', placeholder)
+            require(mel.connect_material_expressions(uv_src, '', tex, 'UVs') or mel.connect_material_expressions(uv_src, '', tex, 'Coordinates'),
+                    'Cannot wire %s -> %s.UVs' % (uv_src.get_name(), param))
+            require(dict(input_sources(material, tex)).get('UVs', dict(input_sources(material, tex)).get('Coordinates')) == uv_src,
+                    '%s UVs readback mismatch' % param)
+            samples[param] = tex
+        detail = mel.create_material_expression(material, unreal.MaterialExpressionCustom, x + 250, y + 700)
+        require(detail is not None, 'Cannot create the FogMS_SunDetail Custom node')
+        created.append(detail)
+        detail.set_editor_property('code', SUN_DETAIL_CODE_V1)
+        detail.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+        detail.set_editor_property('description', SUN_DETAIL_DESCRIPTION)
+        set_custom_inputs(detail, SUN_DETAIL_INPUTS)
+        wire_inputs(material, detail, [('FieldA', field, 'A'), ('Mode', mode, ''), ('Strength', strength, ''),
+                                       ('SunT', samples[SUN_MAP_PARAM], 'R'), ('Cell', samples[SUN_CELL_PARAM], 'RGBA')])
+        for node, pin in consumers:
+            connect_output(material, detail, '', node, pin)
+        for desc, pin, want_src, want, node, src, out, index, vtype in field_pin_report(material, expressions(material))[1]:
+            require(src == want_src and out == want and vtype in FIELD_TYPES[want],
+                    'After W41 %s.%s <- %s.%s type %s' % (desc, pin, src.get_name() if src else None, out, vtype))
+        errors, note = compile_and_check(material, 'FOGMS_MATEDIT_SUN_%d' % int(time.time() * 1000))
+        print('COMPILE sun detail:', note)
+        require(not errors, 'Compile errors: %s' % errors)
+    except Exception:
+        # Roll back in memory: both consumers back to the field alpha, delete what this step created, recompile, do not save.
+        print('ROLLBACK', traceback.format_exc())
+        for node, pin in consumers:
+            mel.connect_material_expressions(field, 'A', node, pin)
+        for node in reversed(created):
+            mel.delete_material_expression(material, node)
+        mel.recompile_material(material)
+        print('NOT SAVED; %s.FieldA and %s.FieldA are back on %s.A (unsaved in-memory state, reload the asset to discard).' % (
+            albedo.get_name(), lobe.get_name(), field.get_name()))
+        raise
+    print('SUN_DETAIL patched v1 (%s: FieldA <- %s.A, SunT <- %s.R, Cell <- %s.RGBA; consumers %s.FieldA, %s.FieldA <- %s)' % (
+        detail.get_name(), field.get_name(), samples[SUN_MAP_PARAM].get_name(), samples[SUN_CELL_PARAM].get_name(),
+        albedo.get_name(), lobe.get_name(), detail.get_name()))
+    return True
+
+
+def rollback_sun_detail(material):
+    """FOGMS_MATEDIT_MODE=rollback_w41: the W40 graph again. Both consumers <- FogMS_TransportField.A, every W41 node and parameter
+    deleted, recompiled and saved. No W41 pieces: nothing changes."""
+    exprs = expressions(material)
+    parts = sun_pieces(exprs)
+    present = [(k, v) for k, v in parts.items() if v is not None]
+    if not present:
+        print('ROLLBACK_W41 nothing to remove')
+        return False
+    field = find_field_sample(exprs)
+    for desc, pin in SUN_CONSUMERS:
+        found = [e for e in custom_nodes(exprs) if str(e.get_editor_property('description')) == desc]
+        for node in found:
+            connect_output(material, field, 'A', node, pin)
+    for name, node in present:
+        mel.delete_material_expression(material, node)
+    errors, note = compile_and_check(material, 'FOGMS_MATEDIT_RB41_%d' % int(time.time() * 1000))
+    print('COMPILE rollback w41:', note)
+    require(not errors, 'Compile errors after the W41 rollback: %s' % errors)
+    saved = unreal.EditorAssetLibrary.save_asset(MATERIAL_PATH, only_if_is_dirty=False)
+    print('ROLLBACK_W41 removed %s; consumers <- %s.A; saved=%s' % ([k for k, _ in present], field.get_name(), saved))
     return True
 
 
@@ -701,10 +945,26 @@ def summary(material, exprs):
             print('  FORWARD IN %-12s <- %s.%s' % (pin, src.get_name() if src else None, out))
         for name, _, _ in FORWARD_SCALARS:
             print('  PARAM %s = %s' % (name, mel.get_material_default_scalar_parameter_value(material, name)))
-    # Field pins, definitive (T3D OutputIndex per pin) with the source value type (EMaterialValueType: 15 = one channel, 4 = float3).
-    for desc, pin, want, node, src, out, index, vtype in field_pin_report(material, exprs)[1]:
+    # Field pins, definitive (T3D OutputIndex per pin) with the source value type (EMaterialValueType: 15 = one channel, 4 = float3,
+    # 1 = a float1 Custom output). W41: the S consumers read FogMS_SunDetail.
+    for desc, pin, want_src, want, node, src, out, index, vtype in field_pin_report(material, exprs)[1]:
         print('  FIELD %s.%s <- %s.%s (index %s, value type %s)%s' % (desc, pin, src.get_name() if src else None, out, index, vtype,
-                                                                    '' if out == want else '  WRONG: want ' + want))
+              '' if (src == want_src and out == want) else '  WRONG: want %s.%s' % (want_src.get_name(), want)))
+    parts = sun_pieces(exprs)
+    detail = parts['detail']
+    print('  %s: %s' % (SUN_DETAIL_DESCRIPTION, ('%s (%s)' % (detail.get_name(), 'v1' if SUN_DETAIL_MARKER in normalized_code(detail) else 'unknown'))
+                                                if detail else None))
+    if detail:
+        for pin, src, out in input_links(material, detail):
+            print('  SUN IN %-9s <- %s.%s' % (pin, src.get_name() if src else None, out))
+        for key in ('uvw', 'map', 'cell'):
+            node = parts[key]
+            if node is None:
+                continue
+            links = input_links(material, node) if isinstance(node, unreal.MaterialExpressionCustom) else \
+                [(p, s, '') for p, s in input_sources(material, node) if s is not None]
+            print('  SUN %s %s: %s' % (key, node.get_name(), ', '.join('%s <- %s.%s' % (p, s.get_name() if s else None, o) for p, s, o in links)))
+        print('  PARAM %s = %s' % (SUN_SCALAR[0], mel.get_material_default_scalar_parameter_value(material, SUN_SCALAR[0])))
     for prop, _ in WEIGHT_TARGETS:
         node = weight_node_for(material, prop)
         print('  FROXEL_WEIGHT %s: %s' % (prop, ('%s = %s * %s' % (node.get_name(), property_source(material, prop).get_name(), WEIGHT_PARAM))
@@ -1029,14 +1289,18 @@ def main():
     changed = patch_extinction_v3(material) or changed
     changed = patch_injection_albedo(material) or changed
     changed = patch_forward_lobe(material) or changed
-    changed = repair_field_wiring(material) or changed   # W40: lobe FieldA <- field A (was RGB since W37)
+    changed = repair_field_wiring(material) or changed   # W40: lobe FieldA <- field A (was RGB since W37); W41 layout aware
     changed = patch_froxel_weight(material) or changed
+    changed = patch_sun_detail(material) or changed      # W41 Sun Detail Shadow
     if changed:
         # Exact defaults only for parameters this run created. A pre-existing one keeps its material default (the Box MID
         # sets every one of them); a difference is reported, not fatal (round 36: FogMS_ErosionDepth 0.3 from round 32).
         # FogMS_FroxelWeight is not set by the Box MID: its material default must be 1 (identity) in any case.
         value = mel.get_material_default_scalar_parameter_value(material, WEIGHT_PARAM)
         require(abs(value - WEIGHT_DEFAULT) < 1e-6, 'Default readback %s = %s (must be %s)' % (WEIGHT_PARAM, value, WEIGHT_DEFAULT))
+        # W41: the material default of FogMS_SunDetail must be the pass-through (0) in any case.
+        value = mel.get_material_default_scalar_parameter_value(material, SUN_SCALAR[0])
+        require(abs(value - SUN_SCALAR[1]) < 1e-6, 'Default readback %s = %s (must be %s)' % (SUN_SCALAR[0], value, SUN_SCALAR[1]))
         for name, default, _ in NEW_SCALARS + V3_SCALARS + FORWARD_SCALARS:
             value = mel.get_material_default_scalar_parameter_value(material, name)
             if name in existing:
@@ -1370,10 +1634,22 @@ def report():
     print('REPORT_ONLY (nothing changed)')
 
 
+def rollback_w41():
+    """FOGMS_MATEDIT_MODE=rollback_w41: remove the W41 Sun Detail Shadow nodes (the W40 graph), then the summary."""
+    material = unreal.load_asset(MATERIAL_PATH)
+    require(material is not None and isinstance(material, unreal.Material), 'Material not found: ' + MATERIAL_PATH)
+    rollback_sun_detail(material)
+    summary(material, expressions(material))
+
+
 try:
     # FOGMS_MATEDIT_MODE=report (set in the editor's environment by the caller): summary only, no patch, no save.
-    if os.environ.get('FOGMS_MATEDIT_MODE', '') == 'report':
+    # FOGMS_MATEDIT_MODE=rollback_w41: remove the W41 nodes (saves only if something was removed).
+    _mode = os.environ.get('FOGMS_MATEDIT_MODE', '')
+    if _mode == 'report':
         report()
+    elif _mode == 'rollback_w41':
+        rollback_w41()
     else:
         main()
 except Exception:

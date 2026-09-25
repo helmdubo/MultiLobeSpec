@@ -159,3 +159,69 @@ FOGMSRENDER_API void FogMS_ReleaseWorldLightingBox_RenderThread(FRHICommandListI
 /** Returns false when there is no current world-mode producer; caller may dump legacy.
  * Dumps the packet Box only (the request with bResidentAtlas): the only Box with a resident atlas. */
 FOGMSRENDER_API bool FogMS_DumpWorldLighting_RenderThread(FRHICommandListImmediate& RHICmdList, const FString& PathPrefix);
+
+/** W41 Sun Detail Shadow: the sun-space map of one Box (FogMS_SunDetail.cpp / FogMS_SunDetail.usf).
+ * Coordinates: "Local" = Box-axis centimetres (packet rows 2..4, origin at the Box centre; FogMS_IndirectLocalPosition).
+ * The map is a sheared box grid: the depth axis A is the Box axis whose slab (the Box, or the height-profile band along Z when
+ * the density is provably zero outside it) gives the sun rays the shortest chord; slices are planes of constant Local[A]
+ * (w = 0 on the sun-facing face, 1 on the far face); a texel column (u, v) is one sun ray, u along Box axis (A+1)%3 and v along
+ * (A+2)%3 measured where the ray enters the slab. Every sun ray through the region is one column, and the steps of all columns
+ * share the slice planes. Computed once per game frame on the game thread (AFogMSBoxVolume::UpdateDensity, FogMS_MakeSunDetailBasis)
+ * and used unchanged by the MID (FogMS_SunMapU/V/W rows, in the material's cube space) and by the render-thread map build. */
+struct FFogMSSunDetailBasis
+{
+	/** False: no map (no atmosphere sun, sun more than ~6 deg below the horizon, invalid Box). The MID strength is then 0. */
+	bool bValid = false;
+	/** Box axis (0 X, 1 Y, 2 Z) of the depth slices; U runs along (DepthAxis+1)%3, V along (DepthAxis+2)%3. */
+	int32 DepthAxis = 2;
+	/** Forward map Local -> map uvw: uvw.x = dot(Local, RowU.xyz) + RowU.w, likewise V and W; the region maps into [0,1]^3. */
+	FVector4f RowU = FVector4f(0, 0, 0, 0);
+	FVector4f RowV = FVector4f(0, 0, 0, 0);
+	FVector4f RowW = FVector4f(0, 0, 0, 0);
+	/** Inverse used by the march: column (u, v) enters at Origin + u * AxisU + v * AxisV (Local, on the w = 0 plane); its slice k
+	 * samples at that point + (k + 0.5) * Step; StepLength = |Step| [cm]; Slices = number of steps (the map's depth). */
+	FVector3f Origin = FVector3f::ZeroVector;
+	FVector3f AxisU = FVector3f::ZeroVector;
+	FVector3f AxisV = FVector3f::ZeroVector;
+	FVector3f Step = FVector3f::ZeroVector;
+	float StepLength = 0.f;
+	int32 Slices = 0;
+
+	bool Equals(const FFogMSSunDetailBasis& Other) const
+	{
+		return bValid == Other.bValid && DepthAxis == Other.DepthAxis && RowU == Other.RowU && RowV == Other.RowV && RowW == Other.RowW
+			&& Origin == Other.Origin && AxisU == Other.AxisU && AxisV == Other.AxisV && Step == Other.Step
+			&& StepLength == Other.StepLength && Slices == Other.Slices;
+	}
+};
+
+/** Game thread (pure math). DirectionToSun: world unit vector toward the atmosphere sun (zero = none). Axis*: the Box's world unit
+ * axes (packet rows 2..4); Extent: positive half extents [cm]. BandMinZ..BandMaxZ: Local Z range that can hold density (the whole
+ * Box: -Extent.Z..Extent.Z). Slices: depth steps of the map (r.FogMS.SunMap.Steps). Invalid input or a sun more than ~6 deg below
+ * the Box's horizon (DirectionToSun.Z < -0.1) returns bValid false. */
+FOGMSRENDER_API FFogMSSunDetailBasis FogMS_MakeSunDetailBasis(const FVector3f& DirectionToSun, const FVector3f& AxisX, const FVector3f& AxisY,
+	const FVector3f& AxisZ, const FVector3f& Extent, float BandMinZ, float BandMaxZ, int32 Slices);
+
+/** One Box's map build (render thread, PostTLAS, graphics queue). */
+struct FFogMSSunDetailRequest
+{
+	/** The Box packet of this frame (density rows, current animation phases), as FFogMSWorldRequest::BoxRows. */
+	FVector4f BoxRows[FogMSRender::BoxRowCount];
+	FFogMSSunDetailBasis Basis;
+	/** The Box's density atlas (FFogMSWorldRequest::DensityAtlas): the solver's density function, the same noise and phases. */
+	FTextureRHIRef DensityAtlas;
+	/** Box-owned volume, Resolution x Resolution x Basis.Slices, PF_G16R16F, UAV: R = mean sun transmittance over the step
+	 * (T_hi, read by the material with trilinear filtering), G = extinction sigma of the step [1/m] (for the cell average). */
+	FTextureRHIRef MapTexture;
+	/** Box-owned volume, 32^3 (the transport grid, texel = cell as the injection field), PF_FloatRGBA, UAV: R = sigma-weighted mean
+	 * of T_hi over the cell (Tbar), G = 1 valid (0 = cleared: the material then ignores the map), B = mean sigma [1/m], A = mean T. */
+	FTextureRHIRef CellTexture;
+	FFogMSSunDetailRequest() { FMemory::Memzero(BoxRows, sizeof(BoxRows)); }
+};
+
+/** Adds the map passes (march + cell average) and leaves both textures in external SRV access for the Box material. False (no
+ * pass added, OutError set) on invalid input; the caller then clears the cell texture so the material falls back to the W40 math. */
+FOGMSRENDER_API bool FogMS_BuildSunDetailMap(FRDGBuilder& GraphBuilder, const FSceneView& View, const FFogMSSunDetailRequest& Request,
+	FString& OutError);
+/** Clears the cell texture (valid flag 0) so the Box material ignores its map; leaves it in external SRV access. */
+FOGMSRENDER_API void FogMS_ClearSunDetailMap(FRDGBuilder& GraphBuilder, const FTextureRHIRef& CellTexture);

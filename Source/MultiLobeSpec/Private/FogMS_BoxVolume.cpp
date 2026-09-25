@@ -3,14 +3,17 @@
 
 #include "Components/BoxComponent.h"
 #include "Components/ArrowComponent.h"
+#include "Components/DirectionalLightComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "CoreGlobals.h"
 #include "DynamicRHI.h"
+#include "Engine/DirectionalLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/TextureRenderTargetVolume.h"
 #include "Engine/VolumeTexture.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
 #include "MaterialDomain.h"
@@ -32,6 +35,16 @@ namespace
 	// Must equal the transport grid (TransportGridSize in FogMS_Transport.cpp, WorldSize in
 	// FogMS_WorldLighting.cpp); the producer rejects any other field size.
 	constexpr int32 FogMS_TransportFieldSize = 32;
+
+	// W41 Sun Detail Shadow map size (read on the game thread when the Box creates its map; a change re-creates it).
+	TAutoConsoleVariable<int32> CVarSunMapResolution(TEXT("r.FogMS.SunMap.Resolution"), 256,
+		TEXT("Sun Detail Shadow: texels of each Box's sun-space map across the sun rays (both lateral axes), rounded up to a multiple of 8, ")
+		TEXT("clamped to [64, 512]. Default 256 (about 1 m per texel on a 200 m Box). Memory per Box: Resolution^2 x Steps x 4 bytes + 256 KB ")
+		TEXT("(256 x 256 x 64: 16.25 MB). The map is rebuilt every frame; cost grows with Resolution^2 x Steps."), ECVF_Default);
+	TAutoConsoleVariable<int32> CVarSunMapSteps(TEXT("r.FogMS.SunMap.Steps"), 64,
+		TEXT("Sun Detail Shadow: density samples along each sun ray through the Box (the map's depth slices), rounded up to a multiple of 8, ")
+		TEXT("clamped to [16, 256]. Default 64. The ray covers the Box (or its height-profile band) along the Box axis the sun crosses fastest."),
+		ECVF_Default);
 
 	struct FFogMSTransportTier
 	{
@@ -232,6 +245,24 @@ namespace
 		const float T = FMath::Clamp((X - A) / (B - A), 0.0f, 1.0f);
 		return T * T * (3.0f - 2.0f * T);
 	}
+
+	int32 FogMS_SunMapDimension(int32 Value, int32 Min, int32 Max)
+	{
+		return FMath::Clamp(FMath::DivideAndRoundUp(FMath::Max(Value, 1), 8) * 8, Min, Max);
+	}
+}
+
+FVector3f FogMS_FindAtmosphereSunDirection(UWorld* World)
+{
+	// The Box runtime's former BeginRenderViewFamily loop, unchanged: ADirectionalLight actors only, in iteration order.
+	if (!World) return FVector3f::ZeroVector;
+	for (TActorIterator<ADirectionalLight> It(World); It; ++It)
+	{
+		const UDirectionalLightComponent* Light = Cast<UDirectionalLightComponent>(It->GetLightComponent());
+		if (Light && Light->IsVisible() && Light->bAffectsWorld && Light->bAtmosphereSunLight && Light->AtmosphereSunLightIndex == 0)
+			return FVector3f(-Light->GetForwardVector()).GetSafeNormal();
+	}
+	return FVector3f::ZeroVector;
 }
 
 AFogMSBoxVolume::AFogMSBoxVolume()
@@ -445,6 +476,7 @@ float AFogMSBoxVolume::GetCoreOpticalDepthEstimate() const
 void AFogMSBoxVolume::Destroyed()
 {
 	ReleaseTransportField();
+	ReleaseSunDetailMaps();
 	Super::Destroyed();
 }
 
@@ -487,6 +519,58 @@ void AFogMSBoxVolume::ReleaseTransportField()
 	bHasMaterialState = false;
 	// The UObject is released by GC (UTexture::BeginDestroy fences the resource). The render
 	// thread holds its own FTextureRHIRef until the next Box packet replaces it.
+}
+
+bool AFogMSBoxVolume::EnsureSunDetailMaps()
+{
+	const int32 Resolution = FogMS_SunMapDimension(CVarSunMapResolution.GetValueOnGameThread(), 64, 512);
+	const int32 Steps = FogMS_SunMapDimension(CVarSunMapSteps.GetValueOnGameThread(), 16, 256);
+	const auto Make = [this](const TCHAR* Name, int32 X, int32 Y, int32 Z, EPixelFormat Format)
+	{
+		UTextureRenderTargetVolume* Target = NewObject<UTextureRenderTargetVolume>(this,
+			MakeUniqueObjectName(this, UTextureRenderTargetVolume::StaticClass(), Name), RF_Transient);
+		Target->bSupportsUAV = true;   // TexCreate_UAV: the render thread writes it with compute passes
+		Target->bHDR = true;
+		Target->bForceLinearGamma = true;
+		Target->ClearColor = FLinearColor::Transparent; // cell G = 0: invalid until the first build
+		Target->Filter = TF_Bilinear;                    // trilinear lookups in the material (no mips)
+		Target->Init(X, Y, Z, Format);
+		Target->UpdateResourceImmediate(true);
+		return Target;
+	};
+	if (!IsValid(SunDetailMap) || SunDetailMap->SizeX != Resolution || SunDetailMap->SizeY != Resolution || SunDetailMap->SizeZ != Steps)
+	{
+		SunDetailMap = Make(TEXT("FogMS_SunDetailMap"), Resolution, Resolution, Steps, PF_G16R16F);
+		bHasMaterialState = false;
+	}
+	if (!IsValid(SunDetailCell))
+	{
+		SunDetailCell = Make(TEXT("FogMS_SunDetailCell"), FogMS_TransportFieldSize, FogMS_TransportFieldSize, FogMS_TransportFieldSize, PF_FloatRGBA);
+		bHasMaterialState = false;
+	}
+	return SunDetailMap->GetResource() != nullptr && SunDetailCell->GetResource() != nullptr;
+}
+
+void AFogMSBoxVolume::ReleaseSunDetailMaps()
+{
+	if (!SunDetailMap && !SunDetailCell) return;
+	SunDetailMap = nullptr;
+	SunDetailCell = nullptr;
+	// As ReleaseTransportField: a null texture cannot clear a MID override, so clear all; the next update re-applies every one.
+	if (IsValid(DensityMID)) DensityMID->ClearParameterValues();
+	bHasMaterialState = false;
+}
+
+bool AFogMSBoxVolume::GetSunDetailRenderData(FFogMSSunDetailBasis& OutBasis, UTextureRenderTargetVolume*& OutMap, UTextureRenderTargetVolume*& OutCell) const
+{
+	if (!IsHybridInjectionActive() || LastDensityState.SunDetailValue <= 0.0f || !LastDensityState.SunBasis.bValid
+		|| !IsValid(SunDetailMap) || !IsValid(SunDetailCell) || LastDensityState.SunMap.Get() != SunDetailMap
+		|| LastDensityState.SunCell.Get() != SunDetailCell)
+		return false;
+	OutBasis = LastDensityState.SunBasis;
+	OutMap = SunDetailMap;
+	OutCell = SunDetailCell;
+	return true;
 }
 
 void AFogMSBoxVolume::ApplyTransportPreset()
@@ -649,7 +733,9 @@ bool AFogMSBoxVolume::FDensityState::HasSameMaterialParameters(const FDensitySta
 		&& DepthPrefilterValue == Other.DepthPrefilterValue && PrefilterWavelengths == Other.PrefilterWavelengths
 		&& ForwardStrengthValue == Other.ForwardStrengthValue && ForwardGValue == Other.ForwardGValue
 		&& ForwardDepthValue == Other.ForwardDepthValue && ForwardEccValue == Other.ForwardEccValue
-		&& ForwardFloorValue == Other.ForwardFloorValue;
+		&& ForwardFloorValue == Other.ForwardFloorValue
+		&& SunDetailValue == Other.SunDetailValue && SunMapRowU == Other.SunMapRowU && SunMapRowV == Other.SunMapRowV
+		&& SunMapRowW == Other.SunMapRowW && SunMap == Other.SunMap && SunCell == Other.SunCell;
 }
 
 bool AFogMSBoxVolume::FDensityState::HasSameEffect(const FDensityState& Other) const
@@ -658,8 +744,8 @@ bool AFogMSBoxVolume::FDensityState::HasSameEffect(const FDensityState& Other) c
 	if (!bActive) return true;
 	if (!HasSameDensityParameters(Other) || !WorldTransform.Equals(Other.WorldTransform, 0.0)
 		|| bAnimationActive != Other.bAnimationActive) return false;
-	// The W36 depth prefilter and the W37 forward lobe change only the native fog material (MID), never the solver's
-	// density: no revision bump (no cold solve, no fog-history reset). The wavelengths derive from fields compared above.
+	// The W36 depth prefilter, the W37 forward lobe and the W41 sun detail map change only the native fog material (MID), never
+	// the solver's density: no revision bump (no cold solve, no fog-history reset). The wavelengths derive from fields compared above.
 	if (!bAnimationActive)
 		return WorldPhase0 == Other.WorldPhase0 && WorldPhase1 == Other.WorldPhase1 && WorldPhase2 == Other.WorldPhase2;
 	// Continuous phase progression updates the MID and shadow cache, not the global
@@ -686,12 +772,17 @@ void AFogMSBoxVolume::UpdateDensity()
 {
 	if (bUpdatingDensity || HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || IsActorBeingDestroyed()) return;
 	TGuardValue<bool> UpdateGuard(bUpdatingDensity, true);
+	SunDetailProblem.Reset(); // W41 status note, re-derived below
 	// OnConstruction, PostLoad, PostEditChangeProperty, Tick and BoxRuntime (right before it
 	// packs the transport controls) all pass here: the packet always sees the preset's values,
 	// also after a Blueprint/runtime write that bypassed PostEditChangeProperty.
 	ApplyTransportPreset();
 	// Mode or switch change away from Emissive Injection: drop the field and its MID binding.
 	if (TransportField && !UsesEmissiveInjection()) ReleaseTransportField();
+	// W41: Sun Detail Shadow no longer requested (switch, strength, hybrid, debug view or Box off): drop its maps (16 MB) and bindings.
+	if ((SunDetailMap || SunDetailCell) && !(bEnabled && bSunDetailShadow && SunDetailStrength > 0.0f && UsesEmissiveInjection()
+		&& bHybridSingleScattering && !bDebugFieldOnly))
+		ReleaseSunDetailMaps();
 	if (WindDirectionComponent) WindDirectionComponent->SetVisibility(DensityMotionMode == EFogMSDensityMotionMode::Directional);
 
 	FDensityState State;
@@ -941,6 +1032,78 @@ void AFogMSBoxVolume::UpdateDensity()
 				State.ForwardDepthValue = Finite(MSOcclusion, 0.0f, 1.0f, 0.5f);
 				State.ForwardEccValue = Finite(MSEccentricity, 0.0f, 1.0f, 0.5f);
 				State.ForwardFloorValue = Finite(MSBackFloor, 0.0f, 1.0f, 0.25f);
+				// W41 Sun Detail Shadow (material node FogMS_SunDetail v1, matedit_density.py; map FogMS_SunDetail.usf). Only with the hybrid
+				// split: it redistributes the native sun single scattering that mode 2 scales by the field's per-cell sun share. The basis
+				// uses this frame's atmosphere sun (the one the runtime hands the solver); the render thread builds the map with it.
+				if (State.bHybridInjection && bSunDetailShadow && FMath::IsFinite(SunDetailStrength) && SunDetailStrength > 0.0f)
+				{
+					float MaterialDefault = 0.0f;
+					if (!DensityMaterial->GetScalarParameterDefaultValue(FHashedMaterialParameterInfo(TEXT("FogMS_SunDetail")), MaterialDefault))
+						SunDetailProblem = TEXT("material has no FogMS_SunDetail node (run matedit_density.py)");
+					else if (!EnsureSunDetailMaps())
+						SunDetailProblem = TEXT("map textures unavailable");
+					else
+					{
+						// Band: with the height profile on and Threshold - Softness/2 > Detail Strength the density is exactly 0 outside
+						// Height Bottom..Top (FogMS_IndirectLocalDensity exits on P = 0 there), so the map covers that band only.
+						float BandMin = -static_cast<float>(WorldExtent.Z), BandMax = static_cast<float>(WorldExtent.Z);
+						if (bHeightProfile && Threshold - 0.5f * Softness - DetailStrength > 1.0e-6f)
+						{
+							const float SignZ = BoxComponent->GetComponentScale().Z < 0.0 ? -1.0f : 1.0f; // UVSign.z, packet row 10.x
+							const float Z0 = (HeightBottom - 0.5f) * 2.0f * static_cast<float>(WorldExtent.Z) * SignZ;
+							const float Z1 = (HeightTop - 0.5f) * 2.0f * static_cast<float>(WorldExtent.Z) * SignZ;
+							BandMin = FMath::Min(Z0, Z1);
+							BandMax = FMath::Max(Z0, Z1);
+						}
+						// The packet's Box axes (FillBoxPacket: rows 2..4 from the Box component's rotation).
+						const FQuat Rotation = BoxComponent->GetComponentQuat();
+						const FVector Axes[3] = { Rotation.GetAxisX(), Rotation.GetAxisY(), Rotation.GetAxisZ() };
+						const FFogMSSunDetailBasis Basis = FogMS_MakeSunDetailBasis(FogMS_FindAtmosphereSunDirection(GetWorld()),
+							FVector3f(Axes[0]), FVector3f(Axes[1]), FVector3f(Axes[2]), FVector3f(WorldExtent), BandMin, BandMax, SunDetailMap->SizeZ);
+						State.SunMap = SunDetailMap.Get();
+						State.SunCell = SunDetailCell.Get();
+						if (!Basis.bValid) SunDetailProblem = TEXT("no atmosphere sun above the horizon");
+						else
+						{
+							// The basis rows take Box-axis centimetres (Local = dot(World - Center, Axis_r)); the material has the cube's
+							// object space P (-50..50, TransformPosition_0). World = M P (the density component's LocalToWorld), so
+							// Local_r = sum_i P_i dot(M axis i, Axis_r) + dot(M origin - Center, Axis_r) and each material row is
+							// Row . (K P + Off): exact for any scale sign (no assumption on how the cube maps to the Box).
+							const FMatrix M = DensityComponent->GetComponentTransform().ToMatrixWithScale();
+							const FVector Center = BoxComponent->GetComponentLocation();
+							const EAxis::Type ObjectAxes[3] = { EAxis::X, EAxis::Y, EAxis::Z };
+							double K[3][3] = {}, Off[3] = {};
+							for (int32 R = 0; R < 3; ++R)
+							{
+								for (int32 I = 0; I < 3; ++I) K[R][I] = FVector::DotProduct(M.GetScaledAxis(ObjectAxes[I]), Axes[R]);
+								Off[R] = FVector::DotProduct(M.GetOrigin() - Center, Axes[R]);
+							}
+							const FVector4f Rows[3] = { Basis.RowU, Basis.RowV, Basis.RowW };
+							FLinearColor Material[3] = { FLinearColor(0, 0, 0, 0), FLinearColor(0, 0, 0, 0), FLinearColor(0, 0, 0, 0) };
+							for (int32 Q = 0; Q < 3; ++Q)
+							{
+								double W = Rows[Q].W;
+								for (int32 R = 0; R < 3; ++R) W += Rows[Q][R] * Off[R];
+								for (int32 I = 0; I < 3; ++I)
+								{
+									double Value = 0.0;
+									for (int32 R = 0; R < 3; ++R) Value += Rows[Q][R] * K[R][I];
+									Material[Q].Component(I) = static_cast<float>(Value);
+								}
+								Material[Q].A = static_cast<float>(W);
+							}
+							if (FogMS_IsFiniteColor(Material[0]) && FogMS_IsFiniteColor(Material[1]) && FogMS_IsFiniteColor(Material[2]))
+							{
+								State.SunDetailValue = FMath::Min(SunDetailStrength, 1.0f);
+								State.SunMapRowU = Material[0];
+								State.SunMapRowV = Material[1];
+								State.SunMapRowW = Material[2];
+								State.SunBasis = Basis;
+							}
+							else SunDetailProblem = TEXT("non-finite map transform");
+						}
+					}
+				}
 				State.DensityValue = Density;
 				State.Albedo = FLinearColor(DensityAlbedo.R, DensityAlbedo.G, DensityAlbedo.B, 1.0f);
 				State.WorldExtent = ExtentValue;
@@ -997,6 +1160,14 @@ void AFogMSBoxVolume::UpdateDensity()
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardDepth"), State.ForwardDepthValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardEcc"), State.ForwardEccValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardFloor"), State.ForwardFloorValue);
+					// W41 (FogMS_SunDetail v1). Strength 0 (off, night, material default) returns the field alpha unchanged; the textures
+					// stay bound while the maps exist (ReleaseSunDetailMaps clears every override when they go).
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_SunDetail"), State.SunDetailValue);
+					DensityMID->SetVectorParameterValue(TEXT("FogMS_SunMapU"), State.SunMapRowU);
+					DensityMID->SetVectorParameterValue(TEXT("FogMS_SunMapV"), State.SunMapRowV);
+					DensityMID->SetVectorParameterValue(TEXT("FogMS_SunMapW"), State.SunMapRowW);
+					if (State.SunMap.IsValid()) DensityMID->SetTextureParameterValue(TEXT("FogMS_SunMap"), State.SunMap.Get());
+					if (State.SunCell.IsValid()) DensityMID->SetTextureParameterValue(TEXT("FogMS_SunMapCell"), State.SunCell.Get());
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_Density"), State.bUseNativeDensity ? State.DensityValue : 0.0f);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_Albedo"), State.Albedo);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldExtent"), State.WorldExtent);

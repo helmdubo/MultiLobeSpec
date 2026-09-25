@@ -1,0 +1,134 @@
+// W41 Sun Detail Shadow (FogMS_SunDetail.cpp; layout: FogMS_WorldLighting.h FFogMSSunDetailBasis). Per Box and frame:
+//   pass 0: a sun-space transmittance map of the Box's FINE density: the solver's mirror of the material's density
+//           (FogMS_IndirectLocalDensity = FogMS_Extinction_v3 at prefilter 0), the same noise atlas, the same animation phases
+//           (packet rows 13..15 of this frame). One thread marches one sun ray (map column) through the region in
+//           SunMapSize.z equal steps; slice k = (mean transmittance over the step, sigma of the step [1/m]).
+//   pass 1: per transport cell (32^3, Box axes, texel = cell like the injection field), Tbar = the sigma-weighted mean of the map's
+//           transmittance over the map samples inside the cell.
+// The Box material (matedit_density.py, node FogMS_SunDetail v1) reads both: S_hi(x) = min(1, S_cell(x) * T_hi(x) / Tbar(x)), so the
+// hybrid's per-cell sun share S_cell = T_sun * k (solver) is only redistributed inside each cell (sunlit rims up, cores down) while
+// sum over the cell of sigma * S stays the solver's (Tbar is sigma-weighted). Graphics queue (pass 0 reads the untracked atlas).
+#include "/Engine/Private/Common.ush"
+
+float4 BoxRows[FOGMS_BOX_DATA_ROWS];
+#include "/Plugin/FogMS/Private/FogMS_Indirect.ush"
+
+// Box-axis centimetres (FogMS_IndirectLocalPosition). Column (u, v) enters at Origin + u * AxisU + v * AxisV, slice k samples at
+// + (k + 0.5) * Step; |Step| = StepLength. Rows: Local -> map uvw (pass 1 fallback lookup).
+float3 SunMapOrigin;
+float3 SunMapAxisU;
+float3 SunMapAxisV;
+float3 SunMapStep;
+float SunMapStepLength;
+float4 SunMapRowU;
+float4 SunMapRowV;
+float4 SunMapRowW;
+uint3 SunMapSize;
+int SunMapDepthAxis;
+RWTexture3D<float2> OutSunMap;
+Texture3D<float2> SunMap;
+SamplerState SunMapSampler;
+RWTexture3D<float4> OutSunCell;
+
+// Mean of exp(-Tau * s) over s in [0, 1] (FogMS_Transport.usf MeanT).
+float FogMS_SunMapMeanT(float Tau)
+{
+	return Tau < 0.001f ? 1.0f - Tau * 0.5f + Tau * Tau / 6.0f - Tau * Tau * Tau / 24.0f : (1.0f - exp(-Tau)) / Tau;
+}
+
+#if FOGMS_SUNMAP_PASS == 0
+// Slice k stores T_before(k) * MeanT(sigma_k * StepLength): the mean transmittance over the step, exact for a step of constant
+// sigma (sigma point-sampled at the step centre), the value whose sigma-weighted sum is the step's single-scattered sun energy.
+// Past T < 1e-6 the column stops sampling the density (sigma 0, T frozen at ~0): no sun light reaches deeper, and an unsampled
+// sigma there only affects cells that are dark anyway (Tbar ~ 0 -> the material keeps S_cell).
+[numthreads(8, 8, 1)]
+void SunDetailCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(Id.xy >= SunMapSize.xy)) return;
+	FogMS_IndirectData Data = FogMS_GetIndirectData(false);
+	const float2 UV = (float2(Id.xy) + 0.5f) / float2(SunMapSize.xy);
+	const float3 Entry = SunMapOrigin + UV.x * SunMapAxisU + UV.y * SunMapAxisV;
+	float T = 1.0f;
+	LOOP
+	for (uint K = 0; K < SunMapSize.z; ++K)
+	{
+		float Sigma = 0.0f; // 1/cm
+		BRANCH
+		if (Data.Valid && T > 1.0e-6f) Sigma = FogMS_IndirectLocalDensity(Entry + (float(K) + 0.5f) * SunMapStep, Data);
+		const float Tau = Sigma * SunMapStepLength;
+		OutSunMap[uint3(Id.xy, K)] = float2(T * FogMS_SunMapMeanT(Tau), Sigma * 100.0f);
+		T *= exp(-Tau);
+	}
+}
+#endif
+
+#if FOGMS_SUNMAP_PASS == 1
+// Every map sample lies in exactly one transport cell: the slices are planes of constant Local[A] (Box faces), and inside slice k
+// column (i, j) sits at Origin[B] + (i + 0.5)/Nu * AxisU[B] + (k + 0.5) * Step[B] (and likewise j along C), so the samples of cell c
+// are a rectangle of columns per slice. Tbar = (sum sigma T + e sum T) / (sum sigma + e n), e = 1e-4 /m: sigma-weighted where the
+// cell holds medium, the plain mean of T where it does not. A cell without map samples (outside the height band) takes the map
+// at its centre (clamped: above the band the entry slice, below it the exit). Strided when a cell holds more than 16 slices or
+// 8 x 8 columns per slice (thin bands, fine maps). G = 1 marks a valid map (a cleared texture reads 0: the material ignores it).
+[numthreads(4, 4, 4)]
+void SunDetailCS(uint3 Cell : SV_DispatchThreadID)
+{
+	const uint Grid = 32u; // FogMS_SunDetail.cpp SunCellGrid, the transport grid
+	if (any(Cell >= Grid)) return;
+	const float3 Extent = float3(BoxRows[2].w, BoxRows[3].w, BoxRows[4].w);
+	const float3 CellSize = 2.0f * Extent / float(Grid);
+	const float3 Lo = -Extent + float3(Cell) * CellSize;
+	const float3 Hi = Lo + CellSize;
+	const uint A = (uint)SunMapDepthAxis, B = (A + 1u) % 3u, C = (A + 2u) % 3u;
+	// Slice k's plane Origin[A] + (k + 0.5) * Step[A] in [Lo[A], Hi[A]) (the same half-open cell as floor((Local + Extent) / CellSize),
+	// for either sign of Step[A]).
+	const float Ka = (Lo[A] - SunMapOrigin[A]) / SunMapStep[A] - 0.5f;
+	const float Kb = (Hi[A] - SunMapOrigin[A]) / SunMapStep[A] - 0.5f;
+	const int K0 = max(SunMapStep[A] > 0.0f ? int(ceil(Ka)) : int(floor(Kb)) + 1, 0);
+	const int K1 = min(SunMapStep[A] > 0.0f ? int(ceil(Kb)) - 1 : int(floor(Ka)), int(SunMapSize.z) - 1);
+	float SumST = 0.0f, SumS = 0.0f, SumT = 0.0f, Count = 0.0f;
+	if (K0 <= K1)
+	{
+		const int KStride = (K1 - K0 + 16) / 16;
+		LOOP
+		for (int K = K0; K <= K1; K += KStride)
+		{
+			const float Shift = float(K) + 0.5f;
+			const float Ia = (Lo[B] - SunMapOrigin[B] - Shift * SunMapStep[B]) / SunMapAxisU[B] * float(SunMapSize.x) - 0.5f;
+			const float Ib = (Hi[B] - SunMapOrigin[B] - Shift * SunMapStep[B]) / SunMapAxisU[B] * float(SunMapSize.x) - 0.5f;
+			const float Ja = (Lo[C] - SunMapOrigin[C] - Shift * SunMapStep[C]) / SunMapAxisV[C] * float(SunMapSize.y) - 0.5f;
+			const float Jb = (Hi[C] - SunMapOrigin[C] - Shift * SunMapStep[C]) / SunMapAxisV[C] * float(SunMapSize.y) - 0.5f;
+			const int I0 = max(int(ceil(Ia)), 0), I1 = min(int(ceil(Ib)) - 1, int(SunMapSize.x) - 1);
+			const int J0 = max(int(ceil(Ja)), 0), J1 = min(int(ceil(Jb)) - 1, int(SunMapSize.y) - 1);
+			if (I0 > I1 || J0 > J1) continue;
+			const int IStride = (I1 - I0 + 8) / 8, JStride = (J1 - J0 + 8) / 8;
+			LOOP
+			for (int J = J0; J <= J1; J += JStride)
+			{
+				LOOP
+				for (int I = I0; I <= I1; I += IStride)
+				{
+					const float2 V = SunMap.Load(int4(I, J, K, 0));
+					SumST += V.y * V.x;
+					SumS += V.y;
+					SumT += V.x;
+					Count += 1.0f;
+				}
+			}
+		}
+	}
+	float Tbar;
+	if (Count > 0.0f)
+	{
+		const float Eps = 1.0e-4f;
+		Tbar = (SumST + Eps * SumT) / (SumS + Eps * Count);
+	}
+	else
+	{
+		const float3 Center = 0.5f * (Lo + Hi);
+		const float3 UVW = float3(dot(Center, SunMapRowU.xyz) + SunMapRowU.w, dot(Center, SunMapRowV.xyz) + SunMapRowV.w,
+			dot(Center, SunMapRowW.xyz) + SunMapRowW.w);
+		Tbar = SunMap.SampleLevel(SunMapSampler, saturate(UVW), 0).x;
+	}
+	OutSunCell[Cell] = float4(saturate(Tbar), 1.0f, SumS / max(Count, 1.0f), SumT / max(Count, 1.0f));
+}
+#endif

@@ -463,6 +463,15 @@ namespace
 		bool bInjectionFieldConsumed = false;
 		// Game thread only (AddBoxUpdate): the "Hybrid Single Scattering is ignored" warning was logged for the current occurrence.
 		bool bHybridIgnoredLogged = false;
+		// W41 Sun Detail Shadow (render thread). This family's request: the Box-owned map / cell textures (null = not requested) and
+		// the basis (game thread, same frame as the MID rows). Last build: render frame and basis; bSunMapValid = the cell texture
+		// holds a build (G = 1) rather than its clear value.
+		FTextureRHIRef SunMapTexture;
+		FTextureRHIRef SunCellTexture;
+		FFogMSSunDetailBasis SunBasis;
+		FFogMSSunDetailBasis SunBuiltBasis;
+		uint32 SunBuiltFrame = MAX_uint32;
+		bool bSunMapValid = false;
 
 		// False in the injection-only runtime (no BindlessAll): no packet texture, no descriptor, no hidden readers.
 		// With BindlessAll Prepare fails unless the packet exists, so the packet Box sees true; every other Box state
@@ -549,19 +558,8 @@ namespace
 			// Enqueued before this family's rendering commands. No private Renderer state or View UB edits.
 			if (!Family.Scene) return;
 			UWorld* World = Family.Scene->GetWorld();
-			FVector3f DirectionToSun = FVector3f::ZeroVector;
-			if (World)
-			{
-				for (TActorIterator<ADirectionalLight> It(World); It; ++It)
-				{
-					const UDirectionalLightComponent* Light = Cast<UDirectionalLightComponent>(It->GetLightComponent());
-					if (Light && Light->IsVisible() && Light->bAffectsWorld && Light->bAtmosphereSunLight && Light->AtmosphereSunLightIndex == 0)
-					{
-						DirectionToSun = FVector3f(-Light->GetForwardVector()).GetSafeNormal();
-						break;
-					}
-				}
-			}
+			// The same light the Boxes' W41 sun maps use (FogMS_FindAtmosphereSunDirection, FogMS_BoxVolume.cpp; the former loop here).
+			const FVector3f DirectionToSun = FogMS_FindAtmosphereSunDirection(World);
 			// Sky light for the public sky-boundary sources (r.FogMS.World.SkySource 0/2/3/4): public component API only.
 			// Values are copied here; the processed cubemap FTexture is only dereferenced inside FogMS_UpdateBox below.
 			// That is safe: FSkyTextureCubeResource::Release (game thread) frees it through BeginReleaseResource + BeginCleanup
@@ -753,7 +751,7 @@ namespace
 					Resource->bPacketOwner = Update.bPacketOwner;
 					Resource->PacketTexture = Update.bPacketOwner ? SharedTexture : TSharedPtr<FBoxPacketTexture, ESPMode::ThreadSafe>();
 					ApplyBoxUpdate(RHICmdList, &Resource.Get(), MoveTemp(Update.Snapshot), Update.DensityUpload, DirectionToSun, Update.Revision,
-						Update.InjectionResource, ResolvedSky);
+						Update.InjectionResource, ResolvedSky, Update.SunMapResource, Update.SunCellResource, Update.SunBasis);
 					List->States.Add(Resource);
 				}
 			});
@@ -902,6 +900,10 @@ namespace
 			uint64 Revision = 0;
 			FTextureRenderTargetResource* InjectionResource = nullptr;
 			bool bPacketOwner = false;
+			// W41 Sun Detail Shadow request (AFogMSBoxVolume::GetSunDetailRenderData): the two Box-owned maps and the basis; null = none.
+			FTextureRenderTargetResource* SunMapResource = nullptr;
+			FTextureRenderTargetResource* SunCellResource = nullptr;
+			FFogMSSunDetailBasis SunBasis;
 		};
 		// Render thread only: the Box states of the family being rendered, packet slot first (replaced by each family's
 		// FogMS_UpdateBox, which runs before that family's hooks).
@@ -1390,6 +1392,14 @@ namespace
 						Selected->SpatialStatus += FString::Printf(TEXT(" [sun softness %.1f\u00B0]"), FMath::RadiansToDegrees(FMath::Atan(Packet.Rows[29].X)));
 					if (Selected->MSContribution > 0.0f && Selected->IsHybridInjectionActive())
 						Selected->SpatialStatus += FString::Printf(TEXT(" [forward lobe %.2f g %.2f]"), FMath::Min(Selected->MSContribution, 1.0f), FMath::Clamp(Selected->PhaseG, 0.0f, 0.9f));
+					// W41 Sun Detail Shadow: in effect (MID strength) or why not (only while requested on a hybrid Box).
+					if (Selected->bSunDetailShadow && Selected->IsHybridInjectionActive())
+					{
+						if (Selected->GetSunDetailStrengthInEffect() > 0.0f)
+							Selected->SpatialStatus += FString::Printf(TEXT(" [sun detail %.2f]"), Selected->GetSunDetailStrengthInEffect());
+						else if (!Selected->GetSunDetailProblem().IsEmpty())
+							Selected->SpatialStatus += FString::Printf(TEXT(" [sun detail off: %s]"), *Selected->GetSunDetailProblem());
+					}
 					// The hybrid split exists only in the Emissive Injection material (MID mode 2, row 23.w 6). Without injection the
 					// Box delivers through the overlay: the tick has no effect, and a non-zero fog Scattering Distribution turns the
 					// field off. Status every frame; log once each time the condition starts (game thread, per Box state).
@@ -1421,12 +1431,21 @@ namespace
 			Update.Revision = Revision;
 			Update.InjectionResource = InjectionResource;
 			Update.bPacketOwner = bPacketOwner;
+			// W41: the Box's sun maps and this frame's basis (the MID rows of the same UpdateDensity), same hand-off as the field.
+			UTextureRenderTargetVolume* SunMap = nullptr;
+			UTextureRenderTargetVolume* SunCell = nullptr;
+			if (Selected && Selected->GetSunDetailRenderData(Update.SunBasis, SunMap, SunCell))
+			{
+				Update.SunMapResource = SunMap->GameThread_GetRenderTargetResource();
+				Update.SunCellResource = SunCell->GameThread_GetRenderTargetResource();
+			}
 		}
 
 		// Render thread (FogMS_UpdateBox): one Box state takes this family's snapshot, sky, injection volume and density atlas.
 		static void ApplyBoxUpdate(FRHICommandListImmediate& RHICmdList, FBoxGPUState* Resource, FBoxRenderSnapshot Snapshot,
 			const FFogMSDensityAtlas::FUploadPtr& DensityUpload, const FVector3f& DirectionToSun, uint64 Revision,
-			FTextureRenderTargetResource* InjectionResource, const FFogMSWorldSky& Sky)
+			FTextureRenderTargetResource* InjectionResource, const FFogMSWorldSky& Sky, FTextureRenderTargetResource* SunMapResource,
+			FTextureRenderTargetResource* SunCellResource, const FFogMSSunDetailBasis& SunBasis)
 		{
 			FBoxPacket& Packet = Snapshot.Packet;
 			Resource->Sky = Sky;
@@ -1438,6 +1457,14 @@ namespace
 					Resource->InjectionTexture = Injection;
 					Resource->bInjectionFieldWritten = false;
 				}
+			}
+			{
+				// W41: a new cell texture starts cleared (G 0: the material ignores the map until the first build).
+				FTextureRHIRef SunCell = SunCellResource ? SunCellResource->GetTextureRHI() : FTextureRHIRef();
+				if (SunCell.GetReference() != Resource->SunCellTexture.GetReference()) Resource->bSunMapValid = false;
+				Resource->SunCellTexture = SunCell;
+				Resource->SunMapTexture = SunMapResource ? SunMapResource->GetTextureRHI() : FTextureRHIRef();
+				Resource->SunBasis = SunBasis;
 			}
 			// Hidden bindless reads have no RDG dependency. Fence prior async readers
 			// before overwriting the packet or retiring an atlas, including manual CVar changes.
@@ -1618,6 +1645,13 @@ namespace
 					ClearInjectionField(GraphBuilder, GPU);
 				if (bLate && GPU->bInjectionFieldWritten && GPU->LateInjectionViewKey == View.GetViewKey())
 					GPU->LateInjectionRenderFrame = GFrameNumberRenderThread;
+				// W41: a queued Box builds no sun map either (budget). Its last map stays while the MID rows still describe it (same
+				// sun and bounds); a changed basis would misplace every lookup, so then the map is invalidated (the material keeps S).
+				if (GPU->bSunMapValid && !GPU->SunBuiltBasis.Equals(GPU->SunBasis))
+				{
+					FogMS_ClearSunDetailMap(GraphBuilder, GPU->SunCellTexture);
+					GPU->bSunMapValid = false;
+				}
 				GPU->QueuedFrames.fetch_add(1, std::memory_order_relaxed);
 				GPU->bInjectionFieldConsumed = !GPU->HasPacket() && bInjection && GPU->bInjectionFieldWritten;
 				FScopeLock Lock(&GPU->FieldStatusMutex);
@@ -1721,6 +1755,9 @@ namespace
 				if (bPublished && bWorldLighting && !Result.SkySource.IsEmpty())
 					GPU->SpatialFieldStatus += FString::Printf(TEXT(" [sky: %s]"), *Result.SkySource);
 			}
+			// W41 Sun Detail Shadow: every frame the hybrid field is published or held (the map follows the current density and sun,
+			// not the solve interval), after the solver's passes, before native fog voxelization reads it through the Box material.
+			if (bInjection && bHybrid && bPublished) BuildSunDetail(GraphBuilder, View, GPU);
 			// UE 5.8 calls PostTLAS after the base-pass extension, before deferred
 			// lighting and volumetric fog. Publish the new spatial descriptor here.
 			// Late: already uploaded before the solver; the new pair goes up with its copy in PrePostProcessPass.
@@ -1729,6 +1766,33 @@ namespace
 			// above; late: last frame's copy, not cleared by the gap/failure paths above).
 			GPU->bInjectionFieldConsumed = !GPU->HasPacket() && bInjection && GPU->bInjectionFieldWritten;
 			return Result.Valid && !Result.bHeld;
+		}
+
+		// W41: this Box's sun map (FogMS_BuildSunDetailMap) with this frame's packet rows (density, animation phases), density atlas and
+		// basis. The map does not depend on the view: once per render frame and basis however many families render the Box. A failed
+		// build clears the cell texture (the material then keeps the solver's per-cell sun share) and is named in the status line.
+		static void BuildSunDetail(FRDGBuilder& GraphBuilder, const FSceneView& View, const TSharedRef<FBoxGPUState, ESPMode::ThreadSafe>& GPU)
+		{
+			if (!GPU->SunMapTexture.IsValid() || !GPU->SunCellTexture.IsValid()) return; // not requested this frame
+			if (GPU->bSunMapValid && GPU->SunBuiltFrame == GFrameNumberRenderThread && GPU->SunBuiltBasis.Equals(GPU->SunBasis)) return;
+			FFogMSSunDetailRequest Request;
+			FMemory::Memcpy(Request.BoxRows, GPU->RenderSnapshot.Packet.Rows, sizeof(Request.BoxRows));
+			Request.Basis = GPU->SunBasis;
+			Request.DensityAtlas = GPU->DensityAtlasTexture;
+			Request.MapTexture = GPU->SunMapTexture;
+			Request.CellTexture = GPU->SunCellTexture;
+			FString Error;
+			if (FogMS_BuildSunDetailMap(GraphBuilder, View, Request, Error))
+			{
+				GPU->SunBuiltFrame = GFrameNumberRenderThread;
+				GPU->SunBuiltBasis = GPU->SunBasis;
+				GPU->bSunMapValid = true;
+				return;
+			}
+			if (GPU->bSunMapValid) FogMS_ClearSunDetailMap(GraphBuilder, GPU->SunCellTexture);
+			GPU->bSunMapValid = false;
+			FScopeLock Lock(&GPU->FieldStatusMutex);
+			GPU->SpatialFieldStatus += FString::Printf(TEXT(" [sun detail map unavailable: %s]"), *Error);
 		}
 
 		static void ClearInjectionField(FRDGBuilder& GraphBuilder, const TSharedRef<FBoxGPUState, ESPMode::ThreadSafe>& GPU)
