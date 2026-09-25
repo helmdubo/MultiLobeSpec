@@ -3,8 +3,8 @@
 //           (FogMS_IndirectLocalDensity = FogMS_Extinction_v3 at prefilter 0), the same noise atlas, the same animation phases
 //           (packet rows 13..15 of this frame). One thread marches one sun ray (map column) through the region in
 //           SunMapSize.z equal steps; slice k = (mean transmittance over the step, sigma of the step [1/m]).
-//   pass 1: per transport cell (32^3, Box axes, texel = cell like the injection field), Tbar = the sigma-weighted mean of the map's
-//           transmittance over the map samples inside the cell.
+//   passes 1 + 2: per transport cell (32^3, Box axes, texel = cell like the injection field), Tbar = the sigma-weighted mean of the
+//           map's transmittance over the map samples inside the cell (slice partials, then a per-cell sum).
 // The Box material (matedit_density.py, node FogMS_SunDetail v1) reads both: S_hi(x) = min(1, S_cell(x) * T_hi(x) / Tbar(x)), so the
 // hybrid's per-cell sun share S_cell = T_sun * k (solver) is only redistributed inside each cell (sunlit rims up, cores down) while
 // sum over the cell of sigma * S stays the solver's (Tbar is sigma-weighted). Graphics queue (pass 0 reads the untracked atlas).
@@ -62,26 +62,69 @@ void SunDetailCS(uint3 Id : SV_DispatchThreadID)
 }
 #endif
 
-#if FOGMS_SUNMAP_PASS == 1
+#if FOGMS_SUNMAP_PASS == 1 || FOGMS_SUNMAP_PASS == 2
 // Every map sample lies in exactly one transport cell: the slices are planes of constant Local[A] (Box faces), and inside slice k
 // column (i, j) sits at Origin[B] + (i + 0.5)/Nu * AxisU[B] + (k + 0.5) * Step[B] (and likewise j along C), so the samples of cell c
-// are a rectangle of columns per slice. Tbar = (sum sigma T + e sum T) / (sum sigma + e n), e = 1e-4 /m: sigma-weighted where the
-// cell holds medium, the plain mean of T where it does not. A cell without map samples (outside the height band) takes the map
-// at its centre (clamped: above the band the entry slice, below it the exit). G = 1 marks a valid map (a cleared texture reads 0:
-// the material ignores it).
-// One 32-thread group per cell (dispatch 32^3 groups): the cell's (slice, row, column) index box is spread over the lanes (a
-// lane's loads are independent, so they overlap in flight; one thread per cell looping ~400 loads was latency bound, 0.1 ms),
-// then a groupshared sum. The box is the slice range times the largest row / column count over the slices (a slice's rectangle
-// shifts with the shear, its size varies by one); indices outside a slice's own rectangle are skipped. Strided only above 16
-// slices / rows / columns per cell (thin bands, fine maps).
-groupshared float4 FogMSSunCellSums[32];
-[numthreads(32, 1, 1)]
-void SunDetailCS(uint3 GroupId : SV_GroupID, uint Lane : SV_GroupIndex)
+// are, per slice, the rectangle of columns whose shifted position lies in the cell's B x C footprint. Two passes (the per-cell
+// loop over ~400 loads of one thread was latency bound, 0.1 ms):
+//   pass 1: thread (lateral cell B, lateral cell C, slice k) sums its slice rectangle (~35 texels here) into SunPartial;
+//   pass 2: thread per cell sums the partials of the slices whose plane lies in the cell's A range, then
+//           Tbar = (sum sigma T + e sum T) / (sum sigma + e n), e = 1e-4 /m: sigma-weighted where the cell holds medium, the plain
+//           mean of T where it does not; a cell without map samples (outside the height band) takes the map at its centre
+//           (clamped: above the band the entry slice, below it the exit). G = 1 marks a valid map (a cleared texture reads 0).
+// A rectangle is strided only above 16 x 16 columns (fine maps on small Boxes).
+RWStructuredBuffer<float4> OutSunPartial;
+StructuredBuffer<float4> SunPartial;
+static const uint FogMSSunCellGrid = 32u; // FogMS_SunDetail.cpp SunCellGrid, the transport grid
+
+uint FogMS_SunPartialIndex(uint CellB, uint CellC, uint K)
 {
-	const uint Grid = 32u; // FogMS_SunDetail.cpp SunCellGrid, the transport grid
-	const uint3 Cell = GroupId;
+	return (CellC * FogMSSunCellGrid + CellB) * SunMapSize.z + K;
+}
+#endif
+
+#if FOGMS_SUNMAP_PASS == 1
+[numthreads(8, 8, 1)]
+void SunDetailCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (Id.x >= FogMSSunCellGrid || Id.y >= FogMSSunCellGrid || Id.z >= SunMapSize.z) return;
 	const float3 Extent = float3(BoxRows[2].w, BoxRows[3].w, BoxRows[4].w);
-	const float3 CellSize = 2.0f * Extent / float(Grid);
+	const float3 CellSize = 2.0f * Extent / float(FogMSSunCellGrid);
+	const uint A = (uint)SunMapDepthAxis, B = (A + 1u) % 3u, C = (A + 2u) % 3u;
+	const float LoB = -Extent[B] + float(Id.x) * CellSize[B], HiB = LoB + CellSize[B];
+	const float LoC = -Extent[C] + float(Id.y) * CellSize[C], HiC = LoC + CellSize[C];
+	const float Shift = float(Id.z) + 0.5f;
+	const float ScaleI = float(SunMapSize.x) / SunMapAxisU[B], ScaleJ = float(SunMapSize.y) / SunMapAxisV[C];
+	const int I0 = max(int(ceil((LoB - SunMapOrigin[B] - Shift * SunMapStep[B]) * ScaleI - 0.5f)), 0);
+	const int I1 = min(int(ceil((HiB - SunMapOrigin[B] - Shift * SunMapStep[B]) * ScaleI - 0.5f)) - 1, int(SunMapSize.x) - 1);
+	const int J0 = max(int(ceil((LoC - SunMapOrigin[C] - Shift * SunMapStep[C]) * ScaleJ - 0.5f)), 0);
+	const int J1 = min(int(ceil((HiC - SunMapOrigin[C] - Shift * SunMapStep[C]) * ScaleJ - 0.5f)) - 1, int(SunMapSize.y) - 1);
+	float4 Sum = 0.0f; // (sum sigma T, sum sigma, sum T, count)
+	if (I0 <= I1 && J0 <= J1)
+	{
+		const int IStride = (I1 - I0 + 16) / 16, JStride = (J1 - J0 + 16) / 16;
+		LOOP
+		for (int J = J0; J <= J1; J += JStride)
+		{
+			LOOP
+			for (int I = I0; I <= I1; I += IStride)
+			{
+				const float2 V = SunMap.Load(int4(I, J, int(Id.z), 0));
+				Sum += float4(V.y * V.x, V.y, V.x, 1.0f);
+			}
+		}
+	}
+	OutSunPartial[FogMS_SunPartialIndex(Id.x, Id.y, Id.z)] = Sum;
+}
+#endif
+
+#if FOGMS_SUNMAP_PASS == 2
+[numthreads(4, 4, 4)]
+void SunDetailCS(uint3 Cell : SV_DispatchThreadID)
+{
+	if (any(Cell >= FogMSSunCellGrid)) return;
+	const float3 Extent = float3(BoxRows[2].w, BoxRows[3].w, BoxRows[4].w);
+	const float3 CellSize = 2.0f * Extent / float(FogMSSunCellGrid);
 	const float3 Lo = -Extent + float3(Cell) * CellSize;
 	const float3 Hi = Lo + CellSize;
 	const uint A = (uint)SunMapDepthAxis, B = (A + 1u) % 3u, C = (A + 2u) % 3u;
@@ -91,36 +134,9 @@ void SunDetailCS(uint3 GroupId : SV_GroupID, uint Lane : SV_GroupIndex)
 	const float Kb = (Hi[A] - SunMapOrigin[A]) / SunMapStep[A] - 0.5f;
 	const int K0 = max(SunMapStep[A] > 0.0f ? int(ceil(Ka)) : int(floor(Kb)) + 1, 0);
 	const int K1 = min(SunMapStep[A] > 0.0f ? int(ceil(Kb)) - 1 : int(floor(Ka)), int(SunMapSize.z) - 1);
-	float4 Sum = 0.0f; // (sum sigma T, sum sigma, sum T, count)
-	if (K0 <= K1)
-	{
-		const float ScaleI = float(SunMapSize.x) / SunMapAxisU[B], ScaleJ = float(SunMapSize.y) / SunMapAxisV[C];
-		const int NI = int(floor((Hi[B] - Lo[B]) * ScaleI)) + 2, NJ = int(floor((Hi[C] - Lo[C]) * ScaleJ)) + 2;
-		const int KStride = (K1 - K0 + 16) / 16, IStride = (NI + 15) / 16, JStride = (NJ + 15) / 16;
-		const int NK = (K1 - K0) / KStride + 1, NIs = (NI + IStride - 1) / IStride, NJs = (NJ + JStride - 1) / JStride;
-		const int Total = NK * NJs * NIs;
-		LOOP
-		for (int Q = int(Lane); Q < Total; Q += 32)
-		{
-			const int KQ = Q / (NJs * NIs), R = Q - KQ * (NJs * NIs), JQ = R / NIs, IQ = R - JQ * NIs;
-			const int K = K0 + KQ * KStride;
-			const float Shift = float(K) + 0.5f;
-			const int I0 = max(int(ceil((Lo[B] - SunMapOrigin[B] - Shift * SunMapStep[B]) * ScaleI - 0.5f)), 0);
-			const int I1 = min(int(ceil((Hi[B] - SunMapOrigin[B] - Shift * SunMapStep[B]) * ScaleI - 0.5f)) - 1, int(SunMapSize.x) - 1);
-			const int J0 = max(int(ceil((Lo[C] - SunMapOrigin[C] - Shift * SunMapStep[C]) * ScaleJ - 0.5f)), 0);
-			const int J1 = min(int(ceil((Hi[C] - SunMapOrigin[C] - Shift * SunMapStep[C]) * ScaleJ - 0.5f)) - 1, int(SunMapSize.y) - 1);
-			const int I = I0 + IQ * IStride, J = J0 + JQ * JStride;
-			if (I > I1 || J > J1) continue;
-			const float2 V = SunMap.Load(int4(I, J, K, 0));
-			Sum += float4(V.y * V.x, V.y, V.x, 1.0f);
-		}
-	}
-	FogMSSunCellSums[Lane] = Sum;
-	GroupMemoryBarrierWithGroupSync();
-	if (Lane != 0u) return;
-	Sum = 0.0f;
-	UNROLL
-	for (uint L = 0u; L < 32u; ++L) Sum += FogMSSunCellSums[L];
+	float4 Sum = 0.0f;
+	LOOP
+	for (int K = K0; K <= K1; ++K) Sum += SunPartial[FogMS_SunPartialIndex(Cell[B], Cell[C], uint(K))];
 	float Tbar;
 	if (Sum.w > 0.0f)
 	{

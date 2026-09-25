@@ -29,8 +29,9 @@ namespace
 		DECLARE_GLOBAL_SHADER(FFogMSSunDetailCS);
 		SHADER_USE_PARAMETER_STRUCT(FFogMSSunDetailCS, FGlobalShader);
 	public:
-		// 0: the march (one thread per sun ray), 1: the cell average (one thread per transport cell).
-		class FPass : SHADER_PERMUTATION_INT("FOGMS_SUNMAP_PASS", 2);
+		// 0: the march (one thread per sun ray); 1: slice partials (one thread per lateral cell and slice); 2: the cell average
+		// (one thread per transport cell, sums its slices' partials).
+		class FPass : SHADER_PERMUTATION_INT("FOGMS_SUNMAP_PASS", 3);
 		using FPermutationDomain = TShaderPermutationDomain<FPass>;
 		BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 			SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
@@ -51,6 +52,8 @@ namespace
 			SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float2>, SunMap)
 			SHADER_PARAMETER_SAMPLER(SamplerState, SunMapSampler)
 			SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float4>, OutSunCell)
+			SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<float4>, OutSunPartial)
+			SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, SunPartial)
 		END_SHADER_PARAMETER_STRUCT()
 		static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
 		{
@@ -231,16 +234,31 @@ bool FogMS_BuildSunDetailMap(FRDGBuilder& GraphBuilder, const FSceneView& View, 
 			ERDGPassFlags::Compute, Shader, Parameters,
 			FIntVector(FMath::DivideAndRoundUp(MapDesc.Extent.X, 8), FMath::DivideAndRoundUp(MapDesc.Extent.Y, 8), 1));
 	}
+	// Slice partials: (sum sigma T, sum sigma, sum T, count) of each slice's samples per lateral cell, then per cell over its slices.
+	FRDGBufferRef Partial = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector4f),
+		SunCellGrid * SunCellGrid * static_cast<uint32>(MapDesc.Depth)), TEXT("FogMS.SunDetailPartial"));
 	{
 		auto* Parameters = GraphBuilder.AllocParameters<FFogMSSunDetailCS::FParameters>();
 		*Parameters = Common;
 		Parameters->SunMap = MapTexture;
-		Parameters->OutSunCell = GraphBuilder.CreateUAV(CellTexture);
+		Parameters->OutSunPartial = GraphBuilder.CreateUAV(Partial);
 		FFogMSSunDetailCS::FPermutationDomain Permutation;
 		Permutation.Set<FFogMSSunDetailCS::FPass>(1);
 		TShaderMapRef<FFogMSSunDetailCS> Shader(ShaderMap, Permutation);
+		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS SunDetail cell average (slice partials)"), ERDGPassFlags::Compute,
+			Shader, Parameters, FIntVector(SunCellGrid / 8, SunCellGrid / 8, MapDesc.Depth));
+	}
+	{
+		auto* Parameters = GraphBuilder.AllocParameters<FFogMSSunDetailCS::FParameters>();
+		*Parameters = Common;
+		Parameters->SunMap = MapTexture;
+		Parameters->SunPartial = GraphBuilder.CreateSRV(Partial);
+		Parameters->OutSunCell = GraphBuilder.CreateUAV(CellTexture);
+		FFogMSSunDetailCS::FPermutationDomain Permutation;
+		Permutation.Set<FFogMSSunDetailCS::FPass>(2);
+		TShaderMapRef<FFogMSSunDetailCS> Shader(ShaderMap, Permutation);
 		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("FogMS SunDetail cell average 32^3"), ERDGPassFlags::Compute, Shader, Parameters,
-			FIntVector(SunCellGrid, SunCellGrid, SunCellGrid)); // one 32-thread group per cell
+			FIntVector(SunCellGrid / 4, SunCellGrid / 4, SunCellGrid / 4));
 	}
 	// The Box Volume material binding is invisible to RDG: hand both back as SRVs (the injection field's rule).
 	GraphBuilder.UseExternalAccessMode(MapTexture, ERHIAccess::SRVMask, ERHIPipeline::Graphics);
