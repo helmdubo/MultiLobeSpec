@@ -58,6 +58,17 @@ and Depth may go down to 0 (clamped to 0.001 in the node). patch_forward_lobe:
   - a node carrying 'FogMS_ForwardLobe v2' that feeds MP_EMISSIVE_COLOR: done (skipped). A node named FogMS_ForwardLobe whose
     code is neither aborts without changes.
   Only a newly created FogMS_ForwardEcc must read back 0.5; the Box MID sets all five every update.
+W39 P1 (FogMS_PerPixelClouds_Design.md section 4, patch_froxel_weight): scalar FogMS_FroxelWeight (default 1) multiplies the
+froxel copy of the Box: two Multiply nodes (desc 'FogMS_FroxelWeight extinction' / 'FogMS_FroxelWeight emissive') go between the
+current MP_SUBSURFACE_COLOR source (FogMS_Extinction_v3) and MP_SUBSURFACE_COLOR, and between the current MP_EMISSIVE_COLOR
+source (FogMS_ForwardLobe) and MP_EMISSIVE_COLOR. BaseColor stays: the fog voxelization scatters Albedo * Extinction
+(VolumetricFogVoxelization.usf VoxelizePS), so weight 0 removes the Box's extinction, scattering and emissive from the volumetric
+fog and weight 1 is the previous material (x * 1.0 == x). The solver never reads the material (it samples the density atlas), so
+the field is unchanged at any weight. The cloud prototype (cloudproto_session.py) sets 0 on the Box MID; the C++ Box never
+writes this parameter. Idempotent: both multiplies present with B <- FogMS_FroxelWeight means done (skipped); only one of them
+aborts without changes. On a compile error (or any failure) both properties go back to their previous sources, what the step
+created is deleted, the material is recompiled and nothing is saved. The earlier steps see through the weight multiplies
+(property_source), so a re-run on a weighted material prints ALREADY_PATCHED.
 Default readback: only parameters created by this run must read back their script default; a pre-existing parameter keeps
 its material default (for example FogMS_ErosionDepth 0.3 from round 32) and is reported, since the Box MID sets it anyway.
 The material is saved once, only if a step changed it; on any error nothing is saved (reload the asset to discard memory state).
@@ -344,6 +355,12 @@ if (Strength > 0.0f && Mode > 1.5f && Mode < 2.5f)
 return Result;
 """
 
+# W39 P1 froxel weight (patch_froxel_weight). (parameter name, default); multiply descriptions identify the two nodes.
+WEIGHT_PARAM = 'FogMS_FroxelWeight'
+WEIGHT_DEFAULT = 1.0
+WEIGHT_PREFIX = 'FogMS_FroxelWeight'
+WEIGHT_TARGETS = (('MP_SUBSURFACE_COLOR', 'FogMS_FroxelWeight extinction'), ('MP_EMISSIVE_COLOR', 'FogMS_FroxelWeight emissive'))
+
 mel = unreal.MaterialEditingLibrary
 
 
@@ -432,6 +449,31 @@ def input_links(material, node):
     return links
 
 
+def weight_node_for(material, prop):
+    """The W39 FogMS_FroxelWeight Multiply that feeds material property `prop` (name such as 'MP_EMISSIVE_COLOR'), or None."""
+    src = mel.get_material_property_input_node(material, getattr(unreal.MaterialProperty, prop))
+    if src is not None and isinstance(src, unreal.MaterialExpressionMultiply) \
+            and str(src.get_editor_property('desc')).startswith(WEIGHT_PREFIX):
+        return src
+    return None
+
+
+def property_source(material, prop):
+    """The expression feeding `prop`, seen through the W39 froxel-weight Multiply (its A input) when that is present."""
+    weight = weight_node_for(material, prop)
+    if weight is None:
+        return mel.get_material_property_input_node(material, getattr(unreal.MaterialProperty, prop))
+    return dict((pin, src) for pin, src, _ in input_links(material, weight)).get('A')
+
+
+def route_property(material, node, prop):
+    """Connects `node` to `prop`, into the froxel-weight Multiply's A pin when the property is weighted. Returns success."""
+    weight = weight_node_for(material, prop)
+    if weight is None:
+        return mel.connect_material_property(node, '', getattr(unreal.MaterialProperty, prop))
+    return mel.connect_material_expressions(node, '', weight, 'A')
+
+
 def consumers_of(material, exprs, target):
     """Expression pins and material properties fed by `target`."""
     pins, props = [], []
@@ -491,6 +533,16 @@ def summary(material, exprs):
             print('  FORWARD IN %-12s <- %s.%s' % (pin, src.get_name() if src else None, out))
         for name, _, _ in FORWARD_SCALARS:
             print('  PARAM %s = %s' % (name, mel.get_material_default_scalar_parameter_value(material, name)))
+        # Output value type of each pin's source (EMaterialValueType: 15 = one channel, 4 = float3). get_input_node_output_name
+        # returns the first pin wired to a source, so it cannot tell Field (RGB) from FieldA (A) of the same field sample.
+        types = dict(zip(mel.get_material_expression_input_names(forward), mel.get_material_expression_input_types(forward)))
+        print('  FORWARD FieldA source value type %s (15 = alpha, 4 = RGB)' % types.get('FieldA'))
+    for prop, _ in WEIGHT_TARGETS:
+        node = weight_node_for(material, prop)
+        print('  FROXEL_WEIGHT %s: %s' % (prop, ('%s = %s * %s' % (node.get_name(), property_source(material, prop).get_name(), WEIGHT_PARAM))
+                                          if node else 'none'))
+    if find_parameter(expressions(material), WEIGHT_PARAM):
+        print('  PARAM %s = %s' % (WEIGHT_PARAM, mel.get_material_default_scalar_parameter_value(material, WEIGHT_PARAM)))
 
 
 def normalized_code(node):
@@ -614,7 +666,7 @@ def upgrade_forward_lobe_v1(material, exprs, node):
         wire_inputs(node, links + [(ecc_pin, param, '')])
         require(list(mel.get_material_expression_input_names(node)) == list(FORWARD_INPUTS), 'Forward-lobe v2 pin list mismatch')
         require(forward_lobe_version(node) == 'v2', 'Code readback is not v2')
-        require(mel.get_material_property_input_node(material, emissive_prop) == node, 'MP_EMISSIVE_COLOR no longer fed by the lobe')
+        require(property_source(material, 'MP_EMISSIVE_COLOR') == node, 'MP_EMISSIVE_COLOR no longer fed by the lobe')
 
         errors, note = compile_and_check(material, 'FOGMS_MATEDIT_FWD2_%d' % int(time.time() * 1000))
         print('COMPILE forward lobe v2:', note)
@@ -626,7 +678,7 @@ def upgrade_forward_lobe_v1(material, exprs, node):
         node.set_editor_property('code', old_code)
         for pin, src, out in links:
             mel.connect_material_expressions(src, out, node, pin)
-        mel.connect_material_property(node, '', emissive_prop)
+        route_property(material, node, 'MP_EMISSIVE_COLOR')
         for expr in reversed(created):
             mel.delete_material_expression(material, expr)
         mel.recompile_material(material)
@@ -647,7 +699,7 @@ def patch_forward_lobe(material):
         version = forward_lobe_version(node)
         require(version != 'unknown', '%s is named %s but its code is neither %s nor exactly FORWARD_LOBE_CODE_V1; not changed' % (
             node.get_name(), FORWARD_DESCRIPTION, FORWARD_MARKER))
-        require(mel.get_material_property_input_node(material, emissive_prop) == node,
+        require(property_source(material, 'MP_EMISSIVE_COLOR') == node,
                 '%s exists but does not feed MP_EMISSIVE_COLOR; fix the graph by hand (no change made)' % node.get_name())
         if version == 'v2':
             print('FORWARD_LOBE already v2 (%s)' % node.get_name())
@@ -656,7 +708,7 @@ def patch_forward_lobe(material):
     emissive = find_single_custom(exprs, EMISSIVE_DESCRIPTION)
     require(EMISSIVE_REQUIRED in normalized_code(emissive),
             '%s is not field contract v3 (no FieldA validity); not changed' % emissive.get_name())
-    require(mel.get_material_property_input_node(material, emissive_prop) == emissive,
+    require(property_source(material, 'MP_EMISSIVE_COLOR') == emissive,
             'MP_EMISSIVE_COLOR is not fed by %s; graph differs from the expected layout (no change made)' % emissive.get_name())
     sources = dict((pin, (src, out)) for pin, src, out in input_links(material, emissive))
     for pin in ('FieldA', 'Mode'):
@@ -698,8 +750,8 @@ def patch_forward_lobe(material):
                  + [('CameraVector', camera, '')])
         require(sorted(pin for pin, _, _ in links) == sorted(FORWARD_INPUTS), 'Forward-lobe pin list mismatch')
         wire_inputs(lobe, links)
-        require(mel.connect_material_property(lobe, '', emissive_prop), 'Cannot route FogMS_ForwardLobe -> MP_EMISSIVE_COLOR')
-        require(mel.get_material_property_input_node(material, emissive_prop) == lobe, 'MP_EMISSIVE_COLOR readback mismatch')
+        require(route_property(material, lobe, 'MP_EMISSIVE_COLOR'), 'Cannot route FogMS_ForwardLobe -> MP_EMISSIVE_COLOR')
+        require(property_source(material, 'MP_EMISSIVE_COLOR') == lobe, 'MP_EMISSIVE_COLOR readback mismatch')
 
         errors, note = compile_and_check(material, 'FOGMS_MATEDIT_FWD_%d' % int(time.time() * 1000))
         print('COMPILE forward lobe:', note)
@@ -707,13 +759,77 @@ def patch_forward_lobe(material):
     except Exception:
         # Roll back in memory: MP_EMISSIVE_COLOR back to the injection node, delete what this step created, recompile, do not save.
         print('ROLLBACK', traceback.format_exc())
-        mel.connect_material_property(emissive, '', emissive_prop)
+        route_property(material, emissive, 'MP_EMISSIVE_COLOR')
         for node in reversed(created):
             mel.delete_material_expression(material, node)
         mel.recompile_material(material)
         print('NOT SAVED; MP_EMISSIVE_COLOR is back on %s (unsaved in-memory state, reload the asset to discard).' % emissive.get_name())
         raise
     print('FORWARD_LOBE patched, v2 (%s -> %s -> MP_EMISSIVE_COLOR; camera %s)' % (emissive.get_name(), lobe.get_name(), camera.get_name()))
+    return True
+
+
+def patch_froxel_weight(material):
+    """W39 P1: FogMS_FroxelWeight multiplies the froxel extinction and Emissive (module docstring). Returns True if it changed
+    the material; the caller saves. Any failure rolls back in memory and raises (nothing saved)."""
+    exprs = expressions(material)
+    param = find_parameter(exprs, WEIGHT_PARAM)
+    present = [(prop, weight_node_for(material, prop)) for prop, _ in WEIGHT_TARGETS]
+    if all(node is not None for _, node in present):
+        require(param is not None, 'Froxel-weight multiplies exist but %s is missing; fix the graph by hand' % WEIGHT_PARAM)
+        for prop, node in present:
+            links = dict((pin, src) for pin, src, _ in input_links(material, node))
+            require(links.get('B') == param and links.get('A') is not None,
+                    '%s (%s) is not A * %s; fix the graph by hand (no change made)' % (node.get_name(), prop, WEIGHT_PARAM))
+        print('FROXEL_WEIGHT already patched (%s)' % ', '.join('%s <- %s' % (prop, node.get_name()) for prop, node in present))
+        return False
+    require(all(node is None for _, node in present),
+            'Only one froxel-weight multiply present (%s); fix the graph by hand (no change made)' % present)
+    sources = []
+    for prop, desc in WEIGHT_TARGETS:
+        src = mel.get_material_property_input_node(material, getattr(unreal.MaterialProperty, prop))
+        require(src is not None, '%s is not connected; graph differs from the expected layout (no change made)' % prop)
+        # The multiply takes output 0 of the source (''), the output a material property reads.
+        sources.append((prop, desc, src))
+    print('FROXEL_WEIGHT sources: %s' % ', '.join('%s <- %s (%s)' % (prop, src.get_name(), str(src.get_editor_property('description'))
+                                                                     if isinstance(src, unreal.MaterialExpressionCustom) else '')
+                                                  for prop, _, src in sources))
+    created = []
+    try:
+        if param is None:
+            x, y = mel.get_material_expression_node_position(sources[0][2])
+            param = mel.create_material_expression(material, unreal.MaterialExpressionScalarParameter, x + 200, y + 260)
+            require(param is not None, 'Cannot create scalar ' + WEIGHT_PARAM)
+            created.append(param)
+            param.set_editor_property('parameter_name', WEIGHT_PARAM)
+            param.set_editor_property('default_value', WEIGHT_DEFAULT)
+            param.set_editor_property('group', 'FogMS')
+        for prop, desc, src in sources:
+            x, y = mel.get_material_expression_node_position(src)
+            mul = mel.create_material_expression(material, unreal.MaterialExpressionMultiply, x + 420, y)
+            require(mul is not None, 'Cannot create the %s Multiply' % desc)
+            created.append(mul)
+            mul.set_editor_property('desc', desc)
+            require(mel.connect_material_expressions(src, '', mul, 'A'), 'Cannot wire %s -> %s.A' % (src.get_name(), desc))
+            require(mel.connect_material_expressions(param, '', mul, 'B'), 'Cannot wire %s -> %s.B' % (WEIGHT_PARAM, desc))
+            require(mel.connect_material_property(mul, '', getattr(unreal.MaterialProperty, prop)), 'Cannot route %s -> %s' % (desc, prop))
+            require(weight_node_for(material, prop) == mul and property_source(material, prop) == src, '%s readback mismatch' % prop)
+        errors, note = compile_and_check(material, 'FOGMS_MATEDIT_FW_%d' % int(time.time() * 1000))
+        print('COMPILE froxel weight:', note)
+        require(not errors, 'Compile errors: %s' % errors)
+    except Exception:
+        # Roll back in memory: both properties back to their previous sources, delete what this step created, recompile, do not save.
+        print('ROLLBACK', traceback.format_exc())
+        for prop, _, src in sources:
+            mel.connect_material_property(src, '', getattr(unreal.MaterialProperty, prop))
+        for node in reversed(created):
+            mel.delete_material_expression(material, node)
+        mel.recompile_material(material)
+        print('NOT SAVED; MP_SUBSURFACE_COLOR / MP_EMISSIVE_COLOR are back on %s (unsaved in-memory state, reload the asset to discard).'
+              % ', '.join(src.get_name() for _, _, src in sources))
+        raise
+    print('FROXEL_WEIGHT patched (%s; %s default %s)' % (', '.join('%s <- %s <- %s' % (prop, weight_node_for(material, prop).get_name(), src.get_name())
+                                                                   for prop, _, src in sources), WEIGHT_PARAM, WEIGHT_DEFAULT))
     return True
 
 
@@ -740,9 +856,13 @@ def main():
     changed = patch_extinction_v3(material) or changed
     changed = patch_injection_albedo(material) or changed
     changed = patch_forward_lobe(material) or changed
+    changed = patch_froxel_weight(material) or changed
     if changed:
         # Exact defaults only for parameters this run created. A pre-existing one keeps its material default (the Box MID
         # sets every one of them); a difference is reported, not fatal (round 36: FogMS_ErosionDepth 0.3 from round 32).
+        # FogMS_FroxelWeight is not set by the Box MID: its material default must be 1 (identity) in any case.
+        value = mel.get_material_default_scalar_parameter_value(material, WEIGHT_PARAM)
+        require(abs(value - WEIGHT_DEFAULT) < 1e-6, 'Default readback %s = %s (must be %s)' % (WEIGHT_PARAM, value, WEIGHT_DEFAULT))
         for name, default, _ in NEW_SCALARS + V3_SCALARS + FORWARD_SCALARS:
             value = mel.get_material_default_scalar_parameter_value(material, name)
             if name in existing:
@@ -911,7 +1031,7 @@ def patch_extinction_v3(material):
     v3 = find_v3_node(exprs)
     if v3 is not None:
         require(V3_MARKER in normalized_code(v3), '%s is named %s but its code is not v3' % (v3.get_name(), V3_DESCRIPTION))
-        require(mel.get_material_property_input_node(material, unreal.MaterialProperty.MP_SUBSURFACE_COLOR) == v3,
+        require(property_source(material, 'MP_SUBSURFACE_COLOR') == v3,
                 '%s exists but does not feed MP_SUBSURFACE_COLOR; fix the graph by hand (no change made)' % v3.get_name())
         print('EXTINCTION already v3 (%s)' % v3.get_name())
         return False
