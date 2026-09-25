@@ -645,7 +645,7 @@ FString FFogMSShaderPatcher::GetIdentity(const FFogMSConfig& Config)
 		SourceIdentity += FString(TEXT("|")) + NativeSource + TEXT(":")
 			+ MLS_HashFileSHA1(FPaths::EngineDir() / TEXT("Shaders") / NativeSource);
 	}
-	return FString::Printf(TEXT("FogMS=1|a1b=1|a1c=1|a1e=1|fields=1|receiver=5|world=1|transport=3|boxabi=%u|steps=%d|march=%.9g|max=%.9g|exclude=%d|scale=%.9g|debug=%d|box=%d|preview=%d|srv=%u|source=%s"),
+	return FString::Printf(TEXT("FogMS=1|a1b=2|a1c=1|a1e=1|fields=1|receiver=5|world=1|transport=3|boxabi=%u|steps=%d|march=%.9g|max=%.9g|exclude=%d|scale=%.9g|debug=%d|box=%d|preview=%d|srv=%u|source=%s"),
 		FogMSRender::BoxRowCount, Config.Steps, Config.MarchDistance, Config.MaxDistance, Config.bExcludeGlobalLayer ? 1 : 0,
 		Config.GlobalExtinctionScale, Config.bDebugViews ? 1 : 0, Config.BoxMode, Config.bIndirectPreview ? 1 : 0, Config.BoxDescriptorIndex, *SourceIdentity);
 }
@@ -794,9 +794,10 @@ bool FFogMSShaderPatcher::PatchOverlay(const FString& OverlayDir, const FFogMSCo
 	if (!ReplaceOne(TEXT("\t\t\tLightScattering += DirectionalLightColor * LightFunctionColor * ShadowFactor * PhaseFunction(PhaseG, dot(InDirectionalLightDirection, -CameraVector));"),
 		TEXT("#if FOGMS_ENABLED\n\t\t\tBRANCH\n\t\t\tif (FogMS_UseOctaves)\n\t\t\t{\n")
 		TEXT("\t\t\t\t// ShadowFactor contains geometry/cloud visibility only in this branch.\n")
-		TEXT("\t\t\t\tfloat FogMS_NativePhase = PhaseFunction(PhaseG, dot(InDirectionalLightDirection, -CameraVector));\n")
+		TEXT("\t\t\t\tfloat FogMS_CosTheta = dot(InDirectionalLightDirection, -CameraVector);\n")
+		TEXT("\t\t\t\tfloat FogMS_NativePhase = PhaseFunction(PhaseG, FogMS_CosTheta);\n")
 		TEXT("\t\t\t\tfloat FogMS_Phase = FogMS_Transmittance * FogMS_NativePhase\n")
-		TEXT("\t\t\t\t\t+ FogMS_Weight * FogMS_OctavePhase(FogMS_Tau.w, FogMS_NativePhase, FogMS_MS);\n")
+		TEXT("\t\t\t\t\t+ FogMS_Weight * FogMS_OctavePhase(FogMS_Tau.w, FogMS_CosTheta, FogMS_MS);\n")
 		TEXT("\t\t\t\tLightScattering += DirectionalLightColor * LightFunctionColor * ShadowFactor * FogMS_Phase;\n")
 		TEXT("\t\t\t}\n\t\t\telse\n#endif\n\t\t\t{\n")
 		TEXT("\t\t\t\tLightScattering += DirectionalLightColor * LightFunctionColor * ShadowFactor * PhaseFunction(PhaseG, dot(InDirectionalLightDirection, -CameraVector));\n\t\t\t}"))) return false;

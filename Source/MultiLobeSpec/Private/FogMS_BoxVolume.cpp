@@ -648,7 +648,8 @@ bool AFogMSBoxVolume::FDensityState::HasSameMaterialParameters(const FDensitySta
 		&& WorldPhase0 == Other.WorldPhase0 && WorldPhase1 == Other.WorldPhase1 && WorldPhase2 == Other.WorldPhase2
 		&& DepthPrefilterValue == Other.DepthPrefilterValue && PrefilterWavelengths == Other.PrefilterWavelengths
 		&& ForwardStrengthValue == Other.ForwardStrengthValue && ForwardGValue == Other.ForwardGValue
-		&& ForwardDepthValue == Other.ForwardDepthValue && ForwardFloorValue == Other.ForwardFloorValue;
+		&& ForwardDepthValue == Other.ForwardDepthValue && ForwardEccValue == Other.ForwardEccValue
+		&& ForwardFloorValue == Other.ForwardFloorValue;
 }
 
 bool AFogMSBoxVolume::FDensityState::HasSameEffect(const FDensityState& Other) const
@@ -927,17 +928,19 @@ void AFogMSBoxVolume::UpdateDensity()
 					State.PrefilterWavelengths = FogMS_IsFiniteColor(Wavelengths) && FMath::Min3(Wavelengths.R, Wavelengths.G, Wavelengths.B) > 0.0f
 						? Wavelengths : FLinearColor(0, 0, 0, 0);
 				}
-				// W37 F1a forward lobe (material node FogMS_ForwardLobe, matedit_density.py). Details clamps enforced here too for
-				// Blueprint/Python writes; non-finite Strength = 0 (off), other non-finite values = their defaults. The material
-				// applies the lobe only in hybrid mode 2 (FogMS_InjectionMode), so no extra gate here.
+				// W37/W38 forward lobe (material node FogMS_ForwardLobe v2, matedit_density.py) from the Multiple Scattering Look
+				// set. Details clamps enforced here too for Blueprint/Python writes; non-finite MS Contribution = 0 (off), other
+				// non-finite values = their defaults. MS Occlusion 0 is allowed (the node clamps b to >= 0.001, S = 0 still selects
+				// Lobe 1). The material applies the lobe only in hybrid mode 2 (FogMS_InjectionMode), so no extra gate here.
 				const auto Finite = [](float Value, float Min, float Max, float Fallback)
 				{
 					return FMath::IsFinite(Value) ? FMath::Clamp(Value, Min, Max) : Fallback;
 				};
-				State.ForwardStrengthValue = Finite(ForwardScattering, 0.0f, 1.0f, 0.0f);
-				State.ForwardGValue = Finite(ForwardAnisotropy, 0.0f, 0.9f, 0.6f);
-				State.ForwardDepthValue = Finite(ForwardDepth, 0.05f, 1.0f, 0.5f);
-				State.ForwardFloorValue = Finite(BackFloor, 0.0f, 1.0f, 0.25f);
+				State.ForwardStrengthValue = Finite(MSContribution, 0.0f, 1.0f, 0.0f);
+				State.ForwardGValue = Finite(PhaseG, 0.0f, 0.9f, 0.6f);
+				State.ForwardDepthValue = Finite(MSOcclusion, 0.0f, 1.0f, 0.5f);
+				State.ForwardEccValue = Finite(MSEccentricity, 0.0f, 1.0f, 0.5f);
+				State.ForwardFloorValue = Finite(MSBackFloor, 0.0f, 1.0f, 0.25f);
 				State.DensityValue = Density;
 				State.Albedo = FLinearColor(DensityAlbedo.R, DensityAlbedo.G, DensityAlbedo.B, 1.0f);
 				State.WorldExtent = ExtentValue;
@@ -987,11 +990,12 @@ void AFogMSBoxVolume::UpdateDensity()
 					// 0 = v2 math).
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_DepthPrefilter"), State.DepthPrefilterValue);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_PrefilterWavelengths"), State.PrefilterWavelengths);
-					// W37 (FogMS_ForwardLobe). A material without the node ignores them; Strength 0 returns the injection
-					// Emissive unchanged.
+					// W37/W38 (FogMS_ForwardLobe). A material without the node ignores them; Strength 0 returns the injection
+					// Emissive unchanged. FogMS_ForwardEcc exists from node v2 on; a v1 node ignores it (fixed g/2 = Ecc 0.5).
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardStrength"), State.ForwardStrengthValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardG"), State.ForwardGValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardDepth"), State.ForwardDepthValue);
+					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardEcc"), State.ForwardEccValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardFloor"), State.ForwardFloorValue);
 					DensityMID->SetScalarParameterValue(TEXT("FogMS_Density"), State.bUseNativeDensity ? State.DensityValue : 0.0f);
 					DensityMID->SetVectorParameterValue(TEXT("FogMS_Albedo"), State.Albedo);

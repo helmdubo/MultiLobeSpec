@@ -42,11 +42,22 @@ the unchanged 'FogMS_EmissiveInjection' node and MP_EMISSIVE_COLOR:
   3. re-routes MP_EMISSIVE_COLOR to it, recompiles and waits for the shader result (compile_and_check). On a compile error
      (or any failure) MP_EMISSIVE_COLOR goes back to the injection node, what this step created is deleted, the material is
      recompiled and nothing is saved.
-  Idempotent: a Custom node 'FogMS_ForwardLobe' carrying 'FogMS_ForwardLobe v1' that feeds MP_EMISSIVE_COLOR means done
-  (skipped). With FogMS_ForwardStrength 0 (material default; the Box MID sets Forward Scattering, default 0) or an injection
-  mode other than 2 the node returns its Emissive input unchanged (uniform branch): modes 0/1/3 and the default look are as
-  before. The math (mean over view directions 1, minimum >= 1 - Strength * (1 - Floor)) is checked on the CPU by
-  fwd_lobe_check.py, which evaluates FORWARD_LOBE_CODE_V1 itself (read from this file as text).
+  With FogMS_ForwardStrength 0 (material default) or an injection mode other than 2 the node returns its Emissive input
+  unchanged (uniform branch): modes 0/1/3 are as before. The math (mean over view directions 1, minimum >= 1 - Strength *
+  (1 - Floor)) is checked on the CPU by fwd_lobe_check.py, which evaluates FORWARD_LOBE_CODE_V1/V2 itself (read from this
+  file as text).
+W38 (Multiple Scattering Look: Box properties Phase G / MS Contribution / MS Occlusion / MS Eccentricity / MS Back Floor feed
+FogMS_ForwardG / FogMS_ForwardStrength / FogMS_ForwardDepth / FogMS_ForwardEcc / FogMS_ForwardFloor): the node is v2
+(FORWARD_LOBE_CODE_V2): the second octave's anisotropy is G * Ecc instead of the fixed G / 2 (Ecc 0.5 evaluates v1 exactly),
+and Depth may go down to 0 (clamped to 0.001 in the node). patch_forward_lobe:
+  - no node: creates it directly as v2 (steps 1-3 above plus FogMS_ForwardEcc, default 0.5, on pin 'Ecc');
+  - a v1 node (code exactly FORWARD_LOBE_CODE_V1, pins FORWARD_INPUTS_V1 all connected, feeding MP_EMISSIVE_COLOR) is upgraded
+    in place: FogMS_ForwardEcc is created if missing, the node's pin list becomes FORWARD_INPUTS (v1 pins + 'Ecc'), every v1
+    pin is re-wired to its recorded source and output, Ecc <- FogMS_ForwardEcc, the code becomes v2, recompile + shader check.
+    On any failure: pin list, wiring and code back to v1, what the step created is deleted, recompiled, nothing saved;
+  - a node carrying 'FogMS_ForwardLobe v2' that feeds MP_EMISSIVE_COLOR: done (skipped). A node named FogMS_ForwardLobe whose
+    code is neither aborts without changes.
+  Only a newly created FogMS_ForwardEcc must read back 0.5; the Box MID sets all five every update.
 Default readback: only parameters created by this run must read back their script default; a pre-existing parameter keeps
 its material default (for example FogMS_ErosionDepth 0.3 from round 32) and is reported, since the Box MID sets it anyway.
 The material is saved once, only if a step changed it; on any error nothing is saved (reload the asset to discard memory state).
@@ -243,16 +254,21 @@ INJECTION_ALBEDO_V4_MARKER = 'field contract v4'
 EMISSIVE_DESCRIPTION = 'FogMS_EmissiveInjection'
 EMISSIVE_REQUIRED = 'float V = (Mode > 0.5f && FieldA >= 0.5f) ? 1.0f : 0.0f;'
 
-# W37 F1a forward lobe (patch_forward_lobe). (parameter name, default, pin); names match the MID setters in
-# FogMS_BoxVolume.cpp (Forward Scattering / Forward Anisotropy / Forward Depth / Back Floor).
+# W37 F1a / W38 forward lobe (patch_forward_lobe). (parameter name, default, pin); names match the MID setters in
+# FogMS_BoxVolume.cpp (W38 Box properties MS Contribution / Phase G / MS Occlusion / MS Back Floor / MS Eccentricity).
 FORWARD_DESCRIPTION = 'FogMS_ForwardLobe'
-FORWARD_MARKER = 'FogMS_ForwardLobe v1'
-FORWARD_SCALARS = (('FogMS_ForwardStrength', 0.0, 'Strength'),
-                   ('FogMS_ForwardG', 0.6, 'G'),
-                   ('FogMS_ForwardDepth', 0.5, 'Depth'),
-                   ('FogMS_ForwardFloor', 0.25, 'BackFloor'))
-FORWARD_INPUTS = ('Emissive', 'FieldA', 'Mode') + tuple(pin for _, _, pin in FORWARD_SCALARS) + ('CameraVector',)
+FORWARD_MARKER_V1 = 'FogMS_ForwardLobe v1'
+FORWARD_MARKER = 'FogMS_ForwardLobe v2'
+FORWARD_SCALARS_V1 = (('FogMS_ForwardStrength', 0.0, 'Strength'),
+                      ('FogMS_ForwardG', 0.6, 'G'),
+                      ('FogMS_ForwardDepth', 0.5, 'Depth'),
+                      ('FogMS_ForwardFloor', 0.25, 'BackFloor'))
+# v2 appends one scalar (and one pin at the end), so a v1 node upgrades in place by adding the pin.
+FORWARD_SCALARS = FORWARD_SCALARS_V1 + (('FogMS_ForwardEcc', 0.5, 'Ecc'),)
+FORWARD_INPUTS_V1 = ('Emissive', 'FieldA', 'Mode') + tuple(pin for _, _, pin in FORWARD_SCALARS_V1) + ('CameraVector',)
+FORWARD_INPUTS = FORWARD_INPUTS_V1 + ('Ecc',)
 # One statement per line (fwd_lobe_check.py translates the lines between the braces to numpy and integrates them).
+# V1 stays verbatim: it identifies a W37 node for the in-place upgrade and is the bit-exact reference of V2 at Ecc 0.5.
 FORWARD_LOBE_CODE_V1 = r"""// FogMS_ForwardLobe v1 (W37 F1a). Forward lobe of the multiply scattered light, hybrid mode 2 only. Emissive = the output of
 // FogMS_EmissiveInjection (sigma_s * J_ms, J_ms = J minus the uncollided sun term: isotropic); returns Emissive * Lobe(mu):
 //   Lobe = 1 + (1 - BackFloor) * (f1 * (p(g1) - 1) + f2 * (p(g2) - 1)),  mu = dot(L, -CameraVector) (1 = looking at the sun)
@@ -273,6 +289,46 @@ if (Strength > 0.0f && Mode > 1.5f && Mode < 2.5f)
     float g1 = clamp(G, 0.0f, 0.9f);
     float g2 = 0.5f * g1;
     float b = clamp(Depth, 0.05f, 1.0f);
+    float fl = saturate(BackFloor);
+    float S = saturate(2.0f * FieldA - 1.0f);
+    float3 L = normalize(View.AtmosphereLightDirection[0].xyz);
+    float mu = clamp(dot(L, -CameraVector), -1.0f, 1.0f);
+    float f1 = S > 0.0f ? s * (2.0f / 3.0f) * pow(S, b) : 0.0f;
+    float f2 = S > 0.0f ? s * (1.0f / 3.0f) * pow(S, b * b) : 0.0f;
+    float h1 = 1.0f + g1 * g1 - 2.0f * g1 * mu;
+    float h2 = 1.0f + g2 * g2 - 2.0f * g2 * mu;
+    float p1 = (1.0f - g1 * g1) * rsqrt(h1) / h1;
+    float p2 = (1.0f - g2 * g2) * rsqrt(h2) / h2;
+    Result = Emissive * (1.0f + (1.0f - fl) * (f1 * (p1 - 1.0f) + f2 * (p2 - 1.0f)));
+}
+return Result;
+"""
+# W38: V1 with g2 = G * Ecc (was 0.5 * G) and Depth clamped to [0.001, 1] (was [0.05, 1]); every other line as V1.
+FORWARD_LOBE_CODE_V2 = r"""// FogMS_ForwardLobe v2 (W38 Multiple Scattering Look; v1 = W37 F1a). Forward lobe of the multiply scattered light, hybrid
+// mode 2 only. Emissive = the output of FogMS_EmissiveInjection (sigma_s * J_ms, J_ms = J minus the uncollided sun term:
+// isotropic); returns Emissive * Lobe(mu). Pin <- MID scalar <- Box property (FogMS|Multiple Scattering Look):
+//   Strength <- FogMS_ForwardStrength <- MS Contribution (s); G <- FogMS_ForwardG <- Phase G (g);
+//   Depth <- FogMS_ForwardDepth <- MS Occlusion (b); Ecc <- FogMS_ForwardEcc <- MS Eccentricity (c);
+//   BackFloor <- FogMS_ForwardFloor <- MS Back Floor (F).
+//   Lobe = 1 + (1 - F) * (f1 * (p(g1) - 1) + f2 * (p(g2) - 1)),  mu = dot(L, -CameraVector) (1 = looking at the sun)
+//   p(g) = (1 - g^2) / (1 + g^2 - 2 g mu)^1.5 = 4 pi * Henyey-Greenstein, whose mean over the sphere is exactly 1
+//   f1 = s * 2/3 * S^b, f2 = s * 1/3 * S^(b^2), g1 = g, g2 = g * c: two octaves (Wrenninge 2013: octave i sees the sun
+//   transmittance T^(b^i) and the anisotropy g * c^(i-1)); S = saturate(2 FieldA - 1) = T_sun * k, the hybrid field alpha.
+//   c = 0.5 evaluates v1 exactly (g2 = g / 2). b >= 0.001: MS Occlusion 0 is allowed and pow(0, b) stays 0 (no 0^0).
+// Mean over view directions = 1 exactly for every c, the field's energy is unchanged (each octave phase is F * 1 + (1 - F) * p,
+// mean 1). Minimum >= 1 - s * (1 - F) (p > 0, f1 + f2 <= s). No sun or night (k = 0) or an invalid field: S = 0 and Lobe = 1
+// exactly (explicit select: max(S, eps)^b would leave eps^b > 0); deep shadow: S -> 0, Lobe -> 1.
+// L = View.AtmosphereLightDirection[0], the solver's sun (FScene::AtmosphereLights[0]); the volumetric-fog voxelization pass copies
+// the cached View uniform buffer (VolumetricFogVoxelization.cpp), so it is valid there. CPU proof: ProdProbe/fwd_lobe_check.py.
+// Strength 0 (material default) or FogMS_InjectionMode != 2: returns Emissive unchanged (uniform branch, the lobe ALU is skipped).
+float3 Result = Emissive;
+BRANCH
+if (Strength > 0.0f && Mode > 1.5f && Mode < 2.5f)
+{
+    float s = saturate(Strength);
+    float g1 = clamp(G, 0.0f, 0.9f);
+    float g2 = g1 * saturate(Ecc);
+    float b = clamp(Depth, 0.001f, 1.0f);
     float fl = saturate(BackFloor);
     float S = saturate(2.0f * FieldA - 1.0f);
     float3 L = normalize(View.AtmosphereLightDirection[0].xyz);
@@ -428,7 +484,7 @@ def summary(material, exprs):
         print('  PROPERTY %s <- %s' % (prop, src.get_name() if src else None))
     print('  %s field contract: %s' % (INJECTION_ALBEDO_DESCRIPTION, injection_albedo_version(exprs)))
     forward = find_forward_node(exprs)
-    print('  %s: %s' % (FORWARD_DESCRIPTION, ('%s (v1=%s)' % (forward.get_name(), FORWARD_MARKER in normalized_code(forward)))
+    print('  %s: %s' % (FORWARD_DESCRIPTION, ('%s (%s)' % (forward.get_name(), forward_lobe_version(forward)))
                                               if forward else None))
     if forward:
         for pin, src, out in input_links(material, forward):
@@ -497,19 +553,106 @@ def find_forward_node(exprs):
     return found[0] if found else None
 
 
+def forward_lobe_version(node):
+    """'v2' (carries FORWARD_MARKER), 'v1' (code exactly FORWARD_LOBE_CODE_V1) or 'unknown'."""
+    code = normalized_code(node)
+    if FORWARD_MARKER in code:
+        return 'v2'
+    return 'v1' if code == FORWARD_LOBE_CODE_V1.strip() else 'unknown'
+
+
+def set_custom_inputs(node, pins):
+    """Replaces the Custom node's input list by `pins` (names only; the caller wires them)."""
+    items = []
+    for pin in pins:
+        item = unreal.CustomInput()
+        item.set_editor_property('input_name', pin)
+        items.append(item)
+    node.set_editor_property('inputs', items)
+
+
+def wire_inputs(node, links):
+    """Connects (pin, source expression, source output name) to `node` and checks each readback."""
+    for pin, src, out in links:
+        require(mel.connect_material_expressions(src, out, node, pin),
+                'Cannot wire %s.%s -> %s.%s' % (src.get_name(), out, FORWARD_DESCRIPTION, pin))
+        back = mel.get_input_node_output_name_for_material_expression(node, src)
+        require(back is not None and str(back) == out, 'Readback mismatch on pin %s: %s != %s' % (pin, back, out))
+
+
+def upgrade_forward_lobe_v1(material, exprs, node):
+    """W38: FogMS_ForwardLobe v1 -> v2 in place (module docstring). Returns True; the caller saves. Any failure restores the v1
+    pin list, wiring and code, deletes what this step created, recompiles and raises (nothing saved)."""
+    emissive_prop = unreal.MaterialProperty.MP_EMISSIVE_COLOR
+    names = list(mel.get_material_expression_input_names(node))
+    require(names == list(FORWARD_INPUTS_V1), '%s v1 has unexpected inputs %s; not changed' % (node.get_name(), names))
+    links = input_links(material, node)
+    require(all(src is not None for _, src, _ in links),
+            '%s v1 has unconnected inputs: %s; not changed' % (node.get_name(), [pin for pin, src, _ in links if src is None]))
+    for pin, src, out in links:
+        # An empty output name reconnects output 0; refuse if that would be ambiguous.
+        if out == '':
+            require(list(mel.get_material_expression_output_names(src)).count('') <= 1,
+                    'Ambiguous unnamed output on %s (pin %s)' % (src.get_name(), pin))
+    ecc_name, ecc_default, ecc_pin = FORWARD_SCALARS[-1]
+    print('%s v1 inputs: %s' % (node.get_name(), [(pin, src.get_name(), out) for pin, src, out in links]))
+
+    old_code = str(node.get_editor_property('code'))
+    created = []
+    try:
+        param = find_parameter(exprs, ecc_name)
+        if param is None:
+            x, y = mel.get_material_expression_node_position(dict((pin, src) for pin, src, _ in links)['BackFloor'])
+            param = mel.create_material_expression(material, unreal.MaterialExpressionScalarParameter, x, y + 220)
+            require(param is not None, 'Cannot create scalar ' + ecc_name)
+            created.append(param)
+            param.set_editor_property('parameter_name', ecc_name)
+            param.set_editor_property('default_value', ecc_default)
+            param.set_editor_property('group', 'FogMS')
+        set_custom_inputs(node, FORWARD_INPUTS)
+        node.set_editor_property('code', FORWARD_LOBE_CODE_V2)
+        wire_inputs(node, links + [(ecc_pin, param, '')])
+        require(list(mel.get_material_expression_input_names(node)) == list(FORWARD_INPUTS), 'Forward-lobe v2 pin list mismatch')
+        require(forward_lobe_version(node) == 'v2', 'Code readback is not v2')
+        require(mel.get_material_property_input_node(material, emissive_prop) == node, 'MP_EMISSIVE_COLOR no longer fed by the lobe')
+
+        errors, note = compile_and_check(material, 'FOGMS_MATEDIT_FWD2_%d' % int(time.time() * 1000))
+        print('COMPILE forward lobe v2:', note)
+        require(not errors, 'Compile errors: %s' % errors)
+    except Exception:
+        # Roll back in memory: v1 pins, wiring and code, delete what this step created, recompile, do not save.
+        print('ROLLBACK', traceback.format_exc())
+        set_custom_inputs(node, FORWARD_INPUTS_V1)
+        node.set_editor_property('code', old_code)
+        for pin, src, out in links:
+            mel.connect_material_expressions(src, out, node, pin)
+        mel.connect_material_property(node, '', emissive_prop)
+        for expr in reversed(created):
+            mel.delete_material_expression(material, expr)
+        mel.recompile_material(material)
+        print('NOT SAVED; %s is back on FogMS_ForwardLobe v1 (unsaved in-memory state, reload the asset to discard).' % node.get_name())
+        raise
+    print('FORWARD_LOBE v1 -> v2 (%s; Ecc <- %s%s)' % (node.get_name(), param.get_name(), ', created' if created else ''))
+    return True
+
+
 def patch_forward_lobe(material):
-    """W37 F1a: FogMS_ForwardLobe between FogMS_EmissiveInjection and MP_EMISSIVE_COLOR (module docstring). Returns True if it
-    changed the material; the caller saves. Any failure rolls back in memory and raises (nothing saved)."""
+    """W37 F1a / W38: FogMS_ForwardLobe v2 between FogMS_EmissiveInjection and MP_EMISSIVE_COLOR (module docstring): creates it,
+    or upgrades a v1 node in place. Returns True if it changed the material; the caller saves. Any failure rolls back in memory
+    and raises (nothing saved)."""
     exprs = expressions(material)
     emissive_prop = unreal.MaterialProperty.MP_EMISSIVE_COLOR
     node = find_forward_node(exprs)
     if node is not None:
-        require(FORWARD_MARKER in normalized_code(node), '%s is named %s but its code is not %s' % (
+        version = forward_lobe_version(node)
+        require(version != 'unknown', '%s is named %s but its code is neither %s nor exactly FORWARD_LOBE_CODE_V1; not changed' % (
             node.get_name(), FORWARD_DESCRIPTION, FORWARD_MARKER))
         require(mel.get_material_property_input_node(material, emissive_prop) == node,
                 '%s exists but does not feed MP_EMISSIVE_COLOR; fix the graph by hand (no change made)' % node.get_name())
-        print('FORWARD_LOBE already v1 (%s)' % node.get_name())
-        return False
+        if version == 'v2':
+            print('FORWARD_LOBE already v2 (%s)' % node.get_name())
+            return False
+        return upgrade_forward_lobe_v1(material, exprs, node)
     emissive = find_single_custom(exprs, EMISSIVE_DESCRIPTION)
     require(EMISSIVE_REQUIRED in normalized_code(emissive),
             '%s is not field contract v3 (no FieldA validity); not changed' % emissive.get_name())
@@ -547,23 +690,14 @@ def patch_forward_lobe(material):
         lobe = mel.create_material_expression(material, unreal.MaterialExpressionCustom, x + 380, y)
         require(lobe is not None, 'Cannot create the FogMS_ForwardLobe Custom node')
         created.append(lobe)
-        lobe.set_editor_property('code', FORWARD_LOBE_CODE_V1)
+        lobe.set_editor_property('code', FORWARD_LOBE_CODE_V2)
         lobe.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT3)
         lobe.set_editor_property('description', FORWARD_DESCRIPTION)
-        items = []
-        for pin in FORWARD_INPUTS:
-            item = unreal.CustomInput()
-            item.set_editor_property('input_name', pin)
-            items.append(item)
-        lobe.set_editor_property('inputs', items)
+        set_custom_inputs(lobe, FORWARD_INPUTS)
         links = ([('Emissive', emissive, ''), ('FieldA',) + sources['FieldA'], ('Mode',) + sources['Mode']] + params
                  + [('CameraVector', camera, '')])
         require(sorted(pin for pin, _, _ in links) == sorted(FORWARD_INPUTS), 'Forward-lobe pin list mismatch')
-        for pin, src, out in links:
-            require(mel.connect_material_expressions(src, out, lobe, pin),
-                    'Cannot wire %s.%s -> FogMS_ForwardLobe.%s' % (src.get_name(), out, pin))
-            back = mel.get_input_node_output_name_for_material_expression(lobe, src)
-            require(back is not None and str(back) == out, 'Readback mismatch on pin %s: %s != %s' % (pin, back, out))
+        wire_inputs(lobe, links)
         require(mel.connect_material_property(lobe, '', emissive_prop), 'Cannot route FogMS_ForwardLobe -> MP_EMISSIVE_COLOR')
         require(mel.get_material_property_input_node(material, emissive_prop) == lobe, 'MP_EMISSIVE_COLOR readback mismatch')
 
@@ -579,7 +713,7 @@ def patch_forward_lobe(material):
         mel.recompile_material(material)
         print('NOT SAVED; MP_EMISSIVE_COLOR is back on %s (unsaved in-memory state, reload the asset to discard).' % emissive.get_name())
         raise
-    print('FORWARD_LOBE patched (%s -> %s -> MP_EMISSIVE_COLOR; camera %s)' % (emissive.get_name(), lobe.get_name(), camera.get_name()))
+    print('FORWARD_LOBE patched, v2 (%s -> %s -> MP_EMISSIVE_COLOR; camera %s)' % (emissive.get_name(), lobe.get_name(), camera.get_name()))
     return True
 
 

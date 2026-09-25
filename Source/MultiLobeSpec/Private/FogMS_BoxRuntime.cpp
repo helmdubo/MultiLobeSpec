@@ -76,8 +76,8 @@ namespace
 		// Rows 0..4: center high/active, center low/feather, three unit axes/extent.
 		// Row 5: history reset, scattering mode, extra octaves (Octaves) / Lumen Bounce (Transport modes: 0 Auto, 1 Off;
 		// the overlay reads z only as ExtraOctaves under mode 1, so the slot is free in modes 4/5), density animation active.
-		// Row 6: contribution, occlusion, eccentricity (Octaves) / Fallback Ground Albedo RGB (Transport modes; the overlay
-		// reads xyz only as the octave factors under mode 1, so the slots are free in modes 4/5), authored sun shadow.
+		// Row 6: MS Contribution, MS Occlusion, MS Eccentricity (Octaves) / Fallback Ground Albedo RGB (Transport modes; the
+		// overlay reads xyz only as the octave factors under mode 1, so the slots are free in modes 4/5), authored sun shadow.
 		// Rows 7..10: density atlas and shape; row 11: size Z and three detail controls.
 		// Row 12: world frequencies f0/f1/f2, world-aligned mode.
 		// Rows 13..15: world phases 0/1/2, with surface shadow enabled/strength/steps in W.
@@ -95,7 +95,9 @@ namespace
 		// Rows 27..28: reserved (weather map, terrain); zero until used.
 		// Row 29 = (tan(Sun Softness), 0, 0, 0), W37 F2, Transport modes only (FogMS_WriteScatteringControls; pass 2 of
 		// FogMS_Transport.usf); Sun Softness 0 packs zero. Part of the history key like row 5.z (a change re-solves and resets
-		// native fog history once). Rows 30..31: reserved.
+		// native fog history once). W38: row 29.y = Phase G of the added octaves under Octaves only (FogMS_Common.ush
+		// FogMS_GetScatteringSettings; row 29 is otherwise zero in mode 1, and 29.y stays zero in every other mode, so the
+		// Transport history key is unchanged: the lobe's Phase G is a material MID value). Rows 30..31: reserved.
 		FVector4f Rows[FogMS_BoxPacketRowCount];
 		FBoxPacket() { FMemory::Memzero(Rows, sizeof(Rows)); }
 	};
@@ -360,16 +362,19 @@ namespace
 		if (Actor.ExtraOctaves < 1 || Actor.ExtraOctaves > 2
 			|| !FMath::IsFinite(Actor.MSContribution) || Actor.MSContribution < 0.0f || Actor.MSContribution > 1.0f
 			|| !FMath::IsFinite(Actor.MSOcclusion) || Actor.MSOcclusion < 0.0f || Actor.MSOcclusion > 1.0f
-			|| !FMath::IsFinite(Actor.MSEccentricity) || Actor.MSEccentricity < 0.0f || Actor.MSEccentricity > 1.0f)
+			|| !FMath::IsFinite(Actor.MSEccentricity) || Actor.MSEccentricity < 0.0f || Actor.MSEccentricity > 1.0f
+			|| !FMath::IsFinite(Actor.PhaseG) || Actor.PhaseG < 0.0f || Actor.PhaseG > 0.9f)
 		{
-			OutProblem = FString::Printf(TEXT("FogMS octaves disabled on %s: require Extra Octaves 1..2 and finite Contribution, Occlusion and Eccentricity in [0,1]. A1 remains active."),
+			OutProblem = FString::Printf(TEXT("FogMS octaves disabled on %s: require Extra Octaves 1..2, finite MS Contribution, MS Occlusion and MS Eccentricity in [0,1] and Phase G in [0,0.9]. A1 remains active."),
 				*Actor.GetPathName());
 			return;
 		}
 		if (Actor.MSContribution == 0.0f) return;
 		Packet.Rows[5].Y = static_cast<float>(Actor.ScatteringMode);
 		Packet.Rows[5].Z = static_cast<float>(Actor.ExtraOctaves);
+		// Row 6.w (authored sun shadow) is written after this function. W38: added octave i uses HG(Phase G * c^i), row 29.y.
 		Packet.Rows[6] = FVector4f(Actor.MSContribution, Actor.MSOcclusion, Actor.MSEccentricity, 0.0f);
+		Packet.Rows[29].Y = Actor.PhaseG;
 	}
 
 	// The one packet texture of the engine-shader overlay (BindlessAll only). Its descriptor index is compiled into the
@@ -1378,13 +1383,13 @@ namespace
 					const float Tau = Selected->GetCoreOpticalDepthEstimate();
 					if (Tau >= 0.0f) Selected->SpatialStatus += FString::Printf(TEXT(" [tau core ~%.3g, upper bound]"), Tau);
 					if (Selected->IsFieldOnlyDebugActive()) Selected->SpatialStatus += TEXT(" [debug: field only, full J, native single scattering off]");
-					// W37: the look controls that are in effect (F2 from the packet the solver gets; F1a from the MID mode it needs).
+					// W37/W38: the look controls that are in effect (F2 from the packet the solver gets; the forward lobe from the MID
+					// mode it needs). Only when in effect: MS Contribution defaults to 0.5, and outside hybrid injection the Details
+					// panel already disables the Multiple Scattering Look set (EditCondition), so no 'ignored' note.
 					if (Packet.Rows[29].X > 0.0f)
 						Selected->SpatialStatus += FString::Printf(TEXT(" [sun softness %.1f\u00B0]"), FMath::RadiansToDegrees(FMath::Atan(Packet.Rows[29].X)));
-					if (Selected->ForwardScattering > 0.0f)
-						Selected->SpatialStatus += Selected->IsHybridInjectionActive()
-							? FString::Printf(TEXT(" [forward lobe %.2f g %.2f]"), FMath::Min(Selected->ForwardScattering, 1.0f), FMath::Clamp(Selected->ForwardAnisotropy, 0.0f, 0.9f))
-							: FString(TEXT(" [Forward Scattering ignored: needs Emissive Injection + Hybrid Single Scattering]"));
+					if (Selected->MSContribution > 0.0f && Selected->IsHybridInjectionActive())
+						Selected->SpatialStatus += FString::Printf(TEXT(" [forward lobe %.2f g %.2f]"), FMath::Min(Selected->MSContribution, 1.0f), FMath::Clamp(Selected->PhaseG, 0.0f, 0.9f));
 					// The hybrid split exists only in the Emissive Injection material (MID mode 2, row 23.w 6). Without injection the
 					// Box delivers through the overlay: the tick has no effect, and a non-zero fog Scattering Distribution turns the
 					// field off. Status every frame; log once each time the condition starts (game thread, per Box state).

@@ -46,7 +46,7 @@ UENUM(BlueprintType)
 enum class EFogMSScatteringMode : uint8
 {
 	Off = 0 UMETA(DisplayName="Off (A1 Only)"),
-	Octaves = 1 UMETA(DisplayName="Octaves"),
+	Octaves = 1 UMETA(DisplayName="Octaves (Legacy, overlay)"),
 	SpatialPreview = 2 UMETA(DisplayName="Spatial (Experimental)"),
 	WorldSpace = 3 UMETA(DisplayName="World (Current Frame)"),
 	Transport = 4 UMETA(DisplayName="Transport (B2)"),
@@ -155,20 +155,8 @@ public:
 
 	UBoxComponent* GetBoxComponent() const { return BoxComponent.Get(); }
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(ToolTip="Off keeps A1 self-shadowing. Octaves approximate extra directional scattering. Spatial uses previous camera fog. World computes primary lighting and three extra orders in the current frame. B2 uses six transport directions; B3 uses 48 or 96 with a finite-volume solver. Both Transport modes are isotropic, without artistic damping or fog history; inspect convergence diagnostics. World and Transport use native Lumen surface-cache coverage. Changes apply live after Enable Live Box."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(ToolTip="Off keeps A1 self-shadowing. Octaves (legacy, overlay) add one or two directional octaves to native single scattering (FogMS|Multiple Scattering Look). Spatial uses previous camera fog. World computes primary lighting and three extra orders in the current frame. B2 uses six transport directions; B3 uses 48 or 96 with a finite-volume solver. Both Transport modes are isotropic, without artistic damping or fog history; inspect convergence diagnostics. World and Transport use native Lumen surface-cache coverage. Changes apply live after Enable Live Box."))
 	EFogMSScatteringMode ScatteringMode = EFogMSScatteringMode::Off;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves", ClampMin="1", ClampMax="2", UIMin="1", UIMax="2", ToolTip="Number of added directional scattering octaves, beyond the native first order. One or two; changes apply live."))
-	int32 ExtraOctaves = 2;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="MS Contribution", EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Contribution of the added directional octaves. Zero keeps the A1-only path. This is an artistic approximation, not an energy-conserving spatial solver. Changes apply live."))
-	float MSContribution = 0.5f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="MS Occlusion", EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Optical-depth multiplier for added octaves. Lower values reduce their medium self-shadowing; geometric shadows remain unchanged. Changes apply live."))
-	float MSOcclusion = 0.5f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(DisplayName="MS Eccentricity", EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Phase blend for added octaves: zero is isotropic, one retains the current fog phase. The native first-order phase is unchanged. Changes apply live."))
-	float MSEccentricity = 0.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Scattering", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::SpatialPreview || ScatteringMode == EFogMSScatteringMode::WorldSpace", ClampMin="0.0", ClampMax="0.5", ToolTip="Per-order damping of isotropic spatial transport. Both spatial modes require Scattering Distribution 0 and hardware ray tracing. Spatial uses previous camera fog history. World computes three extra orders in the current frame; zero keeps its primary indirect lighting active. World requires Lumen GI, graphics compute and RayTracing.Culling=0."))
 	float SpatialStrength = 0.35f;
@@ -215,25 +203,35 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ToolTip="Sets r.RayTracing.Culling 0 and r.Lumen.AsyncCompute 0, which the transport solver requires (engine defaults 3 and 1), and logs the previous values in one line. Game world (packaged or -game): at BeginPlay of an enabled Transport/World Box. Editor: when an enabled Transport Box with Emissive Injection starts itself (first editor tick without -BindlessAll, or BeginPlay in PIE/Simulate), so Enable Indirect Preview is not needed there. Uses game-setting priority everywhere: a value set by the project ini, device profile, command line or console (in the editor also a value restored by Restore Standard Lumen) is kept and reported, and Transport stays off with a status naming it; set such a value to 0 yourself. Not restored when the Box stops: the values stay for the game process / editor session. Off = the project owns these cvars (editor: Enable Indirect Preview)."))
 	bool bApplyRequiredRenderSettings = true;
 
-	/** W37 F1a, MID FogMS_ForwardStrength (material node FogMS_ForwardLobe, matedit_density.py): view-dependent lobe on the
-	 * injected multiple-scattering Emissive, hybrid mode 2 only. Lobe = 1 + (1 - Back Floor) * (f1 (p(g1) - 1) + f2 (p(g2) - 1)),
-	 * p = 4 pi HG, f1 = s 2/3 S^Depth, f2 = s 1/3 S^(Depth^2), g1 = G, g2 = G/2, S = T_sun*k from the field alpha: its mean over
-	 * view directions is exactly 1 (no energy added) and it never drops below 1 - s (1 - Back Floor). Material only (MID update,
-	 * no density revision, no re-solve). 0 (default) = the W36 material result exactly. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Look", meta=(DisplayName="Forward Scattering", EditCondition="bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Silver lining / glow around the sun from the cloud's multiply scattered light. The solver's field is isotropic (it looks the same from every side); this redistributes the part of it that still remembers the sun direction: brighter looking toward the sun (backlit edges, cloud around the sun), a little darker with the sun behind the camera, unchanged deep inside the cloud and at night. Energy-conserving: averaged over all view directions the cloud keeps its brightness. Needs Emissive Injection + Hybrid Single Scattering (ignored otherwise) and the material patched by matedit_density.py (FogMS_ForwardLobe). Suggested 0.5-0.8. 0 = off (default, previous look). Cost: about 50 shader instructions (2 pow, 3 rsqrt) per fog voxel of this Box in the volumetric-fog voxelization, nothing in the solver. Changes apply live."))
-	float ForwardScattering = 0.0f;
+	/** W38 Multiple Scattering Look: ONE Wrenninge-octave set, named after UE's Volumetric Advanced Material Output (Phase G,
+	 * MultiScattering Contribution / Occlusion / Eccentricity, octave count), read by two paths:
+	 *  - Transport forward lobe (Emissive Injection + Hybrid, MID FogMS_InjectionMode 2): material node FogMS_ForwardLobe v2
+	 *    (matedit_density.py), MID FogMS_ForwardG / FogMS_ForwardStrength / FogMS_ForwardDepth / FogMS_ForwardEcc /
+	 *    FogMS_ForwardFloor = Phase G / MS Contribution / MS Occlusion / MS Eccentricity / MS Back Floor. Lobe = 1 + (1 - F)
+	 *    (f1 (p(g) - 1) + f2 (p(g c) - 1)), p = 4 pi HG, f1 = s 2/3 S^b, f2 = s 1/3 S^(b^2), S = T_sun*k from the field alpha:
+	 *    mean over view directions exactly 1, minimum >= 1 - s (1 - F). Material only (MID update, no density revision, no
+	 *    re-solve). c = 0.5 is the W37 lobe (second octave g/2).
+	 *  - Octaves (legacy overlay, -BindlessAll): packet row 5.z = Extra Octaves, row 6.xyz = (a, b, c), row 29.y = Phase G;
+	 *    added octave i = a^(2^i - 1) exp(-tau b^(2^i - 1)) HG(Phase G c^i) (FogMS_Common.ush FogMS_OctavePhase).
+	 * W37 names load through Config/DefaultMultiLobeSpec.ini [CoreRedirects]: ForwardAnisotropy -> PhaseG, ForwardScattering ->
+	 * MSContribution, ForwardDepth -> MSOcclusion, BackFloor -> MSBackFloor. EditCondition = the modes that read the set. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="Phase G", EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves || (bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport))", ClampMin="0.0", ClampMax="0.9", UIMin="0.0", UIMax="0.9", ToolTip="How strongly the multiply scattered light keeps going forward, away from the sun (Henyey-Greenstein g, like 'Phase G' of UE's Volumetric Cloud material). Higher = brighter when you look toward the sun through the cloud, darker with the sun behind you. Transport (forward lobe): g of the first octave, the second uses Phase G x MS Eccentricity. At 0.6 (default) the first octave is x10 of the isotropic value looking straight at the sun and x0.16 with the sun behind; at 0.8 x45 and x0.06. 0.8-0.9 gives a tight halo that lags fast camera moves (native fog history); keep 0.6-0.7 for gameplay. Octaves (legacy): added octave i uses Phase G x MS Eccentricity^i; the native first order keeps the fog's own Scattering Distribution. Changes apply live."))
+	float PhaseG = 0.6f;
 
-	/** W37 F1a, MID FogMS_ForwardG: g1 of the first octave (the second uses G/2). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Look", meta=(DisplayName="Forward Anisotropy", EditCondition="ForwardScattering > 0 && bEmissiveInjection && bHybridSingleScattering", ClampMin="0.0", ClampMax="0.9", UIMin="0.0", UIMax="0.9", ToolTip="How narrow the forward lobe is (Henyey-Greenstein g of the first octave; the second uses half of it). At 0.6 (default) the first octave's phase is x10 of the isotropic value looking straight at the sun and x0.16 with the sun behind; at 0.8 x45 and x0.06. 0.8-0.9 gives a tight bright halo, but the native fog history (0.9) makes a narrow lobe lag when the camera moves fast; keep 0.6-0.7 for gameplay."))
-	float ForwardAnisotropy = 0.6f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="MS Contribution", EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves || (bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport))", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Strength of the multiple-scattering look (like 'MultiScattering Contribution' of UE's Volumetric Cloud material). Transport (forward lobe): redistributes the solver's isotropic field toward the sun: brighter looking toward the sun (backlit edges, cloud around the sun), a little darker with the sun behind the camera, unchanged deep inside and at night. Energy-conserving: averaged over all view directions the brightness is unchanged. Needs the material patched by matedit_density.py (FogMS_ForwardLobe v2). Default 0.5 (on); 0 = the W36 look; suggested 0.5-0.8. Cost: about 50 shader instructions per fog voxel of this Box, nothing in the solver. Octaves (legacy): weight of the added octaves (a, a^3), 0 keeps A1 only; adds light, not energy-conserving. Changes apply live."))
+	float MSContribution = 0.5f;
 
-	/** W37 F1a, MID FogMS_ForwardDepth: b of the octave weights S^b, S^(b^2). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Look", meta=(DisplayName="Forward Depth", EditCondition="ForwardScattering > 0 && bEmissiveInjection && bHybridSingleScattering", ClampMin="0.05", ClampMax="1.0", UIMin="0.05", UIMax="1.0", ToolTip="How deep into the cloud the lobe reaches. The lobe fades with the cell's sun transmittance S (T_sun times the sun share): the two octaves are weighted S^Depth and S^(Depth^2). Small values keep the lobe deep inside the cloud, 1 limits it to the sunlit skin. Default 0.5."))
-	float ForwardDepth = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="MS Occlusion", EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves || (bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport))", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="How deep into the cloud's own sun shadow the octaves reach (like 'MultiScattering Occlusion' of UE's Volumetric Cloud material). The first octave sees the sun transmittance T^b instead of T, b = this value: small = the octaves reach deep into the shadowed core, 1 = only the sunlit skin, 0 = they ignore the medium's shadow. Transport (forward lobe): the two octaves are weighted S^b and S^(b^2), S = T_sun x the sun share of the cell (a cell without sun, S = 0, gets no lobe at any value). Octaves (legacy): optical-depth multiplier of the added octaves, exp(-tau b) and exp(-tau b^3); geometric shadows unchanged. Default 0.5. Changes apply live."))
+	float MSOcclusion = 0.5f;
 
-	/** W37 F1a, MID FogMS_ForwardFloor: each octave phase is Floor * isotropic + (1 - Floor) * HG. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Look", meta=(DisplayName="Back Floor", EditCondition="ForwardScattering > 0 && bEmissiveInjection && bHybridSingleScattering", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Back-scatter floor: keeps the side of the cloud facing the sun (sun behind the camera) from going dark. The anti-sun side never drops below 1 - Forward Scattering * (1 - Back Floor) of the isotropic value; the lobe's forward peak shrinks by the same factor, so the average stays exactly 1. 0 = pure forward lobe, 1 = no lobe. Default 0.25."))
-	float BackFloor = 0.25f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="MS Eccentricity", EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves || (bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport))", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="How much each further octave loses its forward preference (like 'MultiScattering Eccentricity' of UE's Volumetric Cloud material): every octave multiplies Phase G by this value. 1 = all octaves as forward as Phase G, 0 = the later octaves scatter equally in all directions. Transport (forward lobe): first octave Phase G, second Phase G x c; default 0.5 = the W37 lobe. Octaves (legacy): added octave i uses Henyey-Greenstein(Phase G x c^i). Changed in W38: legacy octaves used a blend between isotropic and the fog's own phase (Scattering Distribution), so an old Octaves Box looks different unless Phase G equals the fog's Scattering Distribution. UE's cloud blends toward isotropic instead; same ends (0 isotropic, 1 base phase). Changes apply live."))
+	float MSEccentricity = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="MS Back Floor", EditCondition="bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Transport forward lobe only (Octaves ignore it; no UE equivalent). Keeps the side of the cloud facing the sun (sun behind the camera) from going dark: it never drops below 1 - MS Contribution x (1 - MS Back Floor) of the isotropic value, and the forward peak shrinks by the same factor, so the average stays exactly 1. 0 = pure forward lobe, 1 = no lobe. Default 0.25. Changes apply live."))
+	float MSBackFloor = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(EditCondition="ScatteringMode == EFogMSScatteringMode::Octaves", ClampMin="1", ClampMax="2", UIMin="1", UIMax="2", ToolTip="Octaves (legacy, overlay) only: number of directional octaves added to the native first order, one or two (like 'MultiScattering Approximation Octave Count' of UE's Volumetric Cloud material). The Transport forward lobe always uses two. Changes apply live."))
+	int32 ExtraOctaves = 2;
 
 	/** W37 F2, packet row 29.x = tan(theta) (Transport modes). 0 (default) packs a zero row: packet, revision and field unchanged. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Look", meta=(DisplayName="Sun Softness", EditCondition="ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport", ClampMin="0.0", ClampMax="15.0", UIMin="0.0", UIMax="15.0", Units="Degrees", ToolTip="Softens the sun's shadow inside and behind the cloud in the transport solver: each cell's sun shadow rays (same count) are spread over a cone of this half-angle instead of all pointing exactly at the sun, so the light/shadow boundary inside the cloud and the shadows of geometry on the fog get a penumbra. Energy of the sun unchanged (only its visibility is averaged). With Hybrid Single Scattering the native sun single scattering follows (its per-cell scale is the solver's softened T_sun); engine shadow maps stay sharp. Suggested 2-5 deg; large angles show copies of thin shadows. 0 = off (default, previous result). Cost: pass 2 of the solver, a few ALU per sun ray (same ray count); a change re-solves the field and resets fog history once. Status: 'sun softness X deg'."))
@@ -536,11 +534,12 @@ private:
 		 * world feature size [cm] of the base / detail 0 / detail 1 noise (MID FogMS_PrefilterWavelengths, A unused). */
 		float DepthPrefilterValue = 0.0f;
 		FLinearColor PrefilterWavelengths = FLinearColor(0, 0, 0, 0);
-		/** W37 F1a forward lobe (material only, like the depth prefilter: MID update, no density revision). Sanitized values of
-		 * ForwardScattering / ForwardAnisotropy / ForwardDepth / BackFloor (MID FogMS_ForwardStrength/G/Depth/Floor). */
+		/** W37/W38 forward lobe (material only, like the depth prefilter: MID update, no density revision). Sanitized values of
+		 * MSContribution / PhaseG / MSOcclusion / MSEccentricity / MSBackFloor (MID FogMS_ForwardStrength/G/Depth/Ecc/Floor). */
 		float ForwardStrengthValue = 0.0f;
 		float ForwardGValue = 0.6f;
 		float ForwardDepthValue = 0.5f;
+		float ForwardEccValue = 0.5f;
 		float ForwardFloorValue = 0.25f;
 		float DensityValue = 0.0f;
 		FLinearColor Albedo = FLinearColor::Black;

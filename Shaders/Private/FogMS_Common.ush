@@ -86,7 +86,8 @@ struct FogMS_ScatteringSettings
 {
 	uint Mode;
 	uint ExtraOctaves;
-	float3 Factors; // contribution, occlusion, retained directional phase
+	float3 Factors; // Multiple Scattering Look: MS Contribution a, MS Occlusion b, MS Eccentricity c (row 6.xyz)
+	float PhaseG;   // Phase G of the added octaves (row 29.y, written under Octaves only; W38)
 };
 
 FogMS_ScatteringSettings FogMS_GetScatteringSettings()
@@ -97,25 +98,31 @@ FogMS_ScatteringSettings FogMS_GetScatteringSettings()
 	Settings.Mode = (uint)Control.y;
 	Settings.ExtraOctaves = min((uint)Control.z, 2u);
 	Settings.Factors = saturate(FogMS_BoxRow(6).xyz);
+	Settings.PhaseG = clamp(FogMS_BoxRow(29).y, 0.0f, 0.9f);
 #endif
 	return Settings;
 }
 
-// Artist approximation in the directional source term, not a transport solver.
-// Receives the native fog phase, so its direction convention remains unchanged.
+// Artist approximation in the directional source term, not a transport solver (Octaves, legacy overlay).
+// Added octave i (i = 1, 2) = a^(2^i - 1) * exp(-Tau * b^(2^i - 1)) * HG(PhaseG * c^i, CosTheta): weights a, a^3 and
+// extinction b, b^3 follow UE's cloud recurrence (VolumetricCloud.usf SetupParticipatingMediaContext); the phase shrinks
+// g per octave like the Transport forward lobe (W38, the same MS Eccentricity: FogMS_ForwardLobe v2 uses g, g*c). Before
+// W38 the phase was lerp(isotropic, native fog phase, c^i), as UE's SetupParticipatingMediaPhaseContext (same ends: c = 0
+// isotropic, c = 1 the base phase). CosTheta is the native fog's phase cosine, dot(L, -CameraVector), and
+// HenyeyGreensteinPhase is the function behind the native PhaseFunction, so the direction convention is unchanged.
 // sigma_s is applied exactly once later by native LightScatteringCS.
-float FogMS_OctavePhase(float Tau, float NativePhase, FogMS_ScatteringSettings Settings)
+float FogMS_OctavePhase(float Tau, float CosTheta, FogMS_ScatteringSettings Settings)
 {
-	const float Iso = 0.07957747154594767f; // 1 / (4*pi)
 	float A = Settings.Factors.x;
 	float B = Settings.Factors.y;
 	float C = Settings.Factors.z;
-	float Extra = A * exp(-Tau * B) * lerp(Iso, NativePhase, C);
+	float G = Settings.PhaseG * C;
+	float Extra = A * exp(-Tau * B) * HenyeyGreensteinPhase(G, CosTheta);
 	BRANCH
 	if (Settings.ExtraOctaves > 1u)
 	{
-		// Cloud raymarch recurrence: weights a,a^3; extinction b,b^3; phase c,c^2.
-		Extra += (A * A * A) * exp(-Tau * (B * B * B)) * lerp(Iso, NativePhase, C * C);
+		// Cloud raymarch recurrence: weights a,a^3; extinction b,b^3; anisotropy g*c, g*c^2.
+		Extra += (A * A * A) * exp(-Tau * (B * B * B)) * HenyeyGreensteinPhase(G * C, CosTheta);
 	}
 	return Extra;
 }
