@@ -1,1 +1,632 @@
-{}
+{
+ "cur": {
+  "base": {
+   "runs": [
+    {
+     "frame_ms": 11.19,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 5.35,
+     "fogms": 0.437,
+     "events": 398,
+     "cloud_ms": 0
+    },
+    {
+     "frame_ms": 14.65,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 5.064,
+     "fogms": 4.07,
+     "events": 542,
+     "cloud_ms": 0
+    },
+    {
+     "frame_ms": 10.5,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 5.18,
+     "fogms": 0.426,
+     "events": 398,
+     "cloud_ms": 0
+    }
+   ],
+   "cloud_ms_median": 0.0,
+   "fog_ms_median": 5.18,
+   "frame_ms_median": 11.19,
+   "fogms_ms_median": 0.437
+  },
+  "owner": {
+   "runs": [
+    {
+     "frame_ms": 11.11,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 5.32,
+     "fogms": 0.433,
+     "events": 409,
+     "cloud_ms": 0
+    },
+    {
+     "frame_ms": 15.32,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 4.98,
+     "fogms": 4.874,
+     "events": 553,
+     "cloud_ms": 0
+    },
+    {
+     "frame_ms": 14.74,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 5.298,
+     "fogms": 3.972,
+     "events": 553,
+     "cloud_ms": 0
+    }
+   ],
+   "cloud_ms_median": 0.0,
+   "fog_ms_median": 5.298,
+   "frame_ms_median": 14.74,
+   "fogms_ms_median": 3.972
+  }
+ },
+ "boxoff": {
+  "base": {
+   "runs": [
+    {
+     "frame_ms": 10.26,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 4.925,
+     "fogms": 0.424,
+     "events": 398,
+     "cloud_ms": 0
+    },
+    {
+     "frame_ms": 14.48,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 5.128,
+     "fogms": 4.13,
+     "events": 542,
+     "cloud_ms": 0
+    },
+    {
+     "frame_ms": 14.86,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 5.132,
+     "fogms": 4.12,
+     "events": 542,
+     "cloud_ms": 0
+    }
+   ],
+   "cloud_ms_median": 0.0,
+   "fog_ms_median": 5.128,
+   "frame_ms_median": 14.48,
+   "fogms_ms_median": 4.12
+  },
+  "owner": {
+   "runs": [
+    {
+     "frame_ms": 11.32,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 5.061,
+     "fogms": 0.431,
+     "events": 409,
+     "cloud_ms": 0
+    },
+    {
+     "frame_ms": 14.96,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 5.078,
+     "fogms": 4.304,
+     "events": 553,
+     "cloud_ms": 0
+    },
+    {
+     "frame_ms": 14.52,
+     "trace": 0,
+     "reconstruct": 0,
+     "compose": 0,
+     "cloud_shadow": 0,
+     "cloudview": 0,
+     "fog": 5.031,
+     "fogms": 3.998,
+     "events": 553,
+     "cloud_ms": 0
+    }
+   ],
+   "cloud_ms_median": 0.0,
+   "fog_ms_median": 5.061,
+   "frame_ms_median": 14.52,
+   "fogms_ms_median": 3.998
+  }
+ },
+ "p1": {
+  "base": {
+   "runs": [
+    {
+     "frame_ms": 10.87,
+     "trace": 0.222,
+     "reconstruct": 0.018,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.222,
+     "fog": 5.182,
+     "fogms": 0.427,
+     "events": 426,
+     "cloud_ms": 0.297
+    },
+    {
+     "frame_ms": 14.39,
+     "trace": 0.222,
+     "reconstruct": 0.019,
+     "compose": 0.058,
+     "cloud_shadow": 0,
+     "cloudview": 0.222,
+     "fog": 4.952,
+     "fogms": 4.012,
+     "events": 572,
+     "cloud_ms": 0.299
+    },
+    {
+     "frame_ms": 14.64,
+     "trace": 0.228,
+     "reconstruct": 0.019,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.227,
+     "fog": 4.941,
+     "fogms": 3.997,
+     "events": 570,
+     "cloud_ms": 0.304
+    }
+   ],
+   "cloud_ms_median": 0.299,
+   "fog_ms_median": 4.952,
+   "frame_ms_median": 14.39,
+   "fogms_ms_median": 3.997
+  },
+  "owner": {
+   "runs": [
+    {
+     "frame_ms": 14.83,
+     "trace": 0.287,
+     "reconstruct": 0.018,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.286,
+     "fog": 4.975,
+     "fogms": 3.972,
+     "events": 581,
+     "cloud_ms": 0.362
+    },
+    {
+     "frame_ms": 15.15,
+     "trace": 0.265,
+     "reconstruct": 0.018,
+     "compose": 0.055,
+     "cloud_shadow": 0,
+     "cloudview": 0.264,
+     "fog": 5.001,
+     "fogms": 4.006,
+     "events": 581,
+     "cloud_ms": 0.338
+    },
+    {
+     "frame_ms": 14.93,
+     "trace": 0.296,
+     "reconstruct": 0.019,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.296,
+     "fog": 5.001,
+     "fogms": 3.988,
+     "events": 581,
+     "cloud_ms": 0.372
+    }
+   ],
+   "cloud_ms_median": 0.362,
+   "fog_ms_median": 5.001,
+   "frame_ms_median": 14.93,
+   "fogms_ms_median": 3.988
+  }
+ },
+ "p1_d1": {
+  "base": {
+   "runs": [
+    {
+     "frame_ms": 14.86,
+     "trace": 0.419,
+     "reconstruct": 0.018,
+     "compose": 0.058,
+     "cloud_shadow": 0,
+     "cloudview": 0.418,
+     "fog": 5.064,
+     "fogms": 4.084,
+     "events": 570,
+     "cloud_ms": 0.495
+    },
+    {
+     "frame_ms": 10.84,
+     "trace": 0.399,
+     "reconstruct": 0.018,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.399,
+     "fog": 4.941,
+     "fogms": 0.425,
+     "events": 434,
+     "cloud_ms": 0.474
+    },
+    {
+     "frame_ms": 15.24,
+     "trace": 0.417,
+     "reconstruct": 0.019,
+     "compose": 0.058,
+     "cloud_shadow": 0,
+     "cloudview": 0.417,
+     "fog": 4.951,
+     "fogms": 3.981,
+     "events": 588,
+     "cloud_ms": 0.494
+    }
+   ],
+   "cloud_ms_median": 0.494,
+   "fog_ms_median": 4.951,
+   "frame_ms_median": 14.86,
+   "fogms_ms_median": 3.981
+  },
+  "owner": {
+   "runs": [
+    {
+     "frame_ms": 11.45,
+     "trace": 0.492,
+     "reconstruct": 0.018,
+     "compose": 0.056,
+     "cloud_shadow": 0,
+     "cloudview": 0.492,
+     "fog": 4.991,
+     "fogms": 0.429,
+     "events": 437,
+     "cloud_ms": 0.566
+    },
+    {
+     "frame_ms": 15.16,
+     "trace": 0.488,
+     "reconstruct": 0.018,
+     "compose": 0.058,
+     "cloud_shadow": 0,
+     "cloudview": 0.488,
+     "fog": 5.0,
+     "fogms": 3.997,
+     "events": 581,
+     "cloud_ms": 0.564
+    },
+    {
+     "frame_ms": 11.48,
+     "trace": 0.537,
+     "reconstruct": 0.018,
+     "compose": 0.055,
+     "cloud_shadow": 0,
+     "cloudview": 0.537,
+     "fog": 4.986,
+     "fogms": 0.428,
+     "events": 437,
+     "cloud_ms": 0.61
+    }
+   ],
+   "cloud_ms_median": 0.566,
+   "fog_ms_median": 4.991,
+   "frame_ms_median": 11.48,
+   "fogms_ms_median": 0.429
+  }
+ },
+ "p1_d5": {
+  "base": {
+   "runs": [
+    {
+     "frame_ms": 15.48,
+     "trace": 0.134,
+     "reconstruct": 0.021,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.133,
+     "fog": 6.127,
+     "fogms": 3.99,
+     "events": 570,
+     "cloud_ms": 0.212
+    },
+    {
+     "frame_ms": 15.37,
+     "trace": 0.131,
+     "reconstruct": 0.019,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.13,
+     "fog": 4.941,
+     "fogms": 3.985,
+     "events": 570,
+     "cloud_ms": 0.207
+    },
+    {
+     "frame_ms": 14.23,
+     "trace": 0.13,
+     "reconstruct": 0.019,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.13,
+     "fog": 4.944,
+     "fogms": 3.974,
+     "events": 570,
+     "cloud_ms": 0.206
+    }
+   ],
+   "cloud_ms_median": 0.207,
+   "fog_ms_median": 4.944,
+   "frame_ms_median": 15.37,
+   "fogms_ms_median": 3.985
+  },
+  "owner": {
+   "runs": [
+    {
+     "frame_ms": 11.13,
+     "trace": 0.164,
+     "reconstruct": 0.019,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.164,
+     "fog": 4.99,
+     "fogms": 0.427,
+     "events": 437,
+     "cloud_ms": 0.24
+    },
+    {
+     "frame_ms": 14.94,
+     "trace": 0.138,
+     "reconstruct": 0.019,
+     "compose": 0.058,
+     "cloud_shadow": 0,
+     "cloudview": 0.138,
+     "fog": 4.989,
+     "fogms": 4.216,
+     "events": 581,
+     "cloud_ms": 0.215
+    },
+    {
+     "frame_ms": 14.98,
+     "trace": 0.14,
+     "reconstruct": 0.019,
+     "compose": 0.058,
+     "cloud_shadow": 0,
+     "cloudview": 0.14,
+     "fog": 5.216,
+     "fogms": 3.986,
+     "events": 581,
+     "cloud_ms": 0.217
+    }
+   ],
+   "cloud_ms_median": 0.217,
+   "fog_ms_median": 4.99,
+   "frame_ms_median": 14.94,
+   "fogms_ms_median": 3.986
+  }
+ },
+ "p1_s4": {
+  "base": {
+   "runs": [
+    {
+     "frame_ms": 14.24,
+     "trace": 0.148,
+     "reconstruct": 0.019,
+     "compose": 0.058,
+     "cloud_shadow": 0,
+     "cloudview": 0.148,
+     "fog": 4.929,
+     "fogms": 3.98,
+     "events": 570,
+     "cloud_ms": 0.225
+    },
+    {
+     "frame_ms": 10.6,
+     "trace": 0.144,
+     "reconstruct": 0.021,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.144,
+     "fog": 4.943,
+     "fogms": 0.431,
+     "events": 426,
+     "cloud_ms": 0.222
+    },
+    {
+     "frame_ms": 10.6,
+     "trace": 0.147,
+     "reconstruct": 0.019,
+     "compose": 0.057,
+     "cloud_shadow": 0,
+     "cloudview": 0.147,
+     "fog": 4.942,
+     "fogms": 0.434,
+     "events": 426,
+     "cloud_ms": 0.223
+    }
+   ],
+   "cloud_ms_median": 0.223,
+   "fog_ms_median": 4.942,
+   "frame_ms_median": 10.6,
+   "fogms_ms_median": 0.434
+  },
+  "owner": {
+   "runs": [
+    {
+     "frame_ms": 11.11,
+     "trace": 0.171,
+     "reconstruct": 0.018,
+     "compose": 0.055,
+     "cloud_shadow": 0,
+     "cloudview": 0.17,
+     "fog": 5.0,
+     "fogms": 0.427,
+     "events": 437,
+     "cloud_ms": 0.244
+    },
+    {
+     "frame_ms": 11.37,
+     "trace": 0.162,
+     "reconstruct": 0.019,
+     "compose": 0.058,
+     "cloud_shadow": 0,
+     "cloudview": 0.162,
+     "fog": 5.003,
+     "fogms": 0.425,
+     "events": 437,
+     "cloud_ms": 0.239
+    },
+    {
+     "frame_ms": 15.39,
+     "trace": 0.165,
+     "reconstruct": 0.019,
+     "compose": 0.056,
+     "cloud_shadow": 0,
+     "cloudview": 0.165,
+     "fog": 4.991,
+     "fogms": 3.985,
+     "events": 617,
+     "cloud_ms": 0.24
+    }
+   ],
+   "cloud_ms_median": 0.24,
+   "fog_ms_median": 5.0,
+   "frame_ms_median": 11.37,
+   "fogms_ms_median": 0.427
+  }
+ },
+ "p1_m1": {
+  "base": {
+   "runs": [
+    {
+     "frame_ms": 14.54,
+     "trace": 0.528,
+     "reconstruct": 0,
+     "compose": 0.018,
+     "cloud_shadow": 0,
+     "cloudview": 0.528,
+     "fog": 4.927,
+     "fogms": 3.978,
+     "events": 567,
+     "cloud_ms": 0.546
+    },
+    {
+     "frame_ms": 11.45,
+     "trace": 0.529,
+     "reconstruct": 0,
+     "compose": 0.019,
+     "cloud_shadow": 0,
+     "cloudview": 0.529,
+     "fog": 4.937,
+     "fogms": 0.436,
+     "events": 439,
+     "cloud_ms": 0.548
+    },
+    {
+     "frame_ms": 12.42,
+     "trace": 0.539,
+     "reconstruct": 0,
+     "compose": 0.019,
+     "cloud_shadow": 0,
+     "cloudview": 0.539,
+     "fog": 6.413,
+     "fogms": 0.438,
+     "events": 425,
+     "cloud_ms": 0.558
+    }
+   ],
+   "cloud_ms_median": 0.548,
+   "fog_ms_median": 4.937,
+   "frame_ms_median": 12.42,
+   "fogms_ms_median": 0.438
+  },
+  "owner": {
+   "runs": [
+    {
+     "frame_ms": 11.43,
+     "trace": 0.511,
+     "reconstruct": 0,
+     "compose": 0.018,
+     "cloud_shadow": 0,
+     "cloudview": 0.511,
+     "fog": 4.993,
+     "fogms": 0.429,
+     "events": 434,
+     "cloud_ms": 0.529
+    },
+    {
+     "frame_ms": 11.43,
+     "trace": 0.518,
+     "reconstruct": 0,
+     "compose": 0.018,
+     "cloud_shadow": 0,
+     "cloudview": 0.518,
+     "fog": 4.991,
+     "fogms": 0.43,
+     "events": 442,
+     "cloud_ms": 0.536
+    },
+    {
+     "frame_ms": 11.41,
+     "trace": 0.496,
+     "reconstruct": 0,
+     "compose": 0.018,
+     "cloud_shadow": 0,
+     "cloudview": 0.496,
+     "fog": 4.992,
+     "fogms": 0.432,
+     "events": 466,
+     "cloud_ms": 0.514
+    }
+   ],
+   "cloud_ms_median": 0.529,
+   "fog_ms_median": 4.992,
+   "frame_ms_median": 11.43,
+   "fogms_ms_median": 0.43
+  }
+ }
+}
