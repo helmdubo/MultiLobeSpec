@@ -142,11 +142,19 @@ def restore(owner=None):
              % float(ex.get("time_dilation", 1.0)))
     for p, v in ex.get("box_mid_vector", {}).items():
         code += "bmid.set_vector_parameter_value(%r, unreal.LinearColor(%r, %r, %r, %r))\n" % ((p,) + tuple(float(c) for c in v))
+    for p, v in ex.get("box_extra", {}).items():   # Box properties outside diag35lib.BOXPROPS (wind_speed)
+        code += "if box.get_editor_property(%r) != %r: box.set_editor_property(%r, %r)\n" % (p, v, p, v)
     code += "print('EXTRA restored')"
     out.append(d.py(code))
     out += L.restore(owner)          # Box, Height Fog, cvars (incl. P1_CVARS, TimeSlice), camera, throttle
     now = L.snapshot(); now["cvars"].update(L.getcv(P1_CVARS)); nex = snapshot_extra()
+    if ex.get("box_extra"):
+        got = last_json(d.py(FIND + "print('BOXEXTRA '+json.dumps({p: box.get_editor_property(p) for p in %r}))" % (list(ex["box_extra"]),)), "BOXEXTRA")
+        box_extra_diff = {k: (v, got.get(k)) for k, v in ex["box_extra"].items() if abs(float(v) - float(got.get(k, 1e30))) > 1e-6}
+    else:
+        box_extra_diff = {}
     box_diff = {k: (owner["box"][k], now["box"].get(k)) for k in owner["box"] if owner["box"][k] != now["box"].get(k)}
+    box_diff.update(box_extra_diff)
     cv_diff = {k: (v, now["cvars"].get(k)) for k, v in owner["cvars"].items()
                if k not in ("r.BufferVisualizationDumpFrames", "r.DumpingMovie") and abs(float(v) - float(now["cvars"].get(k, 1e30))) > 1e-6}
     hf_diff = {k: (v, now["hf"].get(k)) for k, v in owner["hf"].items() if v != now["hf"].get(k)}

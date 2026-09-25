@@ -10,8 +10,10 @@ Subcommands (each restores the owner snapshot measure/owner_pre39.json at the en
                                  mean frames against the pre repeat (noise floor); _late = the post material again tens of
                                  minutes later: the time-separated floor for pre ~ post
   smoke                          prototype on, one froxel and one cloud frame at 'base', status, one GPU profile
-  series | series_td              criteria 4/5 (d35_dolly metrics, camera 'base', 20 cm/frame, 48 frames): PLAN x {0, W, D};
-                                 plus 'inside' (W up into the cloud base: froxel / p1 / p1_m1)
+  series | series_td | series_w0  criteria 4/5 (d35_dolly metrics, camera 'base', 20 cm/frame, 48 frames): PLAN x {0, W, D};
+                                 plus 'inside' (W up into the cloud base: froxel / p1 / p1_m1); _td = world time dilation
+                                 0.25 (Edge Flow ~20 cm per captured frame), _w0 = wind 0 (round-38b condition)
+  inside_frz                     entering the cloud with the density frozen (same cloud for every variant)
   look                           criteria 3/6: views owner / base / against / front / mine (live sun), Box frozen, configs LOOK;
                                  ROI brightness vs W38, flicker, opacity from albedo-0 renders, IoU, rim/core
   cost                           criterion 7: ProfileGPU x3 per host variant at 'base' and 'owner' (frozen)
@@ -58,6 +60,17 @@ V.update({"cur_td": ("froxel", {}, None, TD), "p1_td": ("cloud", {}, "p1", TD), 
           "p1_m1_td": ("cloud", {}, "p1_m1", TD), "p1_d5_td": ("cloud", {}, "p1_d5", TD)})
 PLAN_TD = [("cur_td", 2), ("p1_td", 2), ("p1_d1_td", 2), ("p1_m1_td", 1), ("p1_d5_td", 1)]
 INSIDE_TD = [("cur_td", 0), ("p1_td", 0), ("p1_m1_td", 0)]
+# Entering the cloud with the density frozen (manual time 100 s): the same cloud for every variant, only the camera moves,
+# so the runs isolate reprojection when the camera enters the cloud (design risk 3: Mode 0 vs Mode 1).
+_FRZ = {"use_manual_animation_time": True, "manual_animation_time": FROZEN_T}
+V.update({"cur_frz": ("froxel", dict(_FRZ), None), "p1_frz": ("cloud", dict(_FRZ), "p1"), "p1_m1_frz": ("cloud", dict(_FRZ), "p1_m1"),
+          "p1_d1_frz": ("cloud", dict(_FRZ), "p1_d1")})
+INSIDE_FRZ = [("cur_frz", 0), ("p1_frz", 0), ("p1_m1_frz", 0), ("p1_d1_frz", 0)]
+# Round-38b condition: wind 0, only Edge Flow 500 animates (the owner's Box now has Wind Speed 200 cm/s, which also drifts the
+# whole field during and between runs). wind_speed is restored from owner_pre39.json extra.box_extra.
+V.update({"cur_w0": ("froxel", {"wind_speed": 0.0}, None), "p1_w0": ("cloud", {"wind_speed": 0.0}, "p1"),
+          "cur_w0_td": ("froxel", {"wind_speed": 0.0}, None, TD), "p1_w0_td": ("cloud", {"wind_speed": 0.0}, "p1", TD)})
+PLAN_W0 = [("cur_w0", 2), ("p1_w0", 2), ("cur_w0_td", 1), ("p1_w0_td", 2)]
 # look configs: (name, mode, Box MID vector overrides, cloud MID scalar overrides)
 LOOK = [("boxoff", "boxoff", {}, {}), ("W38", "froxel", {}, {}), ("W38_black", "froxel", {"FogMS_Albedo": (0, 0, 0, 1)}, {}),
         ("P1", "cloud", {}, {}), ("P1_black", "cloud", {}, {"__albedo0": 1, "P1_FieldGain": 0.0}),
@@ -170,7 +183,8 @@ def revert_variant(variant, owner):
     if len(V[variant]) > 3 and V[variant][3]:
         S.set_time_dilation(owner["extra"].get("time_dilation", 1.0))
     if box:
-        d.setbox(box_assign({k: owner["box"][k] for k in box}))
+        extra = owner.get("extra", {}).get("box_extra", {})
+        d.setbox(box_assign({k: (owner["box"][k] if k in owner["box"] else extra[k]) for k in box}))
         S.sync()
 
 
@@ -510,22 +524,23 @@ def smoke(owner):
 
 
 # ------------------------------------------------------------------ summary + sheets (offline)
-def cloud_mask_base():
-    """Cloud pixels at 'base' from the static froxel and Box-off runs (|mean cur - mean boxoff| > 8 levels)."""
-    p = os.path.join(d.M, "roi_cloud_base.npy")
+def boxoff_mean_base():
+    """Time-mean luminance of the static Box-off run at 'base' (sky + scene without the Box; the sky is static)."""
+    p = os.path.join(d.M, "boxoff_mean_base.npy")
     if os.path.isfile(p): return np.load(p)
-    a, b = os.path.join(d.M, key("cur", "0", 0)), os.path.join(d.M, key("boxoff", "0", 0))
-    if not (os.path.isdir(a) and os.path.isdir(b)): return None
-    A = d.load(os.path.basename(a)).mean(axis=3).mean(0); Bm = d.load(os.path.basename(b)).mean(axis=3).mean(0)
-    m = np.abs(A - Bm) > 8.0
+    b = key("boxoff", "0", 0)
+    if not os.path.isdir(os.path.join(d.M, b)): return None
+    m = d.load(b).mean(axis=3).mean(0).astype(np.float32)
     np.save(p, m)
     return m
 
 
-def wobble_masked(name, mask, tile=64):
-    """B.wobble restricted to tiles >= 80 % inside `mask` (the cloud): the tremble of the cloud alone."""
+def wobble_cloud(name, off, tile=64):
+    """B.wobble on the cloud alone: this run's own cloud mask (|time-mean of the run - Box-off mean| > 8 levels; the cloud field
+    drifts between runs, so coverage differs), tiles >= 80 % cloud. Also the cloud coverage of the frame."""
     from scipy.signal import savgol_filter
     F = d.load(name); Lm = F.mean(axis=3); T, H, W = Lm.shape
+    mask = np.abs(Lm.mean(0) - off) > 8.0
     m = B.roi_mask(F) & mask
     res = []
     for y in range(0, H - tile + 1, tile):
@@ -535,15 +550,18 @@ def wobble_masked(name, mask, tile=64):
             s = Lm[:, y:y + tile, x:x + tile][:, mm].mean(axis=1)
             r = (s - savgol_filter(s, 21, 2))[3:-3]
             res.append(float(np.sqrt((r ** 2).mean())))
-    return {"wob_cloud_med": round(float(np.median(res)), 3), "wob_cloud_tiles": len(res)} if res else {}
+    out = {"cloud_frac": round(float(mask.mean()), 3), "wob_cloud_tiles": len(res)}
+    if res:
+        out.update({"wob_cloud_med": round(float(np.median(res)), 3), "wob_cloud_p75": round(float(np.percentile(res, 75)), 3)})
+    return out
 
 
 def reanalyse_cloud():
-    res = _load(RP); mask = cloud_mask_base()
-    if mask is None: return
+    res = _load(RP); off = boxoff_mean_base()
+    if off is None: return
     for k in list(res):
-        if k.startswith("b39_base_") and "_0_s20_" in k and "wob_cloud_med" not in res[k] and os.path.isdir(os.path.join(d.M, k)):
-            res[k].update(wobble_masked(k, mask)); _atomic_dump(res, RP)
+        if k.startswith("b39_base_") and "_0_s20_" in k and "wob_cloud_p75" not in res[k] and os.path.isdir(os.path.join(d.M, k)):
+            res[k].update(wobble_cloud(k, off)); _atomic_dump(res, RP)
 
 
 def fmt(v, f="%.3f"):
@@ -554,20 +572,21 @@ def summary():
     reanalyse_cloud()
     res, lk, cost_ = _load(RP), _load(LP), _load(CP)
     lines = ["Round 39 / P1: Live Box as froxels (round 38) vs cloud-host prototype (engine Volumetric Cloud). Camera 'base', 20 cm/frame, 48 frames.",
-             "wob_med = median tile wobble over the frame (r38b metric), wob_cloud = same over cloud tiles only, d2b = d2 of the 9x9-blurred frame.",
-             "anim = density animation time per captured frame (s; live runs ~0.155 = dump rate, _td runs x%.2f time dilation)." % TD,
-             "variant      rep |  static wob  wob_cloud  d2b |  W wob   d2b  |  D wob   d2b  | anim  | host / status"]
-    for variant, reps in PLAN + [(best_variant(), 2)] + PLAN_TD + [(best_variant(True), 2)]:
+             "wob_med = median tile wobble over the frame (r38b metric), wob_cloud = median over this run's cloud tiles (cov = cloud share",
+             "of the frame; the field drifts between runs), d2b = d2 of the 9x9-blurred frame. anim = density animation time per captured",
+             "frame (s; live runs ~0.155 = the PNG-dump frame rate, _td runs x%.2f world time dilation)." % TD,
+             "variant      rep |  static wob  wob_cloud   cov   d2b |  W wob   d2b  |  D wob   d2b  | anim  | host / status"]
+    for variant, reps in PLAN + [(best_variant(), 2)] + PLAN_TD + [(best_variant(True), 2)] + PLAN_W0:
         for rep in range(reps):
             ks = {D: res.get(key(variant, D, rep)) for D in DIRS}
             if not any(ks.values()): continue
             s0, sw, sd = ks["0"] or {}, ks["W"] or {}, ks["D"] or {}
-            line = "%-12s %d | %s %s %s | %s %s | %s %s | %s | %s" % (
-                variant, rep, fmt(s0.get("wob_med")), fmt(s0.get("wob_cloud_med")), fmt(s0.get("d2_blur")), fmt(sw.get("wob_med")),
+            line = "%-12s %d | %s %s %s %s | %s %s | %s %s | %s | %s" % (
+                variant, rep, fmt(s0.get("wob_med")), fmt(s0.get("wob_cloud_med")), fmt(s0.get("cloud_frac"), "%.2f"), fmt(s0.get("d2_blur")), fmt(sw.get("wob_med")),
                 fmt(sw.get("d2_blur")), fmt(sd.get("wob_med")), fmt(sd.get("d2_blur")), fmt(s0.get("anim_s_per_frame")),
                 (s0.get("host") or "froxel") + " / " + (s0.get("status") or "")[:40])
             if line not in lines: lines.append(line)
-    for tag, plan in (("live", INSIDE), ("td", INSIDE_TD)):
+    for tag, plan in (("live", INSIDE), ("td", INSIDE_TD), ("frozen density", INSIDE_FRZ)):
         lines.append("inside %s (W up into the cloud base, 50 m along 'base'): " % tag + ", ".join(
             "%s wob %s d2b %s" % (v, fmt((res.get(key(v, "W", r, "inside")) or {}).get("wob_med")), fmt((res.get(key(v, "W", r, "inside")) or {}).get("d2_blur")))
             for v, r in plan))
@@ -627,8 +646,8 @@ def sheets(res, lk):
             p = os.path.join(LOOKDIR, "%s_%s.png" % (c, vn))
             if os.path.isfile(p): s2.paste(Image.open(p).convert("RGB").resize((w2, h2)), (120 + j * w2, 24 + i * h2))
     s2.save(os.path.join(RES, "look_sheet.png"))
-    # inside path strips (frames 0, 16, 32, 47)
-    strips = [(v, os.path.join(d.M, key(v, "W", r, "inside"))) for v, r in INSIDE]
+    # inside path strips (frames 0, 16, 32, 47); the frozen-density runs show the same cloud for every variant
+    strips = [(v, os.path.join(d.M, key(v, "W", r, "inside"))) for v, r in INSIDE_FRZ + INSIDE_TD]
     strips = [(v, p) for v, p in strips if os.path.isdir(p)]
     if strips:
         w3, h3 = 320, 271
@@ -654,12 +673,19 @@ def main(cmd):
         if cmd == "smoke": smoke(owner)
         if cmd in ("series", "all"): series(owner)
         if cmd in ("series_td", "all"): series(owner, td=True)
+        if cmd in ("inside_frz", "all"):
+            for variant, rep in INSIDE_FRZ:
+                run(variant, rep, ("W",), owner, cam="inside")
+        if cmd in ("series_w0", "all"):
+            for variant, reps in PLAN_W0:
+                for rep in range(reps):
+                    run(variant, rep, DIRS, owner)
         if cmd in ("look", "all"): look(owner)
         if cmd in ("cost", "all"): cost(owner)
         if cmd in ("best", "all"): print("BEST", best(owner), best(owner, td=True), flush=True)
     finally:
         end(owner)
-    if cmd in ("series", "series_td", "look", "cost", "best", "all"):
+    if cmd in ("series", "series_td", "inside_frz", "series_w0", "look", "cost", "best", "all"):
         summary()
 
 
