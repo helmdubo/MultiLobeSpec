@@ -160,16 +160,20 @@ def pylong(code, timeout=1800.0):
     return ((res.get("output") or "") or json.dumps(r)[:2000]).replace("\r\n\n", "\n").replace("\r\n", "\n").strip()
 
 
+def run_file(name):
+    """Runs a script of this folder inside the editor from disk (runpy sets __file__; the bridge rejects ~70 KB payloads)."""
+    path = os.path.join(HERE, name).replace("\\", "/")
+    return pylong("import runpy\nrunpy.run_path(%r, run_name='__main__')" % path)
+
+
 def material():
     """Build or check the prototype material in the editor (cloudproto_material.py; idempotent)."""
-    src = open(os.path.join(HERE, "cloudproto_material.py"), encoding="utf-8").read()
-    return pylong("P1_PROBE_DIR = %r\n" % HERE.replace("\\", "/") + src)
+    return run_file("cloudproto_material.py")
 
 
 def matedit():
     """FogMS_FroxelWeight patch of M_FogMS_Density (matedit_density.py; idempotent, saves the material only when it changed)."""
-    src = open(os.path.join(HERE, "matedit_density.py"), encoding="utf-8").read()
-    return pylong("__file__ = %r\n" % os.path.join(HERE, "matedit_density.py").replace("\\", "/") + src)
+    return run_file("matedit_density.py")
 
 
 TICK = r'''
@@ -282,22 +286,26 @@ def sync(look=None):
     (P1_PhaseG / G2 / Blend, P1_FieldGain; default: Phase G of the Box, G2 0, Blend 0, gain 1). look = dict of cloud MID scalar
     overrides applied after the copy (e.g. {'FogMS_ForwardStrength': 0.0})."""
     look = dict(look or {})
-    code = FIND + ("vc=proto[0].get_component_by_class(unreal.VolumetricCloudComponent); cmid=vc.get_editor_property('material')\n"
-                   "for p in %r: cmid.set_scalar_parameter_value(p, bmid.get_scalar_parameter_value(p))\n"
-                   "for p in %r: cmid.set_vector_parameter_value(p, bmid.get_vector_parameter_value(p))\n"
-                   "for p in %r:\n"
-                   "    tx=bmid.get_texture_parameter_value(p)\n"
-                   "    if tx: cmid.set_texture_parameter_value(p, tx)\n"
-                   "t=dc.get_world_transform(); q=t.rotation; s=t.scale3d; c=t.translation\n"
-                   "cmid.set_vector_parameter_value('P1_BoxCenter', unreal.LinearColor(c.x, c.y, c.z, 0.0))\n"
-                   "for i,(e,sc) in enumerate(((unreal.Vector(1,0,0), s.x), (unreal.Vector(0,1,0), s.y), (unreal.Vector(0,0,1), s.z))):\n"
-                   "    a=q.rotate_vector(e); cmid.set_vector_parameter_value('P1_WorldToLocal%%d' %% i, unreal.LinearColor(a.x/sc, a.y/sc, a.z/sc, 0.0))\n"
-                   "g=float(box.get_editor_property('phase_g'))\n"
-                   "look={'P1_PhaseG': g, 'P1_PhaseG2': 0.0, 'P1_PhaseBlend': 0.0, 'P1_FieldGain': 1.0}\nlook.update(%r)\n"
-                   "for p,v in look.items(): cmid.set_scalar_parameter_value(p, float(v))\n"
-                   "chk={p: cmid.get_scalar_parameter_value(p) for p in ('FogMS_Density','FogMS_Threshold','FogMS_InjectionMode','FogMS_ForwardStrength','P1_PhaseG','P1_PhaseG2','P1_PhaseBlend','P1_FieldGain')}\n"
-                   "tf=cmid.get_texture_parameter_value('FogMS_TransportField')\n"
-                   "print('SYNC '+json.dumps({'chk': chk, 'field': tf.get_name() if tf else None, 'rows': [str(cmid.get_vector_parameter_value('P1_WorldToLocal%%d' %% i)) for i in range(3)]}))"
+    code = FIND + ("def _sync():\n"
+                   "    if not proto: return {'skipped': 'no prototype actor'}\n"
+                   "    vc=proto[0].get_component_by_class(unreal.VolumetricCloudComponent); cmid=vc.get_editor_property('material')\n"
+                   "    for p in %r: cmid.set_scalar_parameter_value(p, bmid.get_scalar_parameter_value(p))\n"
+                   "    for p in %r: cmid.set_vector_parameter_value(p, bmid.get_vector_parameter_value(p))\n"
+                   "    for p in %r:\n"
+                   "        tx=bmid.get_texture_parameter_value(p)\n"
+                   "        if tx: cmid.set_texture_parameter_value(p, tx)\n"
+                   "    t=dc.get_world_transform(); q=t.rotation; s=t.scale3d; c=t.translation\n"
+                   "    cmid.set_vector_parameter_value('P1_BoxCenter', unreal.LinearColor(c.x, c.y, c.z, 0.0))\n"
+                   "    for i,(e,sc) in enumerate(((unreal.Vector(1,0,0), s.x), (unreal.Vector(0,1,0), s.y), (unreal.Vector(0,0,1), s.z))):\n"
+                   "        a=q.rotate_vector(e); cmid.set_vector_parameter_value('P1_WorldToLocal%%d' %% i, unreal.LinearColor(a.x/sc, a.y/sc, a.z/sc, 0.0))\n"
+                   "    g=float(box.get_editor_property('phase_g'))\n"
+                   "    look={'P1_PhaseG': g, 'P1_PhaseG2': 0.0, 'P1_PhaseBlend': 0.0, 'P1_FieldGain': 1.0}\n    look.update(%r)\n"
+                   "    for p,v in look.items(): cmid.set_scalar_parameter_value(p, float(v))\n"
+                   "    chk={p: cmid.get_scalar_parameter_value(p) for p in ('FogMS_Density','FogMS_Threshold','FogMS_InjectionMode','FogMS_ForwardStrength','P1_PhaseG','P1_PhaseG2','P1_PhaseBlend','P1_FieldGain')}\n"
+                   "    tf=cmid.get_texture_parameter_value('FogMS_TransportField')\n"
+                   "    return {'chk': chk, 'field': tf.get_name() if tf else None, 'rows': [str(cmid.get_vector_parameter_value('P1_WorldToLocal%%d' %% i)) for i in range(3)]}\n"
+                   "try:\n    _r=_sync()\nexcept Exception as _e:\n    _r={'error': str(_e)}\n"
+                   "print('SYNC '+json.dumps(_r))"
                    ) % (SCALARS, VECTORS, TEXTURES, look)
     return last_json(d.py(code), "SYNC")
 
