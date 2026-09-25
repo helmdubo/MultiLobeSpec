@@ -1,0 +1,259 @@
+{
+ "cfg": {
+  "W0_w36": {
+   "props": {
+    "forward_scattering": 0.0,
+    "forward_anisotropy": 0.6,
+    "forward_depth": 0.5,
+    "back_floor": 0.25,
+    "sun_softness": 0.0
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+   "against": {
+    "mean_roi": 117.2,
+    "roi_frac": 0.96,
+    "flicker": 0.0021,
+    "ratio_vs_W0": 1.0
+   },
+   "front": {
+    "mean_roi": 185.13,
+    "roi_frac": 0.665,
+    "flicker": 0.0015,
+    "ratio_vs_W0": 1.0
+   },
+   "mine": {
+    "mean_roi": 192.66,
+    "roi_frac": 0.89,
+    "flicker": 0.0017,
+    "ratio_vs_W0": 1.0
+   }
+  },
+  "F1_s05_g06": {
+   "props": {
+    "forward_scattering": 0.5,
+    "forward_anisotropy": 0.6,
+    "forward_depth": 0.5,
+    "back_floor": 0.25,
+    "sun_softness": 0.0
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound] [forward",
+   "against": {
+    "mean_roi": 155.74,
+    "roi_frac": 0.902,
+    "flicker": 0.0016,
+    "ratio_vs_W0": 1.329
+   },
+   "front": {
+    "mean_roi": 165.96,
+    "roi_frac": 0.691,
+    "flicker": 0.0017,
+    "ratio_vs_W0": 0.896
+   },
+   "mine": {
+    "mean_roi": 176.44,
+    "roi_frac": 0.81,
+    "flicker": 0.0018,
+    "ratio_vs_W0": 0.916
+   }
+  },
+  "F2_s08_g06": {
+   "props": {
+    "forward_scattering": 0.8,
+    "forward_anisotropy": 0.6,
+    "forward_depth": 0.5,
+    "back_floor": 0.25,
+    "sun_softness": 0.0
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bou",
+   "against": {
+    "mean_roi": 170.14,
+    "roi_frac": 0.917,
+    "flicker": 0.0013,
+    "ratio_vs_W0": 1.452
+   },
+   "front": {
+    "mean_roi": 157.42,
+    "roi_frac": 0.814,
+    "flicker": 0.0018,
+    "ratio_vs_W0": 0.85
+   },
+   "mine": {
+    "mean_roi": 163.39,
+    "roi_frac": 0.794,
+    "flicker": 0.002,
+    "ratio_vs_W0": 0.848
+   }
+  },
+  "F3_s08_g08": {
+   "props": {
+    "forward_scattering": 0.8,
+    "forward_anisotropy": 0.8,
+    "forward_depth": 0.5,
+    "back_floor": 0.25,
+    "sun_softness": 0.0
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bou",
+   "against": {
+    "mean_roi": 174.84,
+    "roi_frac": 0.94,
+    "flicker": 0.0013,
+    "ratio_vs_W0": 1.492
+   },
+   "front": {
+    "mean_roi": 152.56,
+    "roi_frac": 0.834,
+    "flicker": 0.0018,
+    "ratio_vs_W0": 0.824
+   },
+   "mine": {
+    "mean_roi": 162.22,
+    "roi_frac": 0.986,
+    "flicker": 0.0019,
+    "ratio_vs_W0": 0.842
+   }
+  },
+  "S1_soft3": {
+   "props": {
+    "forward_scattering": 0.0,
+    "forward_anisotropy": 0.6,
+    "forward_depth": 0.5,
+    "back_floor": 0.25,
+    "sun_softness": 3.0
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bou",
+   "against": {
+    "mean_roi": 118.42,
+    "roi_frac": 0.968,
+    "flicker": 0.0022,
+    "ratio_vs_W0": 1.01
+   },
+   "front": {
+    "mean_roi": 184.88,
+    "roi_frac": 0.661,
+    "flicker": 0.0015,
+    "ratio_vs_W0": 0.999
+   },
+   "mine": {
+    "mean_roi": 192.13,
+    "roi_frac": 0.882,
+    "flicker": 0.0017,
+    "ratio_vs_W0": 0.997
+   }
+  },
+  "W0_repeat": {
+   "props": {
+    "forward_scattering": 0.0,
+    "forward_anisotropy": 0.6,
+    "forward_depth": 0.5,
+    "back_floor": 0.25,
+    "sun_softness": 0.0
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~153, upper bound]",
+   "against": {
+    "mean_roi": 118.14,
+    "roi_frac": 0.966,
+    "flicker": 0.0022,
+    "ratio_vs_W0": 1.008
+   },
+   "front": {
+    "mean_roi": 184.93,
+    "roi_frac": 0.654,
+    "flicker": 0.0015,
+    "ratio_vs_W0": 0.999
+   },
+   "mine": {
+    "mean_roi": 192.35,
+    "roi_frac": 0.887,
+    "flicker": 0.0017,
+    "ratio_vs_W0": 0.998
+   }
+  }
+ },
+ "views": {
+  "against": [
+   [
+    13250.600216478217,
+    -9276.840141078248,
+    3000.0
+   ],
+   [
+    4.0,
+    137.40400984421862,
+    0.0
+   ]
+  ],
+  "front": [
+   [
+    -13250.600216478218,
+    15088.840141078244,
+    3500.0
+   ],
+   [
+    -2.0,
+    -42.59599015578137,
+    0.0
+   ]
+  ],
+  "mine": [
+   [
+    -282.70751614825076,
+    8738.93414348489,
+    2438.480836716684
+   ],
+   [
+    4.075094774365425,
+    243.93856991827488,
+    0.0
+   ]
+  ]
+ },
+ "sun": [
+  -52.59599015578139,
+  16.436407597898604
+ ],
+ "fog_g": 0.0,
+ "w37_before": {
+  "forward_scattering": 0.0,
+  "forward_anisotropy": 0.6000000238418579,
+  "forward_depth": 0.5,
+  "back_floor": 0.25,
+  "sun_softness": 0.0
+ },
+ "box_before": {
+  "enabled": true,
+  "scattering_mode": 5,
+  "transport_preset": 0,
+  "angular_quality": 2,
+  "transport_iterations": 16,
+  "transport_tolerance": 9.999999974752427e-07,
+  "emissive_injection": true,
+  "hybrid_single_scattering": true,
+  "debug_field_only": false,
+  "use_manual_animation_time": false,
+  "manual_animation_time": 100.0,
+  "animate_density": false,
+  "density": 1.600000023841858,
+  "threshold": 0.550000011920929,
+  "softness": 0.15000000596046448,
+  "detail_strength": 0.20000000298023224,
+  "detail_scale": 2.0,
+  "detail_second_octave": 1.0,
+  "density_edge_feather": 15259.5576171875,
+  "erosion_strength": 0.0,
+  "erosion_depth": 0.15000000596046448,
+  "height_profile": true,
+  "height_profile_preset": 2,
+  "height_bottom": 0.10000000149011612,
+  "height_top": 0.800000011920929,
+  "bottom_softness": 0.05000000074505806,
+  "top_softness": 0.20000000298023224,
+  "anvil_strength": 0.0
+ },
+ "w37_restored": {
+  "forward_scattering": 0.0,
+  "forward_anisotropy": 0.6000000238418579,
+  "forward_depth": 0.5,
+  "back_floor": 0.25,
+  "sun_softness": 0.0
+ }
+}
