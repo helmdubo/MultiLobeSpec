@@ -147,6 +147,11 @@ def restore(owner=None):
     code += "print('EXTRA restored')"
     out.append(d.py(code))
     out += L.restore(owner)          # Box, Height Fog, cvars (incl. P1_CVARS, TimeSlice), camera, throttle
+    # Force the C++ Box to rewrite every MID parameter it owns (FogMS_Albedo, FogMS_ForwardStrength, ...): UpdateDensity rewrites
+    # the MID only when its material state changed, so nudge MS Contribution and put the owner's value back.
+    ms = float(owner["box"]["ms_contribution"])
+    out.append(d.setbox("b.set_editor_property('ms_contribution', %r)\nb.update_density()\nb.set_editor_property('ms_contribution', %r)"
+                        % (min(1.0, ms + 0.01) if ms < 0.99 else ms - 0.01, ms)))
     now = L.snapshot(); now["cvars"].update(L.getcv(P1_CVARS)); nex = snapshot_extra()
     if ex.get("box_extra"):
         got = last_json(d.py(FIND + "print('BOXEXTRA '+json.dumps({p: box.get_editor_property(p) for p in %r}))" % (list(ex["box_extra"]),)), "BOXEXTRA")

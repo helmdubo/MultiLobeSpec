@@ -71,12 +71,16 @@ INSIDE_FRZ = [("cur_frz", 0), ("p1_frz", 0), ("p1_m1_frz", 0), ("p1_d1_frz", 0)]
 V.update({"cur_w0": ("froxel", {"wind_speed": 0.0}, None), "p1_w0": ("cloud", {"wind_speed": 0.0}, "p1"),
           "cur_w0_td": ("froxel", {"wind_speed": 0.0}, None, TD), "p1_w0_td": ("cloud", {"wind_speed": 0.0}, "p1", TD)})
 PLAN_W0 = [("cur_w0", 2), ("p1_w0", 2), ("cur_w0_td", 1), ("p1_w0_td", 2)]
-# look configs: (name, mode, Box MID vector overrides, cloud MID scalar overrides)
+# look configs: (name, mode, Box MID vector overrides, cloud MID scalar overrides[, Box MID scalar overrides]).
+# W38_nolobe / P1_nolobe / P1_iso_nolobe compare the renderers without the forward lobe (the Box's lobe reads the field's RGB,
+# not its alpha: see matedit_density.py summary 'FORWARD FieldA source value type'); P1_iso = the cloud's sun single scattering
+# with an isotropic phase, as the froxel fog here (Scattering Distribution 0).
 LOOK = [("boxoff", "boxoff", {}, {}), ("W38", "froxel", {}, {}), ("W38_black", "froxel", {"FogMS_Albedo": (0, 0, 0, 1)}, {}),
+        ("W38_nolobe", "froxel", {}, {}, {"FogMS_ForwardStrength": 0.0}),
         ("P1", "cloud", {}, {}), ("P1_black", "cloud", {}, {"__albedo0": 1, "P1_FieldGain": 0.0}),
         ("P1_nolobe", "cloud", {}, {"FogMS_ForwardStrength": 0.0}), ("P1_g2", "cloud", {}, {"P1_PhaseG2": -0.3, "P1_PhaseBlend": 0.2}),
-        ("P1_iso", "cloud", {}, {"P1_PhaseG": 0.0}), ("P1_nofield", "cloud", {}, {"P1_FieldGain": 0.0}), ("P1_rep", "cloud", {}, {}),
-        ("W38_rep", "froxel", {}, {})]
+        ("P1_iso", "cloud", {}, {"P1_PhaseG": 0.0}), ("P1_iso_nolobe", "cloud", {}, {"P1_PhaseG": 0.0, "FogMS_ForwardStrength": 0.0}),
+        ("P1_nofield", "cloud", {}, {"P1_FieldGain": 0.0}), ("P1_rep", "cloud", {}, {}), ("W38_rep", "froxel", {}, {})]
 LOOK_FRAMES = 6
 LOOK_HOST = "p1"
 _state = {"host": None, "flood0": None}
@@ -343,17 +347,22 @@ def sun_views():
             "mine": D37_MINE}, travel, elev
 
 
-def apply_look(cfg, owner_albedo):
-    name, mode, box_vec, cloud_sc = cfg
-    code = S.FIND + "vc=proto[0].get_component_by_class(unreal.VolumetricCloudComponent); cmid=vc.get_editor_property('material')\n"
+def apply_look(cfg, owner_albedo, owner_lobe=0.0):
+    """1) Box MID: albedo and lobe strength of this config (else the owner's), 2) sync: the cloud MID copies the Box MID and
+    takes this config's cloud overrides, 3) the cloud MID albedo (never the Box's zeroed one), 4) mode."""
+    name, mode, box_vec, cloud_sc = cfg[:4]
+    box_sc = cfg[4] if len(cfg) > 4 else {}
     alb = box_vec.get("FogMS_Albedo", owner_albedo)
-    code += "bmid.set_vector_parameter_value('FogMS_Albedo', unreal.LinearColor(%r, %r, %r, %r))\n" % tuple(float(c) for c in alb)
+    d.py(S.FIND + "bmid.set_vector_parameter_value('FogMS_Albedo', unreal.LinearColor(%r, %r, %r, %r))\n" % tuple(float(c) for c in alb)
+         # the Box MID's lobe strength: the Box property (MS Contribution) unless this config overrides it
+         + "bmid.set_scalar_parameter_value('FogMS_ForwardStrength', %r)\nprint('BOXLOOK ok')" % float(box_sc.get("FogMS_ForwardStrength", owner_lobe)))
     look = {k: v for k, v in cloud_sc.items() if not k.startswith("__")}
-    code += "cmid.set_vector_parameter_value('FogMS_Albedo', unreal.LinearColor(%s))\n" % ("0.0, 0.0, 0.0, 1.0" if "__albedo0" in cloud_sc
-                                                                                          else "%r, %r, %r, %r" % tuple(float(c) for c in owner_albedo))
-    code += "print('LOOKSET ok')"
-    S.sync(look)                       # resets the cloud MID look to the Box, then the overrides
-    d.py(code)
+    if "FogMS_ForwardStrength" not in look:
+        look["FogMS_ForwardStrength"] = float(owner_lobe)       # the cloud keeps the Box's lobe even after a W38_nolobe config
+    S.sync(look)
+    d.py(S.FIND + "vc=proto[0].get_component_by_class(unreal.VolumetricCloudComponent); cmid=vc.get_editor_property('material')\n"
+         + "cmid.set_vector_parameter_value('FogMS_Albedo', unreal.LinearColor(%s))\nprint('CLOUDLOOK ok')"
+         % ("0.0, 0.0, 0.0, 1.0" if "__albedo0" in cloud_sc else "%r, %r, %r, %r" % tuple(float(c) for c in owner_albedo)))
     return S.mode(mode)
 
 
@@ -364,6 +373,7 @@ def look(owner):
     S.apply_host(LOOK_HOST); _state["host"] = LOOK_HOST     # the series may have left another host (e.g. Mode 1)
     res.update({"views": {k: [list(v[0]), list(v[1])] for k, v in VIEWS.items()}, "sun": [travel, elev], "host": _state["host"]})
     owner_albedo = owner["extra"]["box_mid_vector"]["FogMS_Albedo"]
+    owner_lobe = float(owner["box"]["ms_contribution"])
     freeze(True, owner); time.sleep(8.0)
     try:
         for vn, (loc, rot) in VIEWS.items():
@@ -372,7 +382,7 @@ def look(owner):
             set_cam(loc, rot); time.sleep(4.0)
             for cfg in todo:
                 flood_check()
-                apply_look(cfg, owner_albedo); time.sleep(4.0)
+                apply_look(cfg, owner_albedo, owner_lobe); time.sleep(4.0)
                 nm = "look_%s_%s" % (cfg[0], vn)
                 _, got = capture(nm, LOOK_FRAMES)
                 F = d.load(nm).astype(np.float32)
@@ -386,7 +396,7 @@ def look(owner):
                 _atomic_dump(res, LP)
                 print("LOOK", nm, got, "flicker %.3f" % (flick or -1), flush=True)
     finally:
-        apply_look(("restore", "froxel", {}, {}), owner_albedo)
+        apply_look(("restore", "froxel", {}, {}), owner_albedo, owner_lobe)
         freeze(False, owner)
     look_metrics()
 
@@ -425,9 +435,10 @@ def look_metrics():
                 e["iou_a%.1f" % th] = round(float((a & b).sum() / u), 3) if u else None
             ra, rb = np.abs(lit["W38"] - off) > 4, np.abs(lit["P1"] - off) > 4
             e["iou_roi"] = round(float((ra & rb).sum() / max((ra | rb).sum(), 1)), 3)
-            for c, blk in (("W38", "W38_black"), ("P1", "P1_black"), ("P1_g2", "P1_black"), ("P1_nolobe", "P1_black"), ("P1_iso", "P1_black")):
+            for c, blk in (("W38", "W38_black"), ("W38_nolobe", "W38_black"), ("P1", "P1_black"), ("P1_g2", "P1_black"),
+                           ("P1_nolobe", "P1_black"), ("P1_iso", "P1_black"), ("P1_iso_nolobe", "P1_black")):
                 if c not in lit or blk not in lit: continue
-                a = alpha["W38" if c == "W38" else "P1"]
+                a = alpha["W38" if c.startswith("W38") else "P1"]
                 own = lit[c] - lit[blk]                      # the cloud's own light (lit minus background seen through it)
                 edge = (a >= 0.1) & (a <= 0.5); core = a >= 0.9
                 if edge.sum() > 200 and core.sum() > 200:
@@ -609,16 +620,54 @@ def summary():
     sheets(res, lk)
 
 
+TABLE_ROWS = [("boxoff", "Box off (weight 0), floor"), ("cur", "froxels, live anim"), ("animoff", "froxels, anim off"),
+              ("p1", "cloud p1, live anim"), ("p1_animoff", "cloud p1, anim off"), ("p1_d1", "cloud d1 (1.3 m), live"),
+              ("p1_m1", "cloud Mode 1, live"), ("cur_td", "froxels, anim 20 cm/frame"), ("p1_td", "cloud p1, anim 20 cm/fr"),
+              ("p1_d1_td", "cloud d1, anim 20 cm/fr"), ("p1_d5_td", "cloud d5 (6.5 m), 20 cm/fr"), ("p1_m1_td", "cloud Mode 1, 20 cm/fr"),
+              ("cur_w0", "froxels, wind 0, live"), ("p1_w0", "cloud p1, wind 0, live"), ("cur_w0_td", "froxels, wind 0, 20 cm/fr"),
+              ("p1_w0_td", "cloud p1, wind 0, 20 cm/fr")]
+
+
+def table_rows(res):
+    """(label, reps, static wob, static wob_cloud, W wob, W d2b, D wob, D d2b), means over the repeats present."""
+    rows = []
+    for v, label in TABLE_ROWS:
+        vals = {}
+        reps = 0
+        for rep in range(3):
+            got = {D: res.get(key(v, D, rep)) for D in DIRS}
+            if not any(got.values()): continue
+            reps += 1
+            for D, k in (("0", "wob_med"), ("0", "wob_cloud_med"), ("W", "wob_med"), ("W", "d2_blur"), ("D", "wob_med"), ("D", "d2_blur")):
+                x = (got.get(D) or {}).get(k)
+                if isinstance(x, (int, float)): vals.setdefault((D, k), []).append(x)
+        if reps:
+            m = lambda D, k: (sum(vals[(D, k)]) / len(vals[(D, k)])) if vals.get((D, k)) else None
+            rows.append((label, reps, m("0", "wob_med"), m("0", "wob_cloud_med"), m("W", "wob_med"), m("W", "d2_blur"),
+                         m("D", "wob_med"), m("D", "d2_blur")))
+    return rows
+
+
 def sheets(res, lk):
     from PIL import Image, ImageDraw
     views = [v for v in ("owner", "base", "against", "front", "mine") if os.path.isfile(os.path.join(LOOKDIR, "W38_%s.png" % v))]
     if not views: return
     W, H, LAB = 480, 407, 190
-    cols = [("W38", "froxels (round 38)"), ("P1", "cloud host P1"), ("P1_g2", "P1 + Phase G2 -0.3 / 0.2")]
+    cols = [("W38", "froxels (round 38)"), ("P1", "cloud host P1 (D 2 km, S 8, Mode 0)"), ("P1_g2", "P1 + Phase G2 -0.3 / Blend 0.2")]
     met = lk.get("metrics") or {}
     rows_img = len(views)
-    table = [l for l in open(os.path.join(RES, "r39_summary.txt"), encoding="utf-8").read().splitlines()][2:26]
-    sheet = Image.new("RGB", (LAB + W * len(cols), 26 + H * rows_img + 16 * (len(table) + 2)), (18, 18, 18))
+    rows = table_rows(res)
+    head = "tremble at 'base' (mean of repeats)       reps | static wob  cloud-only |  W wob   W d2b |  D wob   D d2b"
+    table = [head] + ["%-40s %d  |  %s     %s   | %s  %s | %s  %s" % (r[0], r[1], fmt(r[2]), fmt(r[3]), fmt(r[4]), fmt(r[5]), fmt(r[6]), fmt(r[7]))
+                      for r in rows]
+    cost_ = _load(CP)
+    for v in ("cur", "p1", "p1_d1", "p1_d5", "p1_s4", "p1_m1"):
+        c = cost_.get(v, {})
+        if c:
+            table.append("cost %-6s base: cloud %s ms, fog %s ms | owner view: cloud %s ms, fog %s ms (probe window)" % (
+                v, fmt((c.get("base") or {}).get("cloud_ms_median")), fmt((c.get("base") or {}).get("fog_ms_median")),
+                fmt((c.get("owner") or {}).get("cloud_ms_median")), fmt((c.get("owner") or {}).get("fog_ms_median"))))
+    sheet = Image.new("RGB", (LAB + W * len(cols), 26 + H * rows_img + 18 * (len(table) + 2)), (18, 18, 18))
     dr = ImageDraw.Draw(sheet)
     for j, (_, t) in enumerate(cols): dr.text((LAB + j * W + 6, 6), t, fill=(235, 235, 235))
     for i, vn in enumerate(views):
@@ -632,8 +681,8 @@ def sheets(res, lk):
             p = os.path.join(LOOKDIR, "%s_%s.png" % (c, vn))
             if os.path.isfile(p): sheet.paste(Image.open(p).convert("RGB").resize((W, H)), (LAB + j * W, 26 + i * H))
     y = 26 + H * rows_img + 8
-    for l in table:
-        dr.text((6, y), l[:200], fill=(220, 220, 220)); y += 16
+    for i, l in enumerate(table):
+        dr.text((6, y), l[:220], fill=(250, 230, 120) if i == 0 else (220, 220, 220)); y += 18
     sheet.save(os.path.join(RES, "p1_sheet.png"))
     # every look config
     cfgs = [c for c, *_ in LOOK if c != "boxoff"]
