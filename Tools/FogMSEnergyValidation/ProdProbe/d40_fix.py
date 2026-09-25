@@ -80,7 +80,9 @@ FINDX = ("import unreal, json\n_A=unreal.get_editor_subsystem(unreal.EditorActor
 def read_extra():
     out = pyout(FINDX + "print('X40 '+json.dumps({'box_extra': {p: box.get_editor_property(p) for p in %r},"
                 " 'sun': {p: sun.get_editor_property(p) for p in %r}, 'skylight': {p: skyl.get_editor_property(p) for p in %r},"
-                " 'animation_time_offset': box.get_editor_property('animation_time_offset')}))" % (BOX_EXTRA, SUN_PROPS, SKY_PROPS))
+                " 'animation_time_offset': box.get_editor_property('animation_time_offset'),"
+                " 'hf_albedo': (lambda c: [c.r, c.g, c.b, c.a])(A['FogMS - Height Fog'].component.get_editor_property('volumetric_fog_albedo'))}))"
+                % (BOX_EXTRA, SUN_PROPS, SKY_PROPS))
     return S.last_json(out, "X40")
 
 
@@ -106,12 +108,20 @@ def restore(owner):
         code += "if abs(sun.get_editor_property(%r) - %r) > 1e-6: sun.set_editor_property(%r, %r)\n" % (p, v, p, v)
     for p, v in x.get("skylight", {}).items():
         code += "if abs(skyl.get_editor_property(%r) - %r) > 1e-6: skyl.set_editor_property(%r, %r)\n" % (p, v, p, v)
+    if x.get("hf_albedo"):
+        code += ("hf=A['FogMS - Height Fog'].component\n"
+                 "hf.set_editor_property('volumetric_fog_albedo', unreal.Color(r=%d, g=%d, b=%d, a=%d))\n"
+                 % tuple(int(c) for c in x["hf_albedo"]))
     code += "print('X40 restored')"
     pyout(code)
+    # FogMS_ZeroEmission is never written by the C++ Box: put the material default (0) back on the MID (r2 series writes it).
+    pyout(S.FIND + "bmid.set_scalar_parameter_value('FogMS_ZeroEmission', 0.0)\n"
+          "print('ZERO', bmid.get_scalar_parameter_value('FogMS_ZeroEmission'))")
     d.cmd("FogMS.Debug 0")
+    d.cmd("ShowFlag.OverrideDiffuseAndSpecular %d" % int(owner.get("x40", {}).get("showflag_override_diffuse", 2)))
     r = S.restore(owner)        # Box (BOXPROPS + box_extra), Height Fog, cvars, sky clouds, Box MID, time dilation, camera, throttle
     now = read_extra()
-    xdiff = {k: (v, now[k]) for k in ("sun", "skylight") if x.get(k) is not None and x.get(k) != now[k]}
+    xdiff = {k: (x.get(k), now[k]) for k in ("sun", "skylight", "hf_albedo") if x.get(k) is not None and x.get(k) != now[k]}
     ato = abs(now["animation_time_offset"] - x.get("animation_time_offset", now["animation_time_offset"]))
     print("RESTORE x40 diff", xdiff, "animation_time_offset drift %.6f" % ato, flush=True)
     r["x40"] = xdiff; r["animation_time_offset_drift"] = ato
@@ -285,6 +295,266 @@ def sheet():
     print("SHEET", os.path.join(RES, "w40_lobe_sheet.png"), flush=True)
 
 
+# ------------------------------------------------------------------ defect 2: native single scattering of the froxel Box
+# A config = dict(box={Box props}, mid={Box MID params}, cv={cvars}, sun={sun props}, sky={SkyLight props}). The Box is frozen
+# (enabled) or disabled ('Enabled' false: the FogMS runtime drops this Box, the MID keeps the authored density with injection
+# mode 0, BaseColor = Albedo, Emissive 0 = native fog lighting only; the density phase is the static mapping). MID writes
+# persist while the Box's material state does not change (frozen / disabled). 'bg' = the Box's froxel weight 0 (no Box medium
+# at all), 'alb0' = the Box medium black (albedo 0, no emissive): its silhouette against bg is the ROI.
+DIS = {"enabled": False}
+NATIVE = [
+    ("A_bg", dict(box=DIS, mid={"FogMS_FroxelWeight": 0.0})),
+    ("A_alb0", dict(box=DIS, mid={"FogMS_Albedo": (0.0, 0.0, 0.0, 1.0)})),
+    ("A_nat", dict(box=DIS)),
+    ("A_nat_rt0", dict(box=DIS, cv={"r.VolumetricFog.InjectRaytracedLights": 0})),
+    ("A_nat_sun0", dict(box=DIS, sun={"volumetric_scattering_intensity": 0.0})),
+    ("A_nat_sun5", dict(box=DIS, sun={"volumetric_scattering_intensity": 5.0})),
+    ("A_nat_tlv0", dict(box=DIS, cv={"r.Lumen.TranslucencyVolume.Enable": 0})),
+    ("B_bg", dict(mid={"FogMS_FroxelWeight": 0.0})),
+    ("B_alb0", dict(mid={"FogMS_Albedo": (0.0, 0.0, 0.0, 1.0)})),
+    ("B_lit", dict()),
+    ("B_nat", dict(mid={"FogMS_InjectionMode": 0.0})),
+    ("B_nat_rt0", dict(mid={"FogMS_InjectionMode": 0.0}, cv={"r.VolumetricFog.InjectRaytracedLights": 0})),
+    ("B_nat_sun5", dict(mid={"FogMS_InjectionMode": 0.0}, sun={"volumetric_scattering_intensity": 5.0})),
+]
+# r2: does the Box MID's BaseColor reach the native scattering at all? (pure native, Box disabled)
+NATIVE_R2 = [
+    ("A_bg", dict(box=DIS, mid={"FogMS_FroxelWeight": 0.0})),
+    ("A_alb0", dict(box=DIS, mid={"FogMS_Albedo": (0.0, 0.0, 0.0, 1.0)})),
+    ("A_nat", dict(box=DIS)),
+    ("A_red", dict(box=DIS, mid={"FogMS_Albedo": (1.0, 0.0, 0.0, 1.0)})),
+    ("A_mode3", dict(box=DIS, mid={"FogMS_InjectionMode": 3.0})),
+    ("A_zero1", dict(box=DIS, mid={"FogMS_ZeroEmission": 0.05})),
+]
+# r3: is the Box's native in-scattering coloured by the HEIGHT FOG's Volumetric Fog Albedo instead of the Box's BaseColor?
+NATIVE_R3 = [
+    ("A_bg", dict(box=DIS, mid={"FogMS_FroxelWeight": 0.0})),
+    ("A_nat", dict(box=DIS)),
+    ("A_hfalb0", dict(box=DIS, hf={"volumetric_fog_albedo": (0, 0, 0, 255)})),
+    ("A_hfred", dict(box=DIS, hf={"volumetric_fog_albedo": (255, 0, 0, 255)})),
+    ("A_hfred_boxgreen", dict(box=DIS, hf={"volumetric_fog_albedo": (255, 0, 0, 255)}, mid={"FogMS_Albedo": (0.0, 1.0, 0.0, 1.0)})),
+]
+# r4: the perspective viewport of the owner's FourPanes layout is in 'Detail Lighting' (VMI_Lit_DetailLighting,
+# OverrideDiffuseAndSpecular = 1: every material's albedo -> GEngine->LightingOnlyBrightness 0.3, incl. the fog voxelization's
+# SampleAlbedo). ShowFlag.OverrideDiffuseAndSpecular 0 forces that show flag off in every view = the Lit view mode.
+LIT = {"ShowFlag.OverrideDiffuseAndSpecular": 0}
+NATIVE_R4 = [
+    ("A_bg", dict(box=DIS, mid={"FogMS_FroxelWeight": 0.0}, cv=LIT)),
+    ("A_alb0", dict(box=DIS, mid={"FogMS_Albedo": (0.0, 0.0, 0.0, 1.0)}, cv=LIT)),
+    ("A_nat", dict(box=DIS, cv=LIT)),
+    ("A_red", dict(box=DIS, mid={"FogMS_Albedo": (1.0, 0.0, 0.0, 1.0)}, cv=LIT)),
+    ("A_nat_dl", dict(box=DIS)),
+    ("B_bg", dict(mid={"FogMS_FroxelWeight": 0.0}, cv=LIT)),
+    ("B_alb0", dict(mid={"FogMS_Albedo": (0.0, 0.0, 0.0, 1.0)}, cv=LIT)),
+    ("B_lit", dict(cv=LIT)),
+    ("B_nat", dict(mid={"FogMS_InjectionMode": 0.0}, cv=LIT)),
+    ("B_lit_dl", dict()),
+]
+# Look impact of native single scattering (owner look, fixed wiring, Box frozen, BindlessAll session): what the owner's
+# Detail Lighting viewport shows vs the Lit view mode, plus the fog phase (Scattering Distribution) that gives native single
+# scattering its forward lobe (silver lining) and a strong MS lobe. 'bg' = Box froxel weight 0 in that view mode.
+LOOKLIT = [
+    ("B_bg_dl", dict(mid={"FogMS_FroxelWeight": 0.0})),
+    ("B_dl", dict()),
+    ("B_bg", dict(mid={"FogMS_FroxelWeight": 0.0}, cv=LIT)),
+    ("B_lit", dict(cv=LIT)),
+    ("B_lit_g06", dict(cv=LIT, hfp={"volumetric_fog_scattering_distribution": 0.6})),
+    ("B_lit_g08", dict(cv=LIT, hfp={"volumetric_fog_scattering_distribution": 0.8})),
+    ("B_lit_c08_o02", dict(cv=LIT, box={"ms_contribution": 0.8, "ms_occlusion": 0.2})),
+    ("B_alb0", dict(mid={"FogMS_Albedo": (0.0, 0.0, 0.0, 1.0)}, cv=LIT)),
+]
+SERIES = {"r1": NATIVE, "r2": NATIVE_R2, "r3": NATIVE_R3, "r4": NATIVE_R4, "looklit": LOOKLIT}
+R4_LABELS = {"A_bg": "Box disabled: no Box medium (Lit)", "A_alb0": "Box disabled, albedo 0 (Lit)", "A_nat": "Box disabled, albedo 1 (Lit)",
+             "A_red": "Box disabled, albedo RED (Lit)", "A_nat_dl": "Box disabled, albedo 1, DETAIL LIGHTING",
+             "B_bg": "hybrid runtime: no Box medium (Lit)", "B_alb0": "hybrid runtime, albedo 0 (Lit)", "B_lit": "hybrid owner look (Lit)",
+             "B_nat": "injection mode 0 = native only (Lit)", "B_lit_dl": "hybrid owner look, DETAIL LIGHTING"}
+# Console variables a native config may change and their baseline when the snapshot has no value.
+CV_BASE = {"r.VolumetricFog.InjectRaytracedLights": 1, "r.Lumen.TranslucencyVolume.Enable": 1, "ShowFlag.OverrideDiffuseAndSpecular": 2}
+NP = lambda tag: os.path.join(RES, "native_%s.json" % tag)
+
+
+def apply_native(owner, cfg):
+    """Owner Box (frozen) + this config's Box props; sun/skylight/cvars from the snapshot + overrides; then the MID writes."""
+    box = dict(owner["box"], use_manual_animation_time=True, manual_animation_time=FROZEN_T, **cfg.get("box", {}))
+    d.setbox(L.box_assign(box))
+    x = owner["x40"]
+    code = FINDX
+    for p, v in dict(x["sun"], **cfg.get("sun", {})).items():
+        code += "sun.set_editor_property(%r, %r)\n" % (p, float(v))
+    for p, v in dict(x["skylight"], **cfg.get("sky", {})).items():
+        code += "skyl.set_editor_property(%r, %r)\n" % (p, float(v))
+    hfv = dict({"volumetric_fog_albedo": tuple(x.get("hf_albedo", (255, 255, 255, 255)))}, **cfg.get("hf", {}))
+    code += ("hf=A['FogMS - Height Fog'].component\n"
+             "hf.set_editor_property('volumetric_fog_albedo', unreal.Color(r=%d, g=%d, b=%d, a=%d))\n"
+             % tuple(int(c) for c in hfv["volumetric_fog_albedo"]))
+    # Scalar Height Fog properties of the snapshot (diag35lib.HFPROPS, e.g. the fog phase) + this config's overrides.
+    for p, v in dict(owner["hf"], **cfg.get("hfp", {})).items():
+        code += "hf.set_editor_property(%r, %r)\n" % (p, float(v))
+    code += "print('LIGHTS ok')"
+    pyout(code)
+    # Console variables a config may change: baseline = the snapshot value (ShowFlag override: 2 = no override, read at the start).
+    for k, base_v in CV_BASE.items():
+        v = cfg.get("cv", {}).get(k, owner["cvars"].get(k, base_v))
+        d.cmd("%s %d" % (k, int(v)))
+    time.sleep(2.0)
+    # Baseline MID of the mode first (a Box property write that leaves the material state unchanged does not make the C++ Box
+    # rewrite the MID, so a previous config's direct write would persist): owner albedo, injection mode as the C++ Box writes it
+    # (disabled 0, enabled hybrid 2), weight 1; then this config's overrides.
+    base = {"FogMS_FroxelWeight": 1.0, "FogMS_ZeroEmission": 0.0, "FogMS_Albedo": tuple(owner["extra"]["box_mid_vector"]["FogMS_Albedo"]),
+            "FogMS_InjectionMode": 0.0 if not box.get("enabled", True) else (2.0 if box.get("hybrid_single_scattering") else 1.0)}
+    mid = dict(base, **cfg.get("mid", {}))
+    code = S.FIND
+    for p, v in mid.items():
+        if isinstance(v, tuple):
+            code += "bmid.set_vector_parameter_value(%r, unreal.LinearColor(%r, %r, %r, %r))\n" % ((p,) + tuple(float(c) for c in v))
+        else:
+            code += "bmid.set_scalar_parameter_value(%r, %r)\n" % (p, float(v))
+    code += ("print('MID '+json.dumps({'weight': bmid.get_scalar_parameter_value('FogMS_FroxelWeight'), 'mode': bmid.get_scalar_parameter_value("
+             "'FogMS_InjectionMode'), 'albedo': str(bmid.get_vector_parameter_value('FogMS_Albedo'))}))")
+    return S.last_json(pyout(code), "MID")
+
+
+def native(owner, tag, views_wanted=None):
+    views_wanted = views_wanted or {"r1": ("front", "mine", "owner39")}.get(tag, ("mine", "against", "front") if tag.startswith("looklit") else ("front", "mine"))
+    res = _load(NP(tag))
+    VIEWS, travel, elev = views(owner)
+    VIEWS = dict((k, VIEWS[k]) for k in views_wanted)
+    res["views"] = {k: [list(v[0]), list(v[1])] for k, v in VIEWS.items()}; res["sun"] = [travel, elev]
+    _atomic_dump(res, NP(tag))
+    begin(owner)
+    freeze(owner, True); time.sleep(8.0)
+    try:
+        for vn, (loc, rot) in VIEWS.items():
+            todo = [c for c in SERIES.get(tag.split("_")[0], NATIVE) if "%s|%s" % (c[0], vn) not in res.get("cap", {})]
+            if not todo:
+                continue
+            C.set_cam(loc, rot); time.sleep(4.0)
+            prev_mode = None
+            for name, cfg in todo:
+                C.flood_check()
+                mid = apply_native(owner, cfg)
+                # A mode switch (Box disabled <-> enabled) restarts the runtime / transport: settle longer.
+                time.sleep(12.0 if name[0] != prev_mode else 5.0); prev_mode = name[0]
+                nm = "native_%s_%s_%s" % (tag, name, vn)
+                _, got = C.capture(nm, 4)
+                if got < 4:
+                    raise RuntimeError("%s: %d of 4 frames (editor minimized?)" % (nm, got))
+                F, img = frame(nm); save_png(img, os.path.join(RES, "native", "%s_%s_%s.png" % (tag, name, vn)))
+                res = _load(NP(tag)); res.setdefault("cap", {})["%s|%s" % (name, vn)] = {"frames": got, "mid": mid, "status": d.status()[:220]}
+                _atomic_dump(res, NP(tag))
+                print("NATIVE", tag, name, vn, mid, d.status()[:90], flush=True)
+    finally:
+        freeze(owner, False)
+        restore(owner)
+    if tag.startswith("looklit"):
+        looklit_metrics(tag)
+    else:
+        native_metrics(tag)
+
+
+def looklit_metrics(tag="looklit"):
+    """Per view: ROI = |Lit Box - Lit bg| > 4 (the Lit cloud); ROI mean of every config and its ratio to the Lit owner look;
+    contact sheet results/diag40/<tag>_sheet.png (rows = configs, columns = views)."""
+    from PIL import Image, ImageDraw
+    res = _load(NP(tag)); m = {}
+    names = [n for n, _ in SERIES[tag.split("_")[0]]]
+    VW = [v for v in ("mine", "against", "front") if v in res.get("views", {})]
+    P = lambda c, vn: os.path.join(RES, "native", "%s_%s_%s.png" % (tag, c, vn))
+    for vn in VW:
+        if not (os.path.isfile(P("B_bg", vn)) and os.path.isfile(P("B_lit", vn))):
+            continue
+        lit, bg = _lum(P("B_lit", vn)), _lum(P("B_bg", vn))
+        roi = np.abs(lit - bg) > 4.0
+        e = {"roi_frac": round(float(roi.mean()), 3)}
+        for c in names:
+            if os.path.isfile(P(c, vn)):
+                e[c] = round(float(_lum(P(c, vn))[roi].mean()), 2)
+        for c in names:
+            if c in e and "B_lit" in e:
+                e[c + "_x"] = round(e[c] / max(e["B_lit"], 1e-6), 3)
+        m[vn] = e
+    res["metrics"] = m; _atomic_dump(res, NP(tag))
+    for vn, e in m.items():
+        print(vn, json.dumps(e), flush=True)
+    label = {"B_bg_dl": "no Box, Detail Lighting", "B_dl": "owner look, DETAIL LIGHTING (owner viewport)", "B_bg": "no Box, Lit",
+             "B_lit": "owner look, LIT", "B_lit_g06": "Lit + fog Scattering Distribution 0.6", "B_lit_g08": "Lit + fog Scattering Distribution 0.8",
+             "B_lit_c08_o02": "Lit + MS Contribution 0.8 / Occlusion 0.2", "B_alb0": "Lit, Box albedo 0 (black)"}
+    W, H, LAB = 400, 344, 250
+    rows = [c for c in names if any(os.path.isfile(P(c, vn)) for vn in VW)]
+    sh = Image.new("RGB", (LAB + W * len(VW), 28 + H * len(rows)), (18, 18, 18)); dr = ImageDraw.Draw(sh)
+    for j, vn in enumerate(VW):
+        dr.text((LAB + j * W + 6, 8), vn + (" (owner camera)" if vn == "mine" else ""), fill=(235, 235, 235))
+    for i, c in enumerate(rows):
+        y = 28 + i * H
+        dr.text((6, y + 8), label.get(c, c), fill=(240, 220, 90))
+        for j, vn in enumerate(VW):
+            if os.path.isfile(P(c, vn)):
+                sh.paste(Image.open(P(c, vn)).convert("RGB").resize((W, H)), (LAB + j * W, y))
+                r = m.get(vn, {}).get(c + "_x")
+                if r:
+                    ImageDraw.Draw(sh).text((LAB + j * W + 6, y + H - 16), "ROI x%.3f vs Lit owner" % r, fill=(255, 255, 0))
+    sh.save(os.path.join(RES, "%s_sheet.png" % tag))
+    print("SHEET", os.path.join(RES, "%s_sheet.png" % tag), flush=True)
+    return m
+
+
+def native_sheet(tag, rows=None, labels=None):
+    """Contact sheet of a native series: rows = configs (default: all captured), columns = views; ROI mean in the corner."""
+    from PIL import Image, ImageDraw
+    res = _load(NP(tag)); met = res.get("metrics", {})
+    VW = [v for v in ("front", "mine", "against", "owner39") if v in res.get("views", {})]
+    P = lambda c, vn: os.path.join(RES, "native", "%s_%s_%s.png" % (tag, c, vn))
+    rows = [c for c in (rows or [n for n, _ in SERIES[tag.split("_")[0]]]) if any(os.path.isfile(P(c, vn)) for vn in VW)]
+    W, H, LAB = 400, 344, 260
+    sh = Image.new("RGB", (LAB + W * len(VW), 28 + H * len(rows)), (18, 18, 18)); dr = ImageDraw.Draw(sh)
+    for j, vn in enumerate(VW):
+        dr.text((LAB + j * W + 6, 8), vn, fill=(235, 235, 235))
+    for i, c in enumerate(rows):
+        y = 28 + i * H
+        dr.text((6, y + 8), (labels or {}).get(c, c), fill=(240, 220, 90))
+        for j, vn in enumerate(VW):
+            if os.path.isfile(P(c, vn)):
+                sh.paste(Image.open(P(c, vn)).convert("RGB").resize((W, H)), (LAB + j * W, y))
+                v = met.get("%s|%s" % (c[0], vn), {}).get(c[2:])
+                if v is not None:
+                    ImageDraw.Draw(sh).text((LAB + j * W + 6, y + H - 16), "Box ROI mean %.1f" % v, fill=(255, 255, 0))
+    out = os.path.join(RES, "native_%s_sheet.png" % tag)
+    sh.save(out); print("SHEET", out, flush=True)
+
+
+def native_metrics(tag):
+    """Per view and mode (A = Box disabled, B = Box frozen + runtime): ROI = |alb0 - bg| > 4 (the Box medium's silhouette);
+    ROI mean luminance of every config; native = nat - alb0 (the Box medium's own native in-scattering, sun + sky), sun part =
+    nat - nat_sun0, and the RGB means."""
+    res = _load(NP(tag)); m = {}
+    for vn in res.get("views", {}):
+        for mode in ("A", "B"):
+            P = lambda c: os.path.join(RES, "native", "%s_%s_%s_%s.png" % (tag, mode, c, vn))
+            if not (os.path.isfile(P("bg")) and os.path.isfile(P("alb0"))):
+                continue
+            bg, a0 = _lum(P("bg")), _lum(P("alb0"))
+            roi = np.abs(a0 - bg) > 4.0
+            e = {"roi_frac": round(float(roi.mean()), 3)}
+            for name, _ in SERIES.get(tag, NATIVE):
+                if not name.startswith(mode + "_"):
+                    continue
+                c = name[2:]
+                if os.path.isfile(P(c)):
+                    from PIL import Image
+                    rgb = np.asarray(Image.open(P(c)).convert("RGB"), dtype=np.float64)
+                    e[c] = round(float(rgb.mean(axis=2)[roi].mean()), 2)
+                    e[c + "_rgb"] = [round(float(rgb[..., k][roi].mean()), 1) for k in range(3)]
+            if "nat" in e and "alb0" in e:
+                e["native_minus_black"] = round(e["nat"] - e["alb0"], 2)
+            if "nat" in e and "nat_sun0" in e:
+                e["sun_part"] = round(e["nat"] - e["nat_sun0"], 2)
+            m["%s|%s" % (mode, vn)] = e
+    res = _load(NP(tag)); res["metrics"] = m; _atomic_dump(res, NP(tag))
+    for k, e in m.items():
+        print(k, json.dumps({kk: vv for kk, vv in e.items() if not kk.endswith("_rgb")}), flush=True)
+    return m
+
+
 # ------------------------------------------------------------------ main
 def main(argv):
     cmd = argv[0] if argv else "snapshot"
@@ -300,6 +570,13 @@ def main(argv):
         look(owner, argv[1]); return
     if cmd == "matedit":
         print(S.run_file("matedit_density.py")); return
+    if cmd == "native":
+        os.makedirs(os.path.join(RES, "native"), exist_ok=True)
+        native(owner, argv[1] if len(argv) > 1 else "r1"); return
+    if cmd == "native_metrics":
+        native_metrics(argv[1]); return
+    if cmd == "native_sheet":
+        native_sheet(argv[1], labels=R4_LABELS if argv[1] == "r4" else None); return
     raise SystemExit("unknown subcommand %s" % cmd)
 
 

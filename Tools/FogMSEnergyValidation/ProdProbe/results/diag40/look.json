@@ -1,0 +1,451 @@
+{
+ "wiring": {
+  "old": "FIELD FogMS_ForwardLobe.FieldA <- MaterialExpressionTextureSampleParameterVolume_3.RGB (index 0, value type 4)  WRONG: want A",
+  "fixed": "FIELD FogMS_ForwardLobe.FieldA <- MaterialExpressionTextureSampleParameterVolume_3.A (index 4, value type 15)"
+ },
+ "views": {
+  "mine": [
+   [
+    -7630.240509782841,
+    -9138.30897256058,
+    2397.531605187931
+   ],
+   [
+    8.200002074241638,
+    49.93853524327278,
+    0.0
+   ]
+  ],
+  "against": [
+   [
+    -11532.044985267994,
+    -10914.706872579107,
+    3000.0
+   ],
+   [
+    4.0,
+    50.158264373361796,
+    0.0
+   ]
+  ],
+  "front": [
+   [
+    11532.044985267996,
+    16726.706872579103,
+    3500.0
+   ],
+   [
+    -2.0,
+    -129.8417356266382,
+    0.0
+   ]
+  ]
+ },
+ "sun": [
+  -139.8417356266382,
+  32.447972204999886
+ ],
+ "cap": {
+  "boxoff|mine": {
+   "frames": 4
+  },
+  "old|owner|mine": {
+   "frames": 6,
+   "props": {},
+   "flicker_abs": 0.257,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "old|c0|mine": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.0
+   },
+   "flicker_abs": 0.258,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "old|c08_o02|mine": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 0.2
+   },
+   "flicker_abs": 0.249,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "old|c08_o10|mine": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 1.0
+   },
+   "flicker_abs": 0.25,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "boxoff|against": {
+   "frames": 4
+  },
+  "old|owner|against": {
+   "frames": 6,
+   "props": {},
+   "flicker_abs": 0.265,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "old|c0|against": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.0
+   },
+   "flicker_abs": 0.257,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "old|c08_o02|against": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 0.2
+   },
+   "flicker_abs": 0.25,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "old|c08_o10|against": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 1.0
+   },
+   "flicker_abs": 0.251,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "boxoff|front": {
+   "frames": 4
+  },
+  "old|owner|front": {
+   "frames": 6,
+   "props": {},
+   "flicker_abs": 0.277,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "old|c0|front": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.0
+   },
+   "flicker_abs": 0.277,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "old|c08_o02|front": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 0.2
+   },
+   "flicker_abs": 0.275,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "old|c08_o10|front": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 1.0
+   },
+   "flicker_abs": 0.276,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|owner|mine": {
+   "frames": 6,
+   "props": {},
+   "flicker_abs": 0.263,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c0|mine": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.0
+   },
+   "flicker_abs": 0.261,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c04_o02|mine": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.4,
+    "ms_occlusion": 0.2
+   },
+   "flicker_abs": 0.265,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c04_o05|mine": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.4,
+    "ms_occlusion": 0.5
+   },
+   "flicker_abs": 0.258,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c04_o10|mine": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.4,
+    "ms_occlusion": 1.0
+   },
+   "flicker_abs": 0.263,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c08_o02|mine": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 0.2
+   },
+   "flicker_abs": 0.257,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c08_o05|mine": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 0.5
+   },
+   "flicker_abs": 0.261,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c08_o10|mine": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 1.0
+   },
+   "flicker_abs": 0.26,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "fixed|owner|against": {
+   "frames": 6,
+   "props": {},
+   "flicker_abs": 0.258,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c0|against": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.0
+   },
+   "flicker_abs": 0.263,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c04_o02|against": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.4,
+    "ms_occlusion": 0.2
+   },
+   "flicker_abs": 0.26,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c04_o05|against": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.4,
+    "ms_occlusion": 0.5
+   },
+   "flicker_abs": 0.267,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "fixed|c04_o10|against": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.4,
+    "ms_occlusion": 1.0
+   },
+   "flicker_abs": 0.264,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "fixed|c08_o02|against": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 0.2
+   },
+   "flicker_abs": 0.258,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c08_o05|against": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 0.5
+   },
+   "flicker_abs": 0.258,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c08_o10|against": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 1.0
+   },
+   "flicker_abs": 0.256,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|owner|front": {
+   "frames": 6,
+   "props": {},
+   "flicker_abs": 0.281,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c0|front": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.0
+   },
+   "flicker_abs": 0.279,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "fixed|c04_o02|front": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.4,
+    "ms_occlusion": 0.2
+   },
+   "flicker_abs": 0.279,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c04_o05|front": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.4,
+    "ms_occlusion": 0.5
+   },
+   "flicker_abs": 0.279,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c04_o10|front": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.4,
+    "ms_occlusion": 1.0
+   },
+   "flicker_abs": 0.28,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "fixed|c08_o02|front": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 0.2
+   },
+   "flicker_abs": 0.274,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  },
+  "fixed|c08_o05|front": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 0.5
+   },
+   "flicker_abs": 0.281,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+  },
+  "fixed|c08_o10|front": {
+   "frames": 6,
+   "props": {
+    "ms_contribution": 0.8,
+    "ms_occlusion": 1.0
+   },
+   "flicker_abs": 0.277,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+  }
+ },
+ "metrics": {
+  "mine": {
+   "roi_frac": 0.272,
+   "old_owner": 191.29,
+   "old_owner_ratio": 1.0,
+   "old_c0": 169.15,
+   "old_c0_ratio": 0.884,
+   "old_c08_o02": 202.08,
+   "old_c08_o02_ratio": 1.056,
+   "old_c08_o10": 202.06,
+   "old_c08_o10_ratio": 1.056,
+   "fixed_owner": 174.48,
+   "fixed_owner_ratio": 0.912,
+   "fixed_c0": 169.13,
+   "fixed_c0_ratio": 0.884,
+   "fixed_c04_o02": 177.63,
+   "fixed_c04_o02_ratio": 0.929,
+   "fixed_c04_o05": 174.45,
+   "fixed_c04_o05_ratio": 0.912,
+   "fixed_c04_o10": 171.96,
+   "fixed_c04_o10_ratio": 0.899,
+   "fixed_c08_o02": 183.42,
+   "fixed_c08_o02_ratio": 0.959,
+   "fixed_c08_o05": 178.62,
+   "fixed_c08_o05_ratio": 0.934,
+   "fixed_c08_o10": 174.34,
+   "fixed_c08_o10_ratio": 0.911,
+   "old_occlusion_response": 0.3,
+   "fixed_occlusion_response": 9.26,
+   "c0_old_vs_fixed_mae": 0.42
+  },
+  "against": {
+   "roi_frac": 0.32,
+   "old_owner": 180.53,
+   "old_owner_ratio": 1.0,
+   "old_c0": 161.8,
+   "old_c0_ratio": 0.896,
+   "old_c08_o02": 190.39,
+   "old_c08_o02_ratio": 1.055,
+   "old_c08_o10": 190.39,
+   "old_c08_o10_ratio": 1.055,
+   "fixed_owner": 166.29,
+   "fixed_owner_ratio": 0.921,
+   "fixed_c0": 161.82,
+   "fixed_c0_ratio": 0.896,
+   "fixed_c04_o02": 169.24,
+   "fixed_c04_o02_ratio": 0.937,
+   "fixed_c04_o05": 166.29,
+   "fixed_c04_o05_ratio": 0.921,
+   "fixed_c04_o10": 164.03,
+   "fixed_c04_o10_ratio": 0.909,
+   "fixed_c08_o02": 173.95,
+   "fixed_c08_o02_ratio": 0.964,
+   "fixed_c08_o05": 169.65,
+   "fixed_c08_o05_ratio": 0.94,
+   "fixed_c08_o10": 165.91,
+   "fixed_c08_o10_ratio": 0.919,
+   "old_occlusion_response": 0.38,
+   "fixed_occlusion_response": 8.28,
+   "c0_old_vs_fixed_mae": 0.42
+  },
+  "front": {
+   "roi_frac": 0.167,
+   "old_owner": 173.09,
+   "old_owner_ratio": 1.0,
+   "old_c0": 179.43,
+   "old_c0_ratio": 1.037,
+   "old_c08_o02": 165.89,
+   "old_c08_o02_ratio": 0.958,
+   "old_c08_o10": 165.9,
+   "old_c08_o10_ratio": 0.958,
+   "fixed_owner": 177.77,
+   "fixed_owner_ratio": 1.027,
+   "fixed_c0": 179.45,
+   "fixed_c0_ratio": 1.037,
+   "fixed_c04_o02": 176.73,
+   "fixed_c04_o02_ratio": 1.021,
+   "fixed_c04_o05": 177.8,
+   "fixed_c04_o05_ratio": 1.027,
+   "fixed_c04_o10": 178.73,
+   "fixed_c04_o10_ratio": 1.033,
+   "fixed_c08_o02": 173.63,
+   "fixed_c08_o02_ratio": 1.003,
+   "fixed_c08_o05": 176.03,
+   "fixed_c08_o05_ratio": 1.017,
+   "fixed_c08_o10": 177.91,
+   "fixed_c08_o10_ratio": 1.028,
+   "old_occlusion_response": 0.4,
+   "fixed_occlusion_response": 4.45,
+   "c0_old_vs_fixed_mae": 0.48
+  }
+ }
+}

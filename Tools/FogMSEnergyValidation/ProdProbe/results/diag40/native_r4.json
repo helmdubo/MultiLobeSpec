@@ -1,0 +1,352 @@
+{
+ "views": {
+  "front": [
+   [
+    11532.044985267996,
+    16726.706872579103,
+    3500.0
+   ],
+   [
+    -2.0,
+    -129.8417356266382,
+    0.0
+   ]
+  ],
+  "mine": [
+   [
+    -7630.240509782841,
+    -9138.30897256058,
+    2397.531605187931
+   ],
+   [
+    8.200002074241638,
+    49.93853524327278,
+    0.0
+   ]
+  ]
+ },
+ "sun": [
+  -139.8417356266382,
+  32.447972204999886
+ ],
+ "cap": {
+  "A_bg|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022B274486E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Off (Box Enabled is false)"
+  },
+  "A_alb0|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CA9E9B0E0) {r: 0.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Off (Box Enabled is false)"
+  },
+  "A_nat|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1FA2F20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Off (Box Enabled is false)"
+  },
+  "A_red|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1FB81E0) {r: 1.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Off (Box Enabled is false)"
+  },
+  "A_nat_dl|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CA9EBAB60) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Off (Box Enabled is false)"
+  },
+  "B_bg|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022B274486E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_alb0|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1FB81E0) {r: 0.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_lit|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CA9E9B0E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_nat|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1F8FCE0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_lit_dl|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1FB81E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "A_bg|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1FCDB20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Off (Box Enabled is false)"
+  },
+  "A_alb0|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022B274486E0) {r: 0.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Off (Box Enabled is false)"
+  },
+  "A_nat|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1FB81E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Off (Box Enabled is false)"
+  },
+  "A_red|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CA9F70FA0) {r: 1.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Off (Box Enabled is false)"
+  },
+  "A_nat_dl|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1F8FCE0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Off (Box Enabled is false)"
+  },
+  "B_bg|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1FB81E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_alb0|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CA9F72820) {r: 0.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_lit|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1FB87A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_nat|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CF1FCDBA0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_lit_dl|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000022CA9F72820) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  }
+ },
+ "metrics": {
+  "A|front": {
+   "roi_frac": 0.163,
+   "bg": 128.42,
+   "bg_rgb": [
+    86.9,
+    129.7,
+    168.6
+   ],
+   "alb0": 27.04,
+   "alb0_rgb": [
+    17.3,
+    27.0,
+    36.8
+   ],
+   "nat": 210.26,
+   "nat_rgb": [
+    209.4,
+    210.8,
+    210.5
+   ],
+   "red": 93.5,
+   "red_rgb": [
+    211.3,
+    32.0,
+    37.2
+   ],
+   "nat_dl": 133.22,
+   "nat_dl_rgb": [
+    130.6,
+    133.8,
+    135.3
+   ],
+   "native_minus_black": 183.22
+  },
+  "B|front": {
+   "roi_frac": 0.149,
+   "bg": 124.86,
+   "bg_rgb": [
+    83.5,
+    125.8,
+    165.3
+   ],
+   "alb0": 21.35,
+   "alb0_rgb": [
+    13.5,
+    21.3,
+    29.2
+   ],
+   "lit": 160.1,
+   "lit_rgb": [
+    152.9,
+    159.7,
+    167.7
+   ],
+   "nat": 172.39,
+   "nat_rgb": [
+    163.7,
+    172.2,
+    181.2
+   ],
+   "lit_dl": 181.49,
+   "lit_dl_rgb": [
+    174.5,
+    181.2,
+    188.8
+   ],
+   "native_minus_black": 151.04
+  },
+  "A|mine": {
+   "roi_frac": 0.224,
+   "bg": 150.48,
+   "bg_rgb": [
+    119.3,
+    149.5,
+    182.6
+   ],
+   "alb0": 35.65,
+   "alb0_rgb": [
+    25.6,
+    35.1,
+    46.2
+   ],
+   "nat": 209.57,
+   "nat_rgb": [
+    208.0,
+    209.9,
+    210.8
+   ],
+   "red": 98.69,
+   "red_rgb": [
+    210.0,
+    39.5,
+    46.6
+   ],
+   "nat_dl": 136.53,
+   "nat_dl_rgb": [
+    133.1,
+    136.7,
+    139.8
+   ],
+   "native_minus_black": 173.92
+  },
+  "B|mine": {
+   "roi_frac": 0.202,
+   "bg": 146.85,
+   "bg_rgb": [
+    116.2,
+    145.7,
+    178.6
+   ],
+   "alb0": 36.26,
+   "alb0_rgb": [
+    26.4,
+    35.8,
+    46.5
+   ],
+   "lit": 164.5,
+   "lit_rgb": [
+    156.4,
+    164.0,
+    173.1
+   ],
+   "nat": 169.72,
+   "nat_rgb": [
+    159.6,
+    169.3,
+    180.3
+   ],
+   "lit_dl": 185.0,
+   "lit_dl_rgb": [
+    176.6,
+    184.6,
+    193.7
+   ],
+   "native_minus_black": 133.46
+  }
+ }
+}
