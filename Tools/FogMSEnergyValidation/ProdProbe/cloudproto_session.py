@@ -81,10 +81,19 @@ def snapshot_extra():
     actor list. FogMS_FroxelWeight is NOT snapshotted: before the patch the parameter does not exist and reads 0; restore()
     always puts the identity 1 (the material default) back."""
     out = d.py(FIND + "mid_v={p: [c for c in (lambda v: (v.r, v.g, v.b, v.a))(bmid.get_vector_parameter_value(p))] for p in ('FogMS_Albedo',)}\n"
+               "w=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()\n"
                "print('EXTRA '+json.dumps({'sky_hidden': {a.get_actor_label(): bool(a.is_temporarily_hidden_in_editor()) for a in sky},"
-               " 'proto_present': len(proto), 'box_mid_vector': mid_v,"
+               " 'proto_present': len(proto), 'box_mid_vector': mid_v, 'time_dilation': unreal.GameplayStatics.get_global_time_dilation(w),"
                " 'actors': sorted(a.get_actor_label() for a in _A)}))")
     return last_json(out, "EXTRA")
+
+
+def set_time_dilation(value):
+    """World time dilation of the editor world (the Box animation clock is World->GetTimeSeconds). d39_cloud.py uses it to
+    advance the density ~1/25 s per captured frame while PNG dumps run at ~6 fps."""
+    out = d.py("import unreal\nw=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()\n"
+               "unreal.GameplayStatics.set_global_time_dilation(w, %r)\nprint('TD', unreal.GameplayStatics.get_global_time_dilation(w))" % float(value))
+    return float(out.split("TD")[-1].split()[0])
 
 
 def weight():
@@ -129,6 +138,8 @@ def restore(owner=None):
     for label, hidden in ex.get("sky_hidden", {}).items():
         code += "A[%r].set_is_temporarily_hidden_in_editor(%s)\n" % (label, bool(hidden))
     code += "bmid.set_scalar_parameter_value('FogMS_FroxelWeight', 1.0)\n"   # identity (material default), never a snapshot value
+    code += ("unreal.GameplayStatics.set_global_time_dilation(unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world(), %r)\n"
+             % float(ex.get("time_dilation", 1.0)))
     for p, v in ex.get("box_mid_vector", {}).items():
         code += "bmid.set_vector_parameter_value(%r, unreal.LinearColor(%r, %r, %r, %r))\n" % ((p,) + tuple(float(c) for c in v))
     code += "print('EXTRA restored')"
@@ -139,8 +150,8 @@ def restore(owner=None):
     cv_diff = {k: (v, now["cvars"].get(k)) for k, v in owner["cvars"].items()
                if k not in ("r.BufferVisualizationDumpFrames", "r.DumpingMovie") and abs(float(v) - float(now["cvars"].get(k, 1e30))) > 1e-6}
     hf_diff = {k: (v, now["hf"].get(k)) for k, v in owner["hf"].items() if v != now["hf"].get(k)}
-    ex_diff = {k: (ex.get(k), nex.get(k)) for k in ("sky_hidden", "proto_present", "box_mid_vector", "actors")
-               if ex.get(k) != nex.get(k)}
+    ex_diff = {k: (ex.get(k), nex.get(k)) for k in ("sky_hidden", "proto_present", "box_mid_vector", "actors", "time_dilation")
+               if k in ex and ex.get(k) != nex.get(k)}
     w = weight()
     if abs(w - 1.0) > 1e-6:
         ex_diff["box_weight"] = w

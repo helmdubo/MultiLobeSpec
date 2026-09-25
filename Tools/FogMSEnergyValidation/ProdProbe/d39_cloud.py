@@ -6,10 +6,11 @@ TimeSlice 0, background throttle off. Frames: measure/diag39 (junction to D:), r
 
 Subcommands (each restores the owner snapshot measure/owner_pre39.json at the end and prints 'RESTORE box diff {...}'):
   identity_pre | identity_post   criterion 1: owner view, Box animation frozen at t=100 s, 8 frames x2; run _pre BEFORE
-                                 matedit_density.py adds FogMS_FroxelWeight and _post after it (weight 1): MAE / PSNR of the
-                                 mean frames against the pre repeat (noise floor)
+  | identity_late                matedit_density.py adds FogMS_FroxelWeight and _post after it (weight 1): MAE / PSNR of the
+                                 mean frames against the pre repeat (noise floor); _late = the post material again tens of
+                                 minutes later: the time-separated floor for pre ~ post
   smoke                          prototype on, one froxel and one cloud frame at 'base', status, one GPU profile
-  series                         criteria 4/5 (d35_dolly metrics, camera 'base', 20 cm/frame, 48 frames): PLAN x {0, W, D};
+  series | series_td              criteria 4/5 (d35_dolly metrics, camera 'base', 20 cm/frame, 48 frames): PLAN x {0, W, D};
                                  plus 'inside' (W up into the cloud base: froxel / p1 / p1_m1)
   look                           criteria 3/6: views owner / base / against / front / mine (live sun), Box frozen, configs LOOK;
                                  ROI brightness vs W38, flicker, opacity from albedo-0 renders, IoU, rim/core
@@ -48,6 +49,15 @@ PLAN = [("boxoff", 2), ("cur", 2), ("animoff", 2), ("p1", 2), ("p1_animoff", 1),
         ("p1_m1", 1), ("p1_ef200", 1)]
 DIRS = ("0", "W", "D")
 INSIDE = [("cur", 0), ("p1", 0), ("p1_m1", 0)]
+# Frame-rate-corrected animation ('_td'): PNG dumps run the editor at ~6.4 fps (0.155 s per frame, ticks.json), so the Box's
+# world-time animation moves Edge Flow ~78 cm and wind ~31 cm per captured frame, four times the design's 20 cm/frame
+# (500 cm/s at 25 fps). World time dilation TD during the '_td' runs advances the density ~0.155 * TD = 0.039 s per captured
+# frame (Edge Flow ~19 cm, wind ~8 cm). Only game-time animation changes: jitter, blue noise and history are per frame.
+TD = 0.25
+V.update({"cur_td": ("froxel", {}, None, TD), "p1_td": ("cloud", {}, "p1", TD), "p1_d1_td": ("cloud", {}, "p1_d1", TD),
+          "p1_m1_td": ("cloud", {}, "p1_m1", TD), "p1_d5_td": ("cloud", {}, "p1_d5", TD)})
+PLAN_TD = [("cur_td", 2), ("p1_td", 2), ("p1_d1_td", 2), ("p1_m1_td", 1), ("p1_d5_td", 1)]
+INSIDE_TD = [("cur_td", 0), ("p1_td", 0), ("p1_m1_td", 0)]
 # look configs: (name, mode, Box MID vector overrides, cloud MID scalar overrides)
 LOOK = [("boxoff", "boxoff", {}, {}), ("W38", "froxel", {}, {}), ("W38_black", "froxel", {"FogMS_Albedo": (0, 0, 0, 1)}, {}),
         ("P1", "cloud", {}, {}), ("P1_black", "cloud", {}, {"__albedo0": 1, "P1_FieldGain": 0.0}),
@@ -143,17 +153,22 @@ def box_assign(props):
 
 
 def apply_variant(variant):
-    mode, box, host = V[variant]
+    mode, box, host = V[variant][:3]
+    td = V[variant][3] if len(V[variant]) > 3 else None
     if host and _state["host"] != host:
         S.apply_host(host); _state["host"] = host
     if box:
         d.setbox(box_assign(box))
         S.sync()
+    if td:
+        S.set_time_dilation(td)
     return S.mode(mode)
 
 
 def revert_variant(variant, owner):
-    _, box, _ = V[variant]
+    box = V[variant][1]
+    if len(V[variant]) > 3 and V[variant][3]:
+        S.set_time_dilation(owner["extra"].get("time_dilation", 1.0))
     if box:
         d.setbox(box_assign({k: owner["box"][k] for k in box}))
         S.sync()
@@ -206,6 +221,13 @@ def run(variant, rep, dirs, owner, cam="base"):
             _, got = capture(nm, N, move=mv if D != "0" else None)
             r = B.analyse(nm, None); r.update(B.wobble(nm, None))
             r.update({"frames_got": got, "status": d.status()[:200], "p1_state": S.set_state(), "host": _state["host"] if V[variant][0] == "cloud" else None})
+            try:   # wall time per captured frame and the density animation time it advanced (x time dilation)
+                t = np.diff(np.array(json.load(open(os.path.join(d.M, nm, "ticks.json")))["t"]))
+                pre = 12 if D != "0" else 1
+                dt = float(np.median(t[pre:pre + N])); td = V[variant][3] if len(V[variant]) > 3 else 1.0
+                r.update({"dump_dt": round(dt, 4), "anim_s_per_frame": round(dt * (td or 1.0), 4)})
+            except Exception as e:
+                r["dump_dt_error"] = str(e)
             res = _load(RP); res[nm] = r; _atomic_dump(res, RP)
             print("%-30s wob %s/%s | d2b %.3f | d1 %.3f mean %.1f | %s" % (nm, r.get("wob_med"), r.get("wob_p75"), r["d2_blur"], r["d1"], r["mean"],
                                                                         r["status"][:60]), flush=True)
@@ -213,30 +235,34 @@ def run(variant, rep, dirs, owner, cam="base"):
         revert_variant(variant, owner)
 
 
-def series(owner):
-    for variant, reps in PLAN:
+def series(owner, td=False):
+    for variant, reps in (PLAN_TD if td else PLAN):
         for rep in range(reps):
             run(variant, rep, DIRS, owner)
-    for variant, rep in INSIDE:
+    for variant, rep in (INSIDE_TD if td else INSIDE):
         run(variant, rep, ("W",), owner, cam="inside")
 
 
-def best_variant():
-    """Lowest mean static wob_med among cloud variants whose cost (base view) is <= 3 ms, else the lowest overall."""
+def best_variant(td=False):
+    """Lowest mean static wob_med among cloud host variants (the '_td' runs if td) whose cost (base view) is <= 3 ms, else the
+    lowest overall. Returns the variant name (with '_td' if td)."""
     res, cost = _load(RP), _load(CP)
     cand = []
     for v in ("p1", "p1_d1", "p1_d5", "p1_s4", "p1_m1"):
-        w = [res[k]["wob_med"] for k in res if k.startswith("b39_base_%s_0_s20_" % v) and "wob_med" in res[k]]
+        name = v + ("_td" if td else "")
+        w = [res[k]["wob_med"] for k in res if k.startswith("b39_base_%s_0_s20_" % name) and "wob_med" in res[k]]
         if not w: continue
         ms = (cost.get(v, {}).get("base") or {}).get("cloud_ms_median")
-        cand.append((ms is not None and ms <= 3.0, -np.mean(w), v))
-    if not cand: return "p1"
+        cand.append((ms is not None and ms <= 3.0, -np.mean(w), name))
+    if not cand: return "p1_td" if td else "p1"
     return sorted(cand)[-1][2]
 
 
-def best(owner):
-    b = best_variant()
-    if b != "p1":
+def best(owner, td=False):
+    """Second repeat of the best cloud variant when its plan has one repeat only (criterion 4 asks for two)."""
+    b = best_variant(td)
+    reps = dict(PLAN_TD if td else PLAN).get(b, 1)
+    if reps < 2:
         run(b, 1, DIRS, owner)
     return b
 
@@ -278,8 +304,10 @@ def identity_report():
         diff = np.abs(A - Bm); mse = float((diff ** 2).mean())
         return {"mae": round(float(diff.mean()), 4), "p99": round(float(np.percentile(diff, 99)), 2),
                 "psnr": round(10 * math.log10(255.0 ** 2 / max(mse, 1e-12)), 2)}
+    # late = the same material as post (weight 1), captured tens of minutes later: the time-separated floor for pre ~ post
     for a, b in (("id_pre_a", "id_pre_b"), ("id_post_a", "id_post_b"), ("id_pre_a", "id_post_a"), ("id_pre_b", "id_post_b"),
-                 ("id_pre_b", "id_post_a")):
+                 ("id_pre_b", "id_post_a"), ("id_late_a", "id_late_b"), ("id_post_a", "id_late_a"), ("id_post_b", "id_late_b"),
+                 ("id_pre_a", "id_late_a")):
         out["%s~%s" % (a, b)] = cmp(a, b)
     return out
 
@@ -527,20 +555,22 @@ def summary():
     res, lk, cost_ = _load(RP), _load(LP), _load(CP)
     lines = ["Round 39 / P1: Live Box as froxels (round 38) vs cloud-host prototype (engine Volumetric Cloud). Camera 'base', 20 cm/frame, 48 frames.",
              "wob_med = median tile wobble over the frame (r38b metric), wob_cloud = same over cloud tiles only, d2b = d2 of the 9x9-blurred frame.",
-             "variant      rep |  static wob  wob_cloud  d2b |  W wob   d2b  |  D wob   d2b  | host / status"]
-    for variant, reps in PLAN + [(best_variant(), 2)]:
+             "anim = density animation time per captured frame (s; live runs ~0.155 = dump rate, _td runs x%.2f time dilation)." % TD,
+             "variant      rep |  static wob  wob_cloud  d2b |  W wob   d2b  |  D wob   d2b  | anim  | host / status"]
+    for variant, reps in PLAN + [(best_variant(), 2)] + PLAN_TD + [(best_variant(True), 2)]:
         for rep in range(reps):
             ks = {D: res.get(key(variant, D, rep)) for D in DIRS}
             if not any(ks.values()): continue
             s0, sw, sd = ks["0"] or {}, ks["W"] or {}, ks["D"] or {}
-            line = "%-12s %d | %s %s %s | %s %s | %s %s | %s" % (
+            line = "%-12s %d | %s %s %s | %s %s | %s %s | %s | %s" % (
                 variant, rep, fmt(s0.get("wob_med")), fmt(s0.get("wob_cloud_med")), fmt(s0.get("d2_blur")), fmt(sw.get("wob_med")),
-                fmt(sw.get("d2_blur")), fmt(sd.get("wob_med")), fmt(sd.get("d2_blur")),
+                fmt(sw.get("d2_blur")), fmt(sd.get("wob_med")), fmt(sd.get("d2_blur")), fmt(s0.get("anim_s_per_frame")),
                 (s0.get("host") or "froxel") + " / " + (s0.get("status") or "")[:40])
             if line not in lines: lines.append(line)
-    lines.append("inside (W up into the cloud base, 50 m along 'base'): " + ", ".join(
-        "%s wob %s d2b %s" % (v, fmt((res.get(key(v, "W", r, "inside")) or {}).get("wob_med")), fmt((res.get(key(v, "W", r, "inside")) or {}).get("d2_blur")))
-        for v, r in INSIDE))
+    for tag, plan in (("live", INSIDE), ("td", INSIDE_TD)):
+        lines.append("inside %s (W up into the cloud base, 50 m along 'base'): " % tag + ", ".join(
+            "%s wob %s d2b %s" % (v, fmt((res.get(key(v, "W", r, "inside")) or {}).get("wob_med")), fmt((res.get(key(v, "W", r, "inside")) or {}).get("d2_blur")))
+            for v, r in plan))
     idr = identity_report()
     lines.append("identity (criterion 1, owner view, frozen): " + json.dumps(idr))
     lines.append("cost (ms, probe window, median of 3; cloud = VolumetricCloud + VolCloudReconstruction + VolCloudComposeOverScene):")
@@ -615,7 +645,7 @@ def sheets(res, lk):
 # ------------------------------------------------------------------ main
 def main(cmd):
     owner = S.snapshot()                      # measure/owner_pre39.json, written once (the restore target)
-    if cmd in ("identity_pre", "identity_post"):
+    if cmd in ("identity_pre", "identity_post", "identity_late"):
         identity(cmd.split("_")[1], owner); print(json.dumps(identity_report(), indent=1)); return
     if cmd == "summary":
         summary(); return
@@ -623,12 +653,13 @@ def main(cmd):
     try:
         if cmd == "smoke": smoke(owner)
         if cmd in ("series", "all"): series(owner)
+        if cmd in ("series_td", "all"): series(owner, td=True)
         if cmd in ("look", "all"): look(owner)
         if cmd in ("cost", "all"): cost(owner)
-        if cmd in ("best", "all"): print("BEST", best(owner), flush=True)
+        if cmd in ("best", "all"): print("BEST", best(owner), best(owner, td=True), flush=True)
     finally:
         end(owner)
-    if cmd in ("series", "look", "cost", "best", "all"):
+    if cmd in ("series", "series_td", "look", "cost", "best", "all"):
         summary()
 
 
