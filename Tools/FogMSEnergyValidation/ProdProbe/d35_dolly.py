@@ -63,7 +63,7 @@ V.update({
     "ih_pf0": ({}, _IH + "b.set_editor_property('depth_prefilter', 0.0)", None),
     "ih_pf05": ({}, _IH + "b.set_editor_property('depth_prefilter', 0.5)", None),
     "ih_pf1": ({}, _IH + "b.set_editor_property('depth_prefilter', 1.0)", None),
-    "lobe05": ({}, "b.set_editor_property('forward_scattering', 0.5); b.set_editor_property('forward_anisotropy', 0.6)", None),
+    "lobe05": ({}, "b.set_editor_property('ms_contribution', 0.5); b.set_editor_property('phase_g', 0.6)", None),
     "ih_pf2": ({}, _IH + "b.set_editor_property('depth_prefilter', 2.0)", None),
 })
 DBINS =[0, 2000, 5000, 10000, 20000, 1e9]

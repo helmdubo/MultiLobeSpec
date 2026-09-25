@@ -28,9 +28,9 @@ RES = os.path.join(d.HERE, "results", "diag37"); OUT = os.path.join(RES, "lobe")
 d.M = os.path.join(d.HERE, "measure", "diag37"); os.makedirs(d.M, exist_ok=True)
 OWNER = ((-282.70751614825076, 8738.93414348489, 2438.480836716684), (4.075094774365425, 243.93856991827488, 0.0))
 # W37 properties (not in diag35lib.BOXPROPS): read first, restored at the end.
-W37PROPS = ["forward_scattering", "forward_anisotropy", "forward_depth", "back_floor", "sun_softness"]
-LOBE = lambda s, g: {"forward_scattering": s, "forward_anisotropy": g, "forward_depth": 0.5, "back_floor": 0.25, "sun_softness": 0.0}
-OFF = {"forward_scattering": 0.0, "forward_anisotropy": 0.6, "forward_depth": 0.5, "back_floor": 0.25, "sun_softness": 0.0}
+W37PROPS = ["ms_contribution", "phase_g", "ms_occlusion", "ms_back_floor", "sun_softness"]
+LOBE = lambda s, g: {"ms_contribution": s, "phase_g": g, "ms_occlusion": 0.5, "ms_back_floor": 0.25, "sun_softness": 0.0}
+OFF = {"ms_contribution": 0.0, "phase_g": 0.6, "ms_occlusion": 0.5, "ms_back_floor": 0.25, "sun_softness": 0.0}
 CFG = [("W0_w36", OFF), ("F1_s05_g06", LOBE(0.5, 0.6)), ("F2_s08_g06", LOBE(0.8, 0.6)), ("F3_s08_g08", LOBE(0.8, 0.8)),
        ("S1_soft3", dict(OFF, sun_softness=3.0)), ("W0_repeat", OFF)]
 NFRAMES = 6
@@ -113,7 +113,7 @@ def main():
     for j, vn in enumerate(VIEWS): dr.text((LAB + j * W + 6, 5), vn, fill=(230, 230, 230))
     for i, (name, props) in enumerate(CFG):
         dr.text((6, 22 + i * H + 8), name, fill=(240, 220, 90))
-        dr.text((6, 22 + i * H + 24), "s %.1f g %.1f soft %.0f" % (props["forward_scattering"], props["forward_anisotropy"],
+        dr.text((6, 22 + i * H + 24), "s %.1f g %.1f soft %.0f" % (props["ms_contribution"], props["phase_g"],
                                                                      props["sun_softness"]), fill=(200, 200, 200))
         for j, vn in enumerate(VIEWS):
             p = os.path.join(OUT, "%s_%s.png" % (name, vn))
