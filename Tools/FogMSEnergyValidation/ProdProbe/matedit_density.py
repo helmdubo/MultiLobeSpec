@@ -69,6 +69,17 @@ writes this parameter. Idempotent: both multiplies present with B <- FogMS_Froxe
 aborts without changes. On a compile error (or any failure) both properties go back to their previous sources, what the step
 created is deleted, the material is recompiled and nothing is saved. The earlier steps see through the weight multiplies
 (property_source), so a re-run on a weighted material prints ALREADY_PATCHED.
+W40 field wiring (repair_field_wiring, runs on every material, also an ALREADY_PATCHED one): the W37 patch copied the lobe's
+FieldA pin from the injection node with get_input_node_output_name_for_material_expression(node, src), which returns the output of
+the FIRST pin of `node` wired from `src`. FogMS_EmissiveInjection has Field (RGB) and FieldA (A) from the same FogMS_TransportField
+sample, so it returned 'RGB' and FogMS_ForwardLobe.FieldA read the field's RGB: S = saturate(2 J_ms.R - 1) instead of T_sun * k
+(MS Occlusion had no effect, the whole cloud near the sun glowed); the readback used the same ambiguous call and passed.
+Now every link is read definitively: custom_links() parses the node's T3D export (unreal.ObjectExporterT3D; the stored
+FExpressionInput OutputIndex of each pin, e.g. 'OutputIndex=4,Mask=1,MaskA=1' = A) and maps the index to the source's output name;
+nothing infers an output name from another pin any more (the ambiguous API is not called anywhere in this script). Field pins are
+wired by connect_output() from the FogMS_TransportField sample's named output ('A' / 'RGB') and verified the same way. The repair
+checks FIELD_PINS (lobe FieldA <- A, injection Field <- RGB and FieldA <- A, albedo FieldA <- A), rewires only a wrong pin,
+recompiles (compile_and_check) and saves; on a compile error the old links go back and nothing is saved.
 Default readback: only parameters created by this run must read back their script default; a pre-existing parameter keeps
 its material default (for example FogMS_ErosionDepth 0.3 from round 32) and is reported, since the Box MID sets it anyway.
 The material is saved once, only if a step changed it; on any error nothing is saved (reload the asset to discard memory state).
@@ -82,7 +93,9 @@ defaults evaluate exactly the V1 formula.
 """
 import glob
 import os
+import re
 import shlex
+import tempfile
 import time
 import traceback
 
@@ -361,6 +374,15 @@ WEIGHT_DEFAULT = 1.0
 WEIGHT_PREFIX = 'FogMS_FroxelWeight'
 WEIGHT_TARGETS = (('MP_SUBSURFACE_COLOR', 'FogMS_FroxelWeight extinction'), ('MP_EMISSIVE_COLOR', 'FogMS_FroxelWeight emissive'))
 
+# W40 field wiring (repair_field_wiring). The transport field sample (TextureSampleParameterVolume, FogMS_BoxVolume.cpp sets the
+# render-target volume on this parameter) and the output each Custom pin must read. Texture sample outputs: RGB 0, R 1, G 2, B 3,
+# A 4, RGBA 5 (MaterialExpressionTextureSample constructor); EMaterialValueType of a one-channel output is MCT_Float (15), of RGB
+# MCT_Float3 (4).
+FIELD_PARAM = 'FogMS_TransportField'
+FIELD_PINS = ((FORWARD_DESCRIPTION, 'FieldA', 'A'), (EMISSIVE_DESCRIPTION, 'Field', 'RGB'), (EMISSIVE_DESCRIPTION, 'FieldA', 'A'),
+              (INJECTION_ALBEDO_DESCRIPTION, 'FieldA', 'A'))
+FIELD_TYPES = {'A': 15, 'RGB': 4}
+
 mel = unreal.MaterialEditingLibrary
 
 
@@ -434,19 +456,165 @@ def find_old_node(exprs):
     return old
 
 
-def input_links(material, node):
-    """[(pin, source expression or None, source output name)] in pin order."""
+def input_sources(material, node):
+    """[(pin, source expression or None)] in pin order. No output names (see custom_links)."""
     names = list(mel.get_material_expression_input_names(node))
     sources = list(mel.get_inputs_for_material_expression(material, node))
     require(len(names) == len(sources), 'Input name/source count mismatch on ' + node.get_name())
+    return list(zip(names, sources))
+
+
+_T3D_PIN = re.compile(r'^\s*Inputs\((\d+)\)=\(InputName="([^"]*)"(.*)$')
+_T3D_SOURCE = re.compile(r'Expression="[^"\']*\'([^\']+)\'"')
+_T3D_INDEX = re.compile(r'\bOutputIndex=(\d+)')
+
+
+def export_t3d(obj):
+    """The object's T3D text (unreal.ObjectExporterT3D into a temp file): the stored property values, incl. each FExpressionInput's
+    Expression and OutputIndex (omitted when 0), e.g. Inputs(1)=(InputName="FieldA",Input=(Expression="...'M:Sample_3'",OutputIndex=4,
+    Mask=1,MaskA=1)). Read-only: nothing in the material changes."""
+    path = os.path.join(tempfile.gettempdir(), 'fogms_matedit_%s_%d.t3d' % (obj.get_name(), int(time.time() * 1000)))
+    task = unreal.AssetExportTask()
+    task.set_editor_property('object', obj)
+    task.set_editor_property('filename', path)
+    task.set_editor_property('automated', True)
+    task.set_editor_property('prompt', False)
+    task.set_editor_property('replace_identical', True)
+    task.set_editor_property('exporter', unreal.ObjectExporterT3D())
+    require(unreal.Exporter.run_asset_export_task(task) and os.path.isfile(path), 'T3D export failed for ' + obj.get_name())
+    try:
+        with open(path, 'rb') as f:
+            data = f.read()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    # UE writes ANSI when possible, UTF-16 (with BOM) otherwise.
+    return data.decode('utf-16') if data[:2] in (b'\xff\xfe', b'\xfe\xff') else data.decode('utf-8', errors='replace')
+
+
+def custom_links(material, node):
+    """[(pin, source expression or None, source output name or None, output index or None)] of a Custom node, in pin order.
+    Definitive: the output index is the pin's own stored FExpressionInput.OutputIndex (T3D export), mapped to the source's output
+    name; it is never inferred from another pin wired from the same source (get_input_node_output_name_for_material_expression
+    returns the FIRST such pin's output, which is how the W37 lobe got FieldA <- RGB). The T3D source must match the source the
+    library reports for the same pin."""
+    require(isinstance(node, unreal.MaterialExpressionCustom), node.get_name() + ' is not a Custom node')
+    pairs = input_sources(material, node)
+    parsed = {}
+    for line in export_t3d(node).splitlines():
+        m = _T3D_PIN.match(line)
+        if not m:
+            continue
+        src_m, idx_m = _T3D_SOURCE.search(m.group(3)), _T3D_INDEX.search(m.group(3))
+        parsed[int(m.group(1))] = (m.group(2), re.split(r'[:.]', src_m.group(1))[-1] if src_m else None,
+                                   int(idx_m.group(1)) if idx_m else 0)
+    require(sorted(parsed) == list(range(len(pairs))),
+            'T3D of %s lists pins %s, the node has %d inputs' % (node.get_name(), sorted(parsed), len(pairs)))
     links = []
-    for pin, src in zip(names, sources):
-        out = None
-        if src is not None:
-            out = mel.get_input_node_output_name_for_material_expression(node, src)
-            out = '' if out is None else str(out)
-        links.append((pin, src, out))
+    for i, (pin, src) in enumerate(pairs):
+        t_pin, t_src, t_index = parsed[i]
+        require(t_pin == pin, 'T3D pin %d of %s is %s, not %s' % (i, node.get_name(), t_pin, pin))
+        require((src is None) == (t_src is None) and (src is None or src.get_name() == t_src),
+                'T3D source of %s.%s is %s, the library reports %s' % (node.get_name(), pin, t_src, src.get_name() if src else None))
+        if src is None:
+            links.append((pin, None, None, None))
+            continue
+        outputs = [str(o) for o in mel.get_material_expression_output_names(src)]
+        require(0 <= t_index < len(outputs), '%s.%s reads output %d of %s, which has %d outputs' % (
+            node.get_name(), pin, t_index, src.get_name(), len(outputs)))
+        links.append((pin, src, outputs[t_index], t_index))
     return links
+
+
+def input_links(material, node):
+    """[(pin, source expression or None, source output name)] of a Custom node in pin order (custom_links, definitive)."""
+    return [(pin, src, out) for pin, src, out, _ in custom_links(material, node)]
+
+
+def verify_links(material, node, links):
+    """Definitive readback after wiring: every (pin, source, output name) in `links` must be what `node` stores."""
+    stored = dict((pin, (src, out)) for pin, src, out, _ in custom_links(material, node))
+    for pin, src, out in links:
+        got = stored.get(pin)
+        require(got is not None and got[0] == src and got[1] == out, 'Readback mismatch on %s.%s: stored %s.%s, wanted %s.%s' % (
+            node.get_name(), pin, got[0].get_name() if got and got[0] else None, got[1] if got else None, src.get_name(), out))
+
+
+def find_field_sample(exprs):
+    """The FogMS_TransportField texture sample (exactly one)."""
+    found = [e for e in exprs if isinstance(e, unreal.MaterialExpressionTextureSampleParameterVolume)
+             and str(e.get_editor_property('parameter_name')) == FIELD_PARAM]
+    require(len(found) == 1, 'Expected one %s sample, found %d' % (FIELD_PARAM, len(found)))
+    return found[0]
+
+
+def connect_output(material, src, output, node, pin):
+    """Explicit-output wiring: src's output named `output` (it must exist on src; '' only for a single-output source) -> node.pin,
+    then a definitive readback of that pin (custom_links)."""
+    outputs = [str(o) for o in mel.get_material_expression_output_names(src)]
+    require(output in outputs, '%s has no output %r (outputs %s)' % (src.get_name(), output, outputs))
+    require(output != '' or len(outputs) == 1, 'Output name required on multi-output %s (%s)' % (src.get_name(), outputs))
+    require(mel.connect_material_expressions(src, output, node, pin), 'Cannot wire %s.%s -> %s.%s' % (src.get_name(), output, node.get_name(), pin))
+    verify_links(material, node, [(pin, src, output)])
+
+
+def field_pin_report(material, exprs):
+    """[(description, pin, wanted output, node, stored source, stored output name, stored index, source value type)] for FIELD_PINS
+    (lobe absent: skipped)."""
+    field = find_field_sample(exprs)
+    rows = []
+    for desc, pin, want in FIELD_PINS:
+        found = [e for e in custom_nodes(exprs) if str(e.get_editor_property('description')) == desc]
+        if desc == FORWARD_DESCRIPTION and not found:
+            continue
+        require(len(found) == 1, 'Expected one Custom node %s, found %d' % (desc, len(found)))
+        node = found[0]
+        link = dict((p, (s, o, i)) for p, s, o, i in custom_links(material, node)).get(pin)
+        require(link is not None, '%s has no pin %s' % (node.get_name(), pin))
+        types = dict(zip(mel.get_material_expression_input_names(node), mel.get_material_expression_input_types(node)))
+        rows.append((desc, pin, want, node, link[0], link[1], link[2], types.get(pin)))
+    return field, rows
+
+
+def repair_field_wiring(material):
+    """W40: every FIELD_PINS pin reads its wanted output of the FogMS_TransportField sample (module docstring). Idempotent: a pin
+    that already stores (field sample, wanted output) is left alone. Returns True if it rewired; the caller saves. A compile error
+    (or any failure) puts the old links back, recompiles and raises (nothing saved)."""
+    exprs = expressions(material)
+    field, rows = field_pin_report(material, exprs)
+    wrong = [r for r in rows if not (r[4] == field and r[5] == r[2])]
+    for desc, pin, want, node, src, out, index, vtype in rows:
+        print('FIELD_PIN %s.%s <- %s.%s (index %s, value type %s)%s' % (desc, pin, src.get_name() if src else None, out, index, vtype,
+              '' if (src == field and out == want) else '  WRONG: want %s.%s' % (field.get_name(), want)))
+    if not wrong:
+        print('FIELD_WIRING ok (%d pins)' % len(rows))
+        return False
+    done = []
+    try:
+        for desc, pin, want, node, src, out, index, vtype in wrong:
+            connect_output(material, field, want, node, pin)
+            done.append((node, pin, src, out))
+        for desc, pin, want, node, src, out, index, vtype in field_pin_report(material, expressions(material))[1]:
+            require(src == field and out == want and vtype == FIELD_TYPES[want],
+                    'After repair %s.%s <- %s.%s type %s' % (desc, pin, src.get_name() if src else None, out, vtype))
+        errors, note = compile_and_check(material, 'FOGMS_MATEDIT_FIELD_%d' % int(time.time() * 1000))
+        print('COMPILE field wiring:', note)
+        require(not errors, 'Compile errors: %s' % errors)
+    except Exception:
+        print('ROLLBACK', traceback.format_exc())
+        for node, pin, src, out in reversed(done):
+            if src is not None:
+                mel.connect_material_expressions(src, out, node, pin)
+            else:
+                mel.disconnect_material_expressions(node, pin)
+        mel.recompile_material(material)
+        print('NOT SAVED; the field pins are back on their previous links (unsaved in-memory state, reload the asset to discard).')
+        raise
+    print('FIELD_WIRING repaired: %s' % ', '.join('%s.%s <- %s.%s (was %s.%s)' % (d, p, field.get_name(), w, s.get_name() if s else None, o)
+                                               for d, p, w, n, s, o, i, t in wrong))
+    return True
 
 
 def weight_node_for(material, prop):
@@ -463,7 +631,7 @@ def property_source(material, prop):
     weight = weight_node_for(material, prop)
     if weight is None:
         return mel.get_material_property_input_node(material, getattr(unreal.MaterialProperty, prop))
-    return dict((pin, src) for pin, src, _ in input_links(material, weight)).get('A')
+    return dict(input_sources(material, weight)).get('A')
 
 
 def route_property(material, node, prop):
@@ -480,7 +648,7 @@ def consumers_of(material, exprs, target):
     for e in exprs:
         if e == target:
             continue
-        for pin, src, _ in input_links(material, e):
+        for pin, src in input_sources(material, e):
             if src == target:
                 pins.append((e, pin))
     for prop in PROPERTIES:
@@ -500,9 +668,9 @@ def summary(material, exprs):
         for node in footprint:
             for pin, src, out in input_links(material, node):
                 print('  FOOTPRINT %s.%-14s <- %s.%s' % (node.get_name(), pin, src.get_name() if src else None, out))
-        base = dict((pin, src) for pin, src, _ in input_links(material, v3)).get('Noise')
+        base = dict(input_sources(material, v3)).get('Noise')
         if base is not None and isinstance(base, unreal.MaterialExpressionTextureSample):
-            links = [(pin, src.get_name() if src else None) for pin, src, _ in input_links(material, base)]
+            links = [(pin, src.get_name() if src else None) for pin, src in input_sources(material, base)]
             print('  BASE SAMPLE %s mip_value_mode=%s inputs=%s' % (base.get_name(), base.get_editor_property('mip_value_mode'), links))
         for name, _, _ in V3_SCALARS:
             print('  PARAM %s = %s' % (name, mel.get_material_default_scalar_parameter_value(material, name)))
@@ -533,10 +701,10 @@ def summary(material, exprs):
             print('  FORWARD IN %-12s <- %s.%s' % (pin, src.get_name() if src else None, out))
         for name, _, _ in FORWARD_SCALARS:
             print('  PARAM %s = %s' % (name, mel.get_material_default_scalar_parameter_value(material, name)))
-        # Output value type of each pin's source (EMaterialValueType: 15 = one channel, 4 = float3). get_input_node_output_name
-        # returns the first pin wired to a source, so it cannot tell Field (RGB) from FieldA (A) of the same field sample.
-        types = dict(zip(mel.get_material_expression_input_names(forward), mel.get_material_expression_input_types(forward)))
-        print('  FORWARD FieldA source value type %s (15 = alpha, 4 = RGB)' % types.get('FieldA'))
+    # Field pins, definitive (T3D OutputIndex per pin) with the source value type (EMaterialValueType: 15 = one channel, 4 = float3).
+    for desc, pin, want, node, src, out, index, vtype in field_pin_report(material, exprs)[1]:
+        print('  FIELD %s.%s <- %s.%s (index %s, value type %s)%s' % (desc, pin, src.get_name() if src else None, out, index, vtype,
+                                                                    '' if out == want else '  WRONG: want ' + want))
     for prop, _ in WEIGHT_TARGETS:
         node = weight_node_for(material, prop)
         print('  FROXEL_WEIGHT %s: %s' % (prop, ('%s = %s * %s' % (node.get_name(), property_source(material, prop).get_name(), WEIGHT_PARAM))
@@ -623,13 +791,12 @@ def set_custom_inputs(node, pins):
     node.set_editor_property('inputs', items)
 
 
-def wire_inputs(node, links):
-    """Connects (pin, source expression, source output name) to `node` and checks each readback."""
+def wire_inputs(material, node, links):
+    """Connects (pin, source expression, source output name) to `node`, then a definitive readback of every pin (verify_links)."""
     for pin, src, out in links:
         require(mel.connect_material_expressions(src, out, node, pin),
                 'Cannot wire %s.%s -> %s.%s' % (src.get_name(), out, FORWARD_DESCRIPTION, pin))
-        back = mel.get_input_node_output_name_for_material_expression(node, src)
-        require(back is not None and str(back) == out, 'Readback mismatch on pin %s: %s != %s' % (pin, back, out))
+    verify_links(material, node, links)
 
 
 def upgrade_forward_lobe_v1(material, exprs, node):
@@ -648,6 +815,10 @@ def upgrade_forward_lobe_v1(material, exprs, node):
                     'Ambiguous unnamed output on %s (pin %s)' % (src.get_name(), pin))
     ecc_name, ecc_default, ecc_pin = FORWARD_SCALARS[-1]
     print('%s v1 inputs: %s' % (node.get_name(), [(pin, src.get_name(), out) for pin, src, out in links]))
+    # W40: FieldA is wired from the field sample's alpha explicitly, whatever the v1 node stored (W37 stored RGB); the rollback
+    # restores the recorded v1 links exactly.
+    field = find_field_sample(exprs)
+    new_links = [(pin, field, 'A') if pin == 'FieldA' else (pin, src, out) for pin, src, out in links]
 
     old_code = str(node.get_editor_property('code'))
     created = []
@@ -663,7 +834,7 @@ def upgrade_forward_lobe_v1(material, exprs, node):
             param.set_editor_property('group', 'FogMS')
         set_custom_inputs(node, FORWARD_INPUTS)
         node.set_editor_property('code', FORWARD_LOBE_CODE_V2)
-        wire_inputs(node, links + [(ecc_pin, param, '')])
+        wire_inputs(material, node, new_links + [(ecc_pin, param, '')])
         require(list(mel.get_material_expression_input_names(node)) == list(FORWARD_INPUTS), 'Forward-lobe v2 pin list mismatch')
         require(forward_lobe_version(node) == 'v2', 'Code readback is not v2')
         require(property_source(material, 'MP_EMISSIVE_COLOR') == node, 'MP_EMISSIVE_COLOR no longer fed by the lobe')
@@ -721,6 +892,8 @@ def patch_forward_lobe(material):
     print('%s consumers: pins=%s props=%s; FieldA <- %s.%s, Mode <- %s.%s' % (
         emissive.get_name(), [(e.get_name(), p) for e, p in pins], props, sources['FieldA'][0].get_name(), sources['FieldA'][1],
         sources['Mode'][0].get_name(), sources['Mode'][1]))
+    # W40: the lobe's FieldA comes from the field sample's alpha by name, never copied from another node's pin.
+    field = find_field_sample(exprs)
 
     created = []
     x, y = mel.get_material_expression_node_position(emissive)
@@ -746,10 +919,10 @@ def patch_forward_lobe(material):
         lobe.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT3)
         lobe.set_editor_property('description', FORWARD_DESCRIPTION)
         set_custom_inputs(lobe, FORWARD_INPUTS)
-        links = ([('Emissive', emissive, ''), ('FieldA',) + sources['FieldA'], ('Mode',) + sources['Mode']] + params
+        links = ([('Emissive', emissive, ''), ('FieldA', field, 'A'), ('Mode',) + sources['Mode']] + params
                  + [('CameraVector', camera, '')])
         require(sorted(pin for pin, _, _ in links) == sorted(FORWARD_INPUTS), 'Forward-lobe pin list mismatch')
-        wire_inputs(lobe, links)
+        wire_inputs(material, lobe, links)
         require(route_property(material, lobe, 'MP_EMISSIVE_COLOR'), 'Cannot route FogMS_ForwardLobe -> MP_EMISSIVE_COLOR')
         require(property_source(material, 'MP_EMISSIVE_COLOR') == lobe, 'MP_EMISSIVE_COLOR readback mismatch')
 
@@ -778,7 +951,7 @@ def patch_froxel_weight(material):
     if all(node is not None for _, node in present):
         require(param is not None, 'Froxel-weight multiplies exist but %s is missing; fix the graph by hand' % WEIGHT_PARAM)
         for prop, node in present:
-            links = dict((pin, src) for pin, src, _ in input_links(material, node))
+            links = dict(input_sources(material, node))
             require(links.get('B') == param and links.get('A') is not None,
                     '%s (%s) is not A * %s; fix the graph by hand (no change made)' % (node.get_name(), prop, WEIGHT_PARAM))
         print('FROXEL_WEIGHT already patched (%s)' % ', '.join('%s <- %s' % (prop, node.get_name()) for prop, node in present))
@@ -856,6 +1029,7 @@ def main():
     changed = patch_extinction_v3(material) or changed
     changed = patch_injection_albedo(material) or changed
     changed = patch_forward_lobe(material) or changed
+    changed = repair_field_wiring(material) or changed   # W40: lobe FieldA <- field A (was RGB since W37)
     changed = patch_froxel_weight(material) or changed
     if changed:
         # Exact defaults only for parameters this run created. A pre-existing one keeps its material default (the Box MID
@@ -933,11 +1107,11 @@ def patch_extinction(material):
             item.set_editor_property('input_name', pin)
             inputs.append(item)
         new.set_editor_property('inputs', inputs)
-        for pin, src, out in old_links + [(p, n, o) for n, o, p in params]:
+        new_links = old_links + [(p, n, o) for n, o, p in params]
+        for pin, src, out in new_links:
             require(mel.connect_material_expressions(src, out, new, pin),
                     'Cannot wire %s.%s -> FogMS_Extinction.%s' % (src.get_name(), out, pin))
-            back = mel.get_input_node_output_name_for_material_expression(new, src)
-            require(back is not None and str(back) == out, 'Readback mismatch on pin %s: %s != %s' % (pin, back, out))
+        verify_links(material, new, new_links)   # definitive per-pin readback (T3D), W40
         # Same source types on the carried-over pins as on the V1 node.
         old_types = dict(zip(mel.get_material_expression_input_names(old), mel.get_material_expression_input_types(old)))
         new_types = dict(zip(mel.get_material_expression_input_names(new), mel.get_material_expression_input_types(new)))
@@ -1132,8 +1306,7 @@ def patch_extinction_v3(material):
         for pin, src, out in new_links:
             require(mel.connect_material_expressions(src, out, new, pin),
                     'Cannot wire %s.%s -> FogMS_Extinction_v3.%s' % (src.get_name(), out, pin))
-            back = mel.get_input_node_output_name_for_material_expression(new, src)
-            require(back is not None and str(back) == out, 'Readback mismatch on pin %s: %s != %s' % (pin, back, out))
+        verify_links(material, new, new_links)   # definitive per-pin readback (T3D), W40
         v2_types = dict(zip(mel.get_material_expression_input_names(v2), mel.get_material_expression_input_types(v2)))
         v3_types = dict(zip(mel.get_material_expression_input_names(new), mel.get_material_expression_input_types(new)))
         require(all(v2_types[p] == v3_types[p] for p in V2_INPUTS), 'Carried-over input types differ')
@@ -1189,7 +1362,19 @@ def patch_extinction_v3(material):
     return True
 
 
+def report():
+    """Read-only: the summary (incl. the definitive field pins) of the material as it is; changes and saves nothing."""
+    material = unreal.load_asset(MATERIAL_PATH)
+    require(material is not None and isinstance(material, unreal.Material), 'Material not found: ' + MATERIAL_PATH)
+    summary(material, expressions(material))
+    print('REPORT_ONLY (nothing changed)')
+
+
 try:
-    main()
+    # FOGMS_MATEDIT_MODE=report (set in the editor's environment by the caller): summary only, no patch, no save.
+    if os.environ.get('FOGMS_MATEDIT_MODE', '') == 'report':
+        report()
+    else:
+        main()
 except Exception:
     print('TRACE', traceback.format_exc())
