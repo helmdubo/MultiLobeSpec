@@ -71,6 +71,9 @@ INSIDE_FRZ = [("cur_frz", 0), ("p1_frz", 0), ("p1_m1_frz", 0), ("p1_d1_frz", 0)]
 V.update({"cur_w0": ("froxel", {"wind_speed": 0.0}, None), "p1_w0": ("cloud", {"wind_speed": 0.0}, "p1"),
           "cur_w0_td": ("froxel", {"wind_speed": 0.0}, None, TD), "p1_w0_td": ("cloud", {"wind_speed": 0.0}, "p1", TD)})
 PLAN_W0 = [("cur_w0", 2), ("p1_w0", 2), ("cur_w0_td", 1), ("p1_w0_td", 2)]
+# Second repeats and the wind-0 pair of the steadiest animated host (D 5 km: step 6.5 m) found in the _td series.
+V.update({"p1_d5_w0_td": ("cloud", {"wind_speed": 0.0}, "p1_d5", TD)})
+PLAN_EXTRA = [("p1_d5_td", 2), ("cur_w0_td", 2), ("p1_d5_w0_td", 2)]
 # look configs: (name, mode, Box MID vector overrides, cloud MID scalar overrides[, Box MID scalar overrides]).
 # W38_nolobe / P1_nolobe / P1_iso_nolobe compare the renderers without the forward lobe (the Box's lobe reads the field's RGB,
 # not its alpha: see matedit_density.py summary 'FORWARD FieldA source value type'); P1_iso = the cloud's sun single scattering
@@ -445,6 +448,18 @@ def look_metrics():
                     e["rim_core_%s" % c] = round(float(own[edge].mean() / max(own[core].mean(), 1e-3)), 3)
                     e["px_edge_core_%s" % c] = [int(edge.sum()), int(core.sum())]
             e["alpha_mean"] = {c: round(float(np.nanmean(alpha[c])), 3) for c in alpha}
+        # Rim / core on the SAME geometry for every render: masks from the cloud's opacity (P1_black is black in the core, a valid
+        # opacity; the froxel albedo-0 render is not: see blackdiag.json), thin edge 0.1 <= a <= 0.5, core a >= 0.9. 'lit' ratio
+        # uses the lit luminance; 'own' first removes the background seen through the edge, boxoff * (1 - a).
+        if "P1" in alpha:
+            a = alpha["P1"]; edge = (a >= 0.1) & (a <= 0.5); core = a >= 0.9
+            if edge.sum() > 200 and core.sum() > 200:
+                for c in ("W38", "W38_nolobe", "P1", "P1_nolobe", "P1_g2", "P1_iso", "P1_iso_nolobe", "P1_nofield"):
+                    if c not in lit: continue
+                    own = lit[c] - off * (1.0 - np.nan_to_num(a))
+                    e["rimgeo_lit_%s" % c] = round(float(lit[c][edge].mean() / max(lit[c][core].mean(), 1e-3)), 3)
+                    e["rimgeo_own_%s" % c] = round(float(own[edge].mean() / max(own[core].mean(), 1e-3)), 3)
+                e["rimgeo_px"] = [int(edge.sum()), int(core.sum())]
         cap = res.get("cap", {})
         e["flicker"] = {c: (round(cap["%s|%s" % (c, vn)]["flicker_abs"], 3) if cap.get("%s|%s" % (c, vn), {}).get("flicker_abs") is not None else None)
                         for c in ("W38", "P1", "P1_rep", "W38_rep")}
@@ -514,6 +529,54 @@ def cost(owner):
         freeze(False, owner)
 
 
+# ------------------------------------------------------------------ froxel albedo-0 diagnostic
+BLACKDIAG = [("lit", {}, {}), ("alb0", {"FogMS_Albedo": (0, 0, 0, 1)}, {}),
+             ("alb0_mode0", {"FogMS_Albedo": (0, 0, 0, 1)}, {"FogMS_InjectionMode": 0.0}),
+             ("alb0_lobe0", {"FogMS_Albedo": (0, 0, 0, 1)}, {"FogMS_ForwardStrength": 0.0}),
+             ("mode0", {}, {"FogMS_InjectionMode": 0.0}), ("weight0", {}, {"FogMS_FroxelWeight": 0.0})]
+
+
+def blackdiag(owner):
+    """Froxel mode, owner view, Box frozen: why the albedo-0 froxel render stays grey (look series W38_black). Each config sets
+    Box MID parameters directly (vectors / scalars), 4 frames, mean luminance over the look ROI of the owner view."""
+    from PIL import Image
+    alb = owner["extra"]["box_mid_vector"]["FogMS_Albedo"]
+    freeze(True, owner); S.mode("froxel"); set_cam(*owner["camera"]); time.sleep(8.0)
+    off = _lum(os.path.join(LOOKDIR, "boxoff_owner.png")); lit = _lum(os.path.join(LOOKDIR, "W38_owner.png"))
+    roi = np.abs(lit - off) > 4
+    out = {}
+    base_sc = {"FogMS_InjectionMode": None, "FogMS_ForwardStrength": None}
+    got = last = None
+    try:
+        cur = S.last_json(d.py(S.FIND + "print('SC '+json.dumps({p: bmid.get_scalar_parameter_value(p) for p in ('FogMS_InjectionMode','FogMS_ForwardStrength')}))"), "SC")
+        base_sc.update(cur)
+        for name, vec, sc in BLACKDIAG:
+            code = S.FIND + "bmid.set_vector_parameter_value('FogMS_Albedo', unreal.LinearColor(%r, %r, %r, %r))\n" % tuple(float(c) for c in vec.get("FogMS_Albedo", alb))
+            for p in ("FogMS_InjectionMode", "FogMS_ForwardStrength"):
+                code += "bmid.set_scalar_parameter_value(%r, %r)\n" % (p, float(sc.get(p, base_sc[p])))
+            code += "st=getattr(unreal,'_p1_state',None)\nif st is not None: st['weight']=%r\n" % float(sc.get("FogMS_FroxelWeight", 1.0))
+            code += "bmid.set_scalar_parameter_value('FogMS_FroxelWeight', %r)\nprint('SET ok')" % float(sc.get("FogMS_FroxelWeight", 1.0))
+            d.py(code); time.sleep(5.0)
+            nm = "blackdiag_%s" % name
+            capture(nm, 4)
+            F = d.load(nm).astype(np.float32)[-2:].mean(axis=0)
+            Image.fromarray(np.clip(F, 0, 255).astype(np.uint8)).save(os.path.join(LOOKDIR, "blackdiag_%s.png" % name))
+            Lm = F.mean(axis=2)
+            out[name] = {"roi_mean": round(float(Lm[roi].mean()), 2), "roi_rgb": [round(float(F[..., c][roi].mean()), 1) for c in range(3)]}
+            print("BLACKDIAG", name, out[name], flush=True)
+    finally:
+        code = S.FIND + "bmid.set_vector_parameter_value('FogMS_Albedo', unreal.LinearColor(%r, %r, %r, %r))\n" % tuple(float(c) for c in alb)
+        for p in ("FogMS_InjectionMode", "FogMS_ForwardStrength"):
+            if base_sc[p] is not None:
+                code += "bmid.set_scalar_parameter_value(%r, %r)\n" % (p, float(base_sc[p]))
+        code += "print('RESET ok')"
+        d.py(code)
+        freeze(False, owner)
+    out["boxoff_roi_mean"] = round(float(off[roi].mean()), 2)
+    _atomic_dump(out, os.path.join(RES, "blackdiag.json"))
+    return out
+
+
 # ------------------------------------------------------------------ smoke
 def smoke(owner):
     from PIL import Image
@@ -561,7 +624,7 @@ def wobble_cloud(name, off, tile=64):
             s = Lm[:, y:y + tile, x:x + tile][:, mm].mean(axis=1)
             r = (s - savgol_filter(s, 21, 2))[3:-3]
             res.append(float(np.sqrt((r ** 2).mean())))
-    out = {"cloud_frac": round(float(mask.mean()), 3), "wob_cloud_tiles": len(res)}
+    out = {"cloud_frac": round(float(mask.mean()), 3), "wob_cloud_tiles": len(res), "wob_cloud_med": None, "wob_cloud_p75": None}
     if res:
         out.update({"wob_cloud_med": round(float(np.median(res)), 3), "wob_cloud_p75": round(float(np.percentile(res, 75)), 3)})
     return out
@@ -587,7 +650,7 @@ def summary():
              "of the frame; the field drifts between runs), d2b = d2 of the 9x9-blurred frame. anim = density animation time per captured",
              "frame (s; live runs ~0.155 = the PNG-dump frame rate, _td runs x%.2f world time dilation)." % TD,
              "variant      rep |  static wob  wob_cloud   cov   d2b |  W wob   d2b  |  D wob   d2b  | anim  | host / status"]
-    for variant, reps in PLAN + [(best_variant(), 2)] + PLAN_TD + [(best_variant(True), 2)] + PLAN_W0:
+    for variant, reps in PLAN + [(best_variant(), 2)] + PLAN_TD + [(best_variant(True), 2)] + PLAN_W0 + PLAN_EXTRA:
         for rep in range(reps):
             ks = {D: res.get(key(variant, D, rep)) for D in DIRS}
             if not any(ks.values()): continue
@@ -625,7 +688,7 @@ TABLE_ROWS = [("boxoff", "Box off (weight 0), floor"), ("cur", "froxels, live an
               ("p1_m1", "cloud Mode 1, live"), ("cur_td", "froxels, anim 20 cm/frame"), ("p1_td", "cloud p1, anim 20 cm/fr"),
               ("p1_d1_td", "cloud d1, anim 20 cm/fr"), ("p1_d5_td", "cloud d5 (6.5 m), 20 cm/fr"), ("p1_m1_td", "cloud Mode 1, 20 cm/fr"),
               ("cur_w0", "froxels, wind 0, live"), ("p1_w0", "cloud p1, wind 0, live"), ("cur_w0_td", "froxels, wind 0, 20 cm/fr"),
-              ("p1_w0_td", "cloud p1, wind 0, 20 cm/fr")]
+              ("p1_w0_td", "cloud p1, wind 0, 20 cm/fr"), ("p1_d5_w0_td", "cloud d5, wind 0, 20 cm/fr")]
 
 
 def table_rows(res):
@@ -720,6 +783,7 @@ def main(cmd):
     begin(owner)
     try:
         if cmd == "smoke": smoke(owner)
+        if cmd == "blackdiag": print(json.dumps(blackdiag(owner), indent=1), flush=True)
         if cmd in ("series", "all"): series(owner)
         if cmd in ("series_td", "all"): series(owner, td=True)
         if cmd in ("inside_frz", "all"):
@@ -729,12 +793,16 @@ def main(cmd):
             for variant, reps in PLAN_W0:
                 for rep in range(reps):
                     run(variant, rep, DIRS, owner)
+        if cmd in ("extra", "all"):
+            for variant, reps in PLAN_EXTRA:
+                for rep in range(reps):
+                    run(variant, rep, DIRS, owner)
         if cmd in ("look", "all"): look(owner)
         if cmd in ("cost", "all"): cost(owner)
         if cmd in ("best", "all"): print("BEST", best(owner), best(owner, td=True), flush=True)
     finally:
         end(owner)
-    if cmd in ("series", "series_td", "inside_frz", "series_w0", "look", "cost", "best", "all"):
+    if cmd in ("series", "series_td", "inside_frz", "series_w0", "extra", "look", "cost", "best", "all"):
         summary()
 
 
