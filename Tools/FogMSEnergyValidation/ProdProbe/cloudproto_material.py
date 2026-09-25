@@ -374,10 +374,13 @@ def main():
     else:
         print('REBUILD %s: graph differs from %s' % (MATERIAL_PATH, MARKER))
         mel.delete_all_material_expressions(material)
-    material.set_editor_property('material_domain', unreal.MaterialDomain.MD_VOLUME)
+    # Blend mode before the domain: a new material is Opaque, and Volume + Opaque logs 'Failed to compile Material ... Volume
+    # materials must use an Additive blend mode' for the intermediate state (seen in the first build, round 39).
     material.set_editor_property('blend_mode', unreal.BlendMode.BLEND_ADDITIVE)
     material.set_editor_property('shading_model', unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
-    mel.set_material_usage(material, unreal.MaterialUsage.MATUSAGE_VOLUMETRIC_CLOUD)
+    material.set_editor_property('material_domain', unreal.MaterialDomain.MD_VOLUME)
+    usage = getattr(mel, 'set_base_material_usage', None) or mel.set_material_usage
+    usage(material, unreal.MaterialUsage.MATUSAGE_VOLUMETRIC_CLOUD)
     require(mel.has_material_usage(material, unreal.MaterialUsage.MATUSAGE_VOLUMETRIC_CLOUD), 'Used with Volumetric Cloud not set')
     build(material, extinction_code, lobe_code)
     errors, note = compile_and_check(material, 'FOGMS_CLOUDPROTO_%d' % int(time.time() * 1000))
