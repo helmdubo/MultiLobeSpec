@@ -1,0 +1,288 @@
+{
+ "views": {
+  "mine": [
+   [
+    -7630.240509782841,
+    -9138.30897256058,
+    2397.531605187931
+   ],
+   [
+    8.200002074241638,
+    49.93853524327278,
+    0.0
+   ]
+  ],
+  "against": [
+   [
+    -11532.044985267994,
+    -10914.706872579107,
+    3000.0
+   ],
+   [
+    4.0,
+    50.158264373361796,
+    0.0
+   ]
+  ],
+  "front": [
+   [
+    11532.044985267996,
+    16726.706872579103,
+    3500.0
+   ],
+   [
+    -2.0,
+    -129.8417356266382,
+    0.0
+   ]
+  ]
+ },
+ "sun": [
+  -139.8417356266382,
+  32.447972204999886
+ ],
+ "cap": {
+  "B_bg|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BC992F9E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_alb0|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BFDEB2720) {r: 0.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (injection-only: no BindlessAll; overla"
+  },
+  "B_lit|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BC99F15E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_nat|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025B07EE40E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_lit_g08|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BFDEB2CE0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (injection-only: no BindlessAll; overla"
+  },
+  "B_bg_dl|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BFDEB2CE0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_dl|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BFDEB2720) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_bg|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BFDEB2720) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (injection-only: no BindlessAll; overla"
+  },
+  "B_alb0|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025B07EE40E0) {r: 0.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (injection-only: no BindlessAll; overla"
+  },
+  "B_lit|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BA7739020) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_nat|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BA8DB97A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_lit_g08|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BC99F15E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (injection-only: no BindlessAll; overla"
+  },
+  "B_bg_dl|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BFDEB2720) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (injection-only: no BindlessAll; overla"
+  },
+  "B_dl|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025B07EE40E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_bg|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025B07EE40E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_alb0|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BA8DB97A0) {r: 0.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (injection-only: no BindlessAll; overla"
+  },
+  "B_lit|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BC99F15E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_nat|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BFDEB2720) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_lit_g08|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BA7739020) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  },
+  "B_bg_dl|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025B07EE40E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) (injection-only: no BindlessAll; overla"
+  },
+  "B_dl|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x0000025BA8DB97A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no Bindles"
+  }
+ },
+ "metrics": {
+  "mine": {
+   "roi_frac": 0.199,
+   "B_bg": 151.57,
+   "B_alb0": 42.7,
+   "B_lit": 170.57,
+   "B_nat": 209.08,
+   "B_lit_g08": 186.09,
+   "B_bg_dl": 151.99,
+   "B_dl": 199.47,
+   "B_bg_x": 0.889,
+   "B_alb0_x": 0.25,
+   "B_lit_x": 1.0,
+   "B_nat_x": 1.226,
+   "B_lit_g08_x": 1.091,
+   "B_bg_dl_x": 0.891,
+   "B_dl_x": 1.169
+  },
+  "against": {
+   "roi_frac": 0.196,
+   "B_bg": 152.57,
+   "B_alb0": 45.85,
+   "B_lit": 171.18,
+   "B_nat": 206.1,
+   "B_lit_g08": 186.51,
+   "B_bg_dl": 153.27,
+   "B_dl": 197.25,
+   "B_bg_x": 0.891,
+   "B_alb0_x": 0.268,
+   "B_lit_x": 1.0,
+   "B_nat_x": 1.204,
+   "B_lit_g08_x": 1.09,
+   "B_bg_dl_x": 0.895,
+   "B_dl_x": 1.152
+  },
+  "front": {
+   "roi_frac": 0.13,
+   "B_bg": 127.43,
+   "B_alb0": 26.87,
+   "B_lit": 165.13,
+   "B_nat": 209.33,
+   "B_lit_g08": 156.59,
+   "B_bg_dl": 127.86,
+   "B_dl": 193.86,
+   "B_bg_x": 0.772,
+   "B_alb0_x": 0.163,
+   "B_lit_x": 1.0,
+   "B_nat_x": 1.268,
+   "B_lit_g08_x": 0.948,
+   "B_bg_dl_x": 0.774,
+   "B_dl_x": 1.174
+  }
+ }
+}

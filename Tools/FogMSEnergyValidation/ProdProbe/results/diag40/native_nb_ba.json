@@ -1,0 +1,288 @@
+{
+ "views": {
+  "mine": [
+   [
+    -7630.240509782841,
+    -9138.30897256058,
+    2397.531605187931
+   ],
+   [
+    8.200002074241638,
+    49.93853524327278,
+    0.0
+   ]
+  ],
+  "against": [
+   [
+    -11532.044985267994,
+    -10914.706872579107,
+    3000.0
+   ],
+   [
+    4.0,
+    50.158264373361796,
+    0.0
+   ]
+  ],
+  "front": [
+   [
+    11532.044985267996,
+    16726.706872579103,
+    3500.0
+   ],
+   [
+    -2.0,
+    -129.8417356266382,
+    0.0
+   ]
+  ]
+ },
+ "sun": [
+  -139.8417356266382,
+  32.447972204999886
+ ],
+ "cap": {
+  "B_bg|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414B7714E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_alb0|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414D5015E0) {r: 0.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_lit|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414C3B4C20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_nat|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414C1E2C20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_lit_g08|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414B7713A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_bg_dl|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414D5015E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_dl|mine": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414C3B4C20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_bg|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414C1E2C20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_alb0|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414B7713A0) {r: 0.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_lit|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414D5015E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_nat|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414C3B4C20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_lit_g08|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414C1E2C20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_bg_dl|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414B7713A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_dl|against": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414D5015E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_bg|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414C3B4C20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_alb0|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414C1E2C20) {r: 0.000000, g: 0.000000, b: 0.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_lit|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414B7713A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_nat|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414D5015E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector averag"
+  },
+  "B_lit_g08|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414C3B4C20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_bg_dl|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 0.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414C1E2C20) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  },
+  "B_dl|front": {
+   "frames": 4,
+   "mid": {
+    "weight": 1.0,
+    "mode": 2.0,
+    "albedo": "<Struct 'LinearColor' (0x000002414B7713A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap s"
+  }
+ },
+ "metrics": {
+  "mine": {
+   "roi_frac": 0.199,
+   "B_bg": 151.45,
+   "B_alb0": 42.65,
+   "B_lit": 168.48,
+   "B_nat": 173.01,
+   "B_lit_g08": 178.53,
+   "B_bg_dl": 151.85,
+   "B_dl": 187.79,
+   "B_bg_x": 0.899,
+   "B_alb0_x": 0.253,
+   "B_lit_x": 1.0,
+   "B_nat_x": 1.027,
+   "B_lit_g08_x": 1.06,
+   "B_bg_dl_x": 0.901,
+   "B_dl_x": 1.115
+  },
+  "against": {
+   "roi_frac": 0.196,
+   "B_bg": 152.48,
+   "B_alb0": 45.74,
+   "B_lit": 168.98,
+   "B_nat": 172.52,
+   "B_lit_g08": 178.69,
+   "B_bg_dl": 153.19,
+   "B_dl": 186.46,
+   "B_bg_x": 0.902,
+   "B_alb0_x": 0.271,
+   "B_lit_x": 1.0,
+   "B_nat_x": 1.021,
+   "B_lit_g08_x": 1.057,
+   "B_bg_dl_x": 0.907,
+   "B_dl_x": 1.103
+  },
+  "front": {
+   "roi_frac": 0.129,
+   "B_bg": 127.41,
+   "B_alb0": 26.83,
+   "B_lit": 162.2,
+   "B_nat": 173.51,
+   "B_lit_g08": 156.33,
+   "B_bg_dl": 127.88,
+   "B_dl": 181.46,
+   "B_bg_x": 0.786,
+   "B_alb0_x": 0.165,
+   "B_lit_x": 1.0,
+   "B_nat_x": 1.07,
+   "B_lit_g08_x": 0.964,
+   "B_bg_dl_x": 0.788,
+   "B_dl_x": 1.119
+  }
+ }
+}

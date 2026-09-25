@@ -2,8 +2,10 @@
 """Round 40 (W40) driver. Defect 1: M_FogMS_Density's FogMS_ForwardLobe.FieldA read the transport field's RGB (index 0) instead
 of its alpha (index 4) since the W37 patch, so the lobe's sun share was S = saturate(2 J_ms.R - 1) instead of T_sun * k and MS
 Occlusion did nothing. Look captures before ('old') and after ('fixed') the matedit_density.py repair. Defect 2: the froxel Box
-shows no native single scattering (round 39 blackdiag: albedo 0 == injection mode 0 == 106.8 at the owner view): diagnostic
-series, one candidate at a time.
+seemed to show no native single scattering (round 39 blackdiag: albedo 0 == injection mode 0 == 106.8 at the owner view):
+diagnostic series, one candidate at a time. Result: the owner's FourPanes perspective viewport is in Detail Lighting
+(OverrideDiffuseAndSpecular), which replaces every albedo, also the fog voxelization's, by 0.3; with
+ShowFlag.OverrideDiffuseAndSpecular 0 (= Lit) the Box albedo reaches the native scattering (series r4, looklit, nb, nb_ba).
 
 Frames: measure/diag40 (junction to D:/FogMS_ProbeFrames/diag40); results: results/diag40. Every subcommand starts from and
 ends with the owner snapshot measure/owner_pre40.json (written once, before any change), never saves the map and prints the
@@ -18,11 +20,14 @@ Subcommands:
   look old|fixed       Box-off + LOOK_<tag> configs per view (Box properties, the C++ Box writes the MID), 6 frames each, mean of
                        the last two -> results/diag40/look/<tag>_<cfg>_<view>.png; refuses if the lobe wiring is not <tag>
   matedit              runs matedit_density.py in the editor (W40 field-wiring repair; saves the material only if it changed)
-  native <tag>         defect-2 series (NATIVE configs, MID written directly, Box frozen) -> results/diag40/native_<tag>.json
-  overlayoff <tag>     r.FogMS.Enable 0 + FogMS.Apply (stock engine fog shaders), native-only Box (field cleared) at albedo 1 / 0,
-                       then r.FogMS.Enable back + FogMS.Apply -> results/diag40/overlay_<tag>.json
+  native <tag>         defect-2 series (SERIES[tag before '_']: r1 albedo/sun/RT-shadow/TLV, r2 red albedo / mode 3 / emissive,
+                       r3 fog albedo (not run), r4 Lit vs Detail Lighting, looklit look impact, nb the same configs in any session
+                       (nb = without -BindlessAll, nb_ba = with it); MID written directly, Box frozen) -> native_<tag>.json + sheet
+  native_metrics|native_sheet <tag>   offline metrics / contact sheet of a native series
   sheet                contact sheet results/diag40/w40_lobe_sheet.png (offline)
   restore              restore the snapshot
+Environment: FOGMS_LOG = the running editor's log (LogPython flood check), FOGMS_OWNER40 = another snapshot file (the session
+without -BindlessAll used measure/owner_nb40.json; 'mine' stays the camera of owner_pre40.json).
 Resumable: results are written atomically per capture; present keys are skipped. Usage: python d40_fix.py <subcommand> [...]"""
 import os, sys, json, time, math
 import numpy as np
@@ -37,7 +42,8 @@ d.M = os.path.join(HERE, "measure", "diag40")      # after the imports (diag35li
 os.makedirs(d.M, exist_ok=True)
 RES = os.path.join(HERE, "results", "diag40"); LOOKDIR = os.path.join(RES, "look")
 os.makedirs(LOOKDIR, exist_ok=True)
-OWNER = os.path.join(HERE, "measure", "owner_pre40.json")
+# The restore target; FOGMS_OWNER40 selects another snapshot (the -BindlessAll-free session of candidate 2 uses its own).
+OWNER = os.environ.get("FOGMS_OWNER40") or os.path.join(HERE, "measure", "owner_pre40.json")
 LP = os.path.join(RES, "look.json")
 FROZEN_T = 100.0
 NFRAMES = 6
@@ -146,8 +152,11 @@ def freeze(owner, on):
 
 
 def views(owner):
+    """'mine' is always the owner's camera of measure/owner_pre40.json (the same view in every session of this round)."""
     VIEWS, travel, elev = C.sun_views()
-    return {"mine": (tuple(owner["camera"][0]), tuple(owner["camera"][1])), "against": VIEWS["against"], "front": VIEWS["front"],
+    pre = os.path.join(HERE, "measure", "owner_pre40.json")
+    cam = json.load(open(pre))["camera"] if os.path.isfile(pre) else owner["camera"]
+    return {"mine": (tuple(cam[0]), tuple(cam[1])), "against": VIEWS["against"], "front": VIEWS["front"],
             "owner39": OWNER39}, travel, elev
 
 
@@ -363,7 +372,18 @@ LOOKLIT = [
     ("B_lit_c08_o02", dict(cv=LIT, box={"ms_contribution": 0.8, "ms_occlusion": 0.2})),
     ("B_alb0", dict(mid={"FogMS_Albedo": (0.0, 0.0, 0.0, 1.0)}, cv=LIT)),
 ]
-SERIES = {"r1": NATIVE, "r2": NATIVE_R2, "r3": NATIVE_R3, "r4": NATIVE_R4, "looklit": LOOKLIT}
+# Candidate 2: a session without -BindlessAll (injection-only runtime, no engine-shader overlay: no A1d/A1 directional
+# transmittance on the native sun term). Same views and Box state; Lit unless '_dl'.
+NB = [
+    ("B_bg", dict(mid={"FogMS_FroxelWeight": 0.0}, cv=LIT)),
+    ("B_alb0", dict(mid={"FogMS_Albedo": (0.0, 0.0, 0.0, 1.0)}, cv=LIT)),
+    ("B_lit", dict(cv=LIT)),
+    ("B_nat", dict(mid={"FogMS_InjectionMode": 0.0}, cv=LIT)),
+    ("B_lit_g08", dict(cv=LIT, hfp={"volumetric_fog_scattering_distribution": 0.8})),
+    ("B_bg_dl", dict(mid={"FogMS_FroxelWeight": 0.0})),
+    ("B_dl", dict()),
+]
+SERIES = {"r1": NATIVE, "r2": NATIVE_R2, "r3": NATIVE_R3, "r4": NATIVE_R4, "looklit": LOOKLIT, "nb": NB}
 R4_LABELS = {"A_bg": "Box disabled: no Box medium (Lit)", "A_alb0": "Box disabled, albedo 0 (Lit)", "A_nat": "Box disabled, albedo 1 (Lit)",
              "A_red": "Box disabled, albedo RED (Lit)", "A_nat_dl": "Box disabled, albedo 1, DETAIL LIGHTING",
              "B_bg": "hybrid runtime: no Box medium (Lit)", "B_alb0": "hybrid runtime, albedo 0 (Lit)", "B_lit": "hybrid owner look (Lit)",
@@ -415,7 +435,7 @@ def apply_native(owner, cfg):
 
 
 def native(owner, tag, views_wanted=None):
-    views_wanted = views_wanted or {"r1": ("front", "mine", "owner39")}.get(tag, ("mine", "against", "front") if tag.startswith("looklit") else ("front", "mine"))
+    views_wanted = views_wanted or {"r1": ("front", "mine", "owner39")}.get(tag, ("mine", "against", "front") if tag.startswith(("looklit", "nb")) else ("front", "mine"))
     res = _load(NP(tag))
     VIEWS, travel, elev = views(owner)
     VIEWS = dict((k, VIEWS[k]) for k in views_wanted)
@@ -446,7 +466,7 @@ def native(owner, tag, views_wanted=None):
     finally:
         freeze(owner, False)
         restore(owner)
-    if tag.startswith("looklit"):
+    if tag.startswith(("looklit", "nb")):
         looklit_metrics(tag)
     else:
         native_metrics(tag)
@@ -478,7 +498,8 @@ def looklit_metrics(tag="looklit"):
         print(vn, json.dumps(e), flush=True)
     label = {"B_bg_dl": "no Box, Detail Lighting", "B_dl": "owner look, DETAIL LIGHTING (owner viewport)", "B_bg": "no Box, Lit",
              "B_lit": "owner look, LIT", "B_lit_g06": "Lit + fog Scattering Distribution 0.6", "B_lit_g08": "Lit + fog Scattering Distribution 0.8",
-             "B_lit_c08_o02": "Lit + MS Contribution 0.8 / Occlusion 0.2", "B_alb0": "Lit, Box albedo 0 (black)"}
+             "B_lit_c08_o02": "Lit + MS Contribution 0.8 / Occlusion 0.2", "B_alb0": "Lit, Box albedo 0 (black)",
+             "B_nat": "Lit, injection mode 0 = native only"}
     W, H, LAB = 400, 344, 250
     rows = [c for c in names if any(os.path.isfile(P(c, vn)) for vn in VW)]
     sh = Image.new("RGB", (LAB + W * len(VW), 28 + H * len(rows)), (18, 18, 18)); dr = ImageDraw.Draw(sh)
