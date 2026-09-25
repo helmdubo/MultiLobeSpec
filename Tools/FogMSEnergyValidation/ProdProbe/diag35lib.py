@@ -28,7 +28,7 @@ BOXPROPS = ["enabled", "scattering_mode", "transport_preset", "angular_quality",
             "detail_second_octave", "density_edge_feather", "erosion_strength", "erosion_depth", "height_profile",
             "height_profile_preset", "height_bottom", "height_top", "bottom_softness", "top_softness", "anvil_strength",
             # W36/W37 look properties: without them a probe that changes one leaves it changed after 'restore'.
-            "depth_prefilter", "ms_contribution", "phase_g", "ms_occlusion", "ms_back_floor", "sun_softness", "ms_eccentricity"]
+            "depth_prefilter", "ms_contribution", "phase_g", "ms_occlusion", "ms_back_floor", "sun_softness", "ms_eccentricity", "edge_flow_speed"]
 ENUMS = {"scattering_mode": "FogMSScatteringMode", "transport_preset": "FogMSTransportPreset",
          "angular_quality": "FogMSAngularQuality", "height_profile_preset": "FogMSHeightProfilePreset"}
 HFPROPS = ["volumetric_fog_distance", "volumetric_fog_start_distance", "volumetric_fog_near_fade_in_distance",
