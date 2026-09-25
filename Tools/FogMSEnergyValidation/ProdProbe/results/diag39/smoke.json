@@ -1,0 +1,59 @@
+{
+ "froxel": {
+  "frames": 4,
+  "mean": 133.78,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 346,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  }
+ },
+ "cloud": {
+  "frames": 4,
+  "mean": 136.08,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 567,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  }
+ },
+ "boxoff": {
+  "frames": 4,
+  "mean": 116.42,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 787,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 0.0
+  }
+ },
+ "profile_cloud": {
+  "frame_ms": 10.67,
+  "trace": 0.251,
+  "reconstruct": 0.019,
+  "compose": 0.058,
+  "cloud_shadow": 0,
+  "cloudview": 0.251,
+  "fog": 4.888,
+  "fogms": 0.521,
+  "events": 440,
+  "cloud_ms": 0.328
+ }
+}

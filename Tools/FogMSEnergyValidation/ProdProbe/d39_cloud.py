@@ -195,8 +195,23 @@ def revert_variant(variant, owner):
         S.sync()
 
 
+def editor_minimized():
+    """True when the Unreal Editor main window is minimized: its viewports then render nothing (0 dumped frames, empty GPU
+    profiles). Round 39: the owner started a game mid-series and the editor was minimized. Never restore/focus it from here."""
+    try:
+        import ctypes, subprocess
+        out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              "(Get-Process UnrealEditor -ErrorAction SilentlyContinue | Select-Object -First 1).MainWindowHandle"],
+                             capture_output=True, text=True, timeout=30).stdout.strip()
+        return bool(out.isdigit() and ctypes.windll.user32.IsIconic(int(out)))
+    except Exception:
+        return False
+
+
 def begin(owner, host="p1"):
     """Owner state first (a cut run may have left anything), then the prototype, froxel mode."""
+    if editor_minimized():
+        raise SystemExit("The Unreal Editor window is minimized: nothing would render. Nothing changed; retry when it is restored.")
     flood_check()
     S.restore(owner)
     r = S.start(host, froxel=True); _state["host"] = host
@@ -240,6 +255,8 @@ def run(variant, rep, dirs, owner, cam="base"):
             set_cam(c0, rot); time.sleep(2.5)
             nm = key(variant, D, rep, cam)
             _, got = capture(nm, N, move=mv if D != "0" else None)
+            if got < N:
+                raise RuntimeError("%s: %d of %d frames (viewport not rendering: editor minimized?); run stopped, nothing recorded" % (nm, got, N))
             r = B.analyse(nm, None); r.update(B.wobble(nm, None))
             r.update({"frames_got": got, "status": d.status()[:200], "p1_state": S.set_state(), "host": _state["host"] if V[variant][0] == "cloud" else None})
             try:   # wall time per captured frame and the density animation time it advanced (x time dilation)
@@ -295,6 +312,8 @@ def identity(tag, owner):
     names = ["id_%s_a" % tag, "id_%s_b" % tag]
     if all(n in res for n in names):
         return
+    if editor_minimized():
+        raise SystemExit("The Unreal Editor window is minimized: nothing would render. Nothing changed; retry when it is restored.")
     flood_check()
     S.restore(owner)
     L.set_throttle(False); d.cmd("r.SkyLight.RealTimeReflectionCapture.TimeSlice 0")
@@ -369,39 +388,48 @@ def apply_look(cfg, owner_albedo, owner_lobe=0.0):
     return S.mode(mode)
 
 
-def look(owner):
+def look(owner, host=LOOK_HOST, cfgs=None, prefix="", views=None):
+    """Look captures (frozen Box). The main pass uses LOOK_HOST and every LOOK config; a second pass (look_d5) renders the P1
+    configs with another host under a name prefix (files look/<prefix><config>_<view>.png)."""
     from PIL import Image
     res = _load(LP)
     VIEWS, travel, elev = look_views(owner)
-    S.apply_host(LOOK_HOST); _state["host"] = LOOK_HOST     # the series may have left another host (e.g. Mode 1)
-    res.update({"views": {k: [list(v[0]), list(v[1])] for k, v in VIEWS.items()}, "sun": [travel, elev], "host": _state["host"]})
+    if views: VIEWS = {k: v for k, v in VIEWS.items() if k in views}
+    S.apply_host(host); _state["host"] = host     # the series may have left another host (e.g. Mode 1)
+    if not prefix:
+        res.update({"views": {k: [list(v[0]), list(v[1])] for k, v in VIEWS.items()}, "sun": [travel, elev], "host": _state["host"]})
     owner_albedo = owner["extra"]["box_mid_vector"]["FogMS_Albedo"]
     owner_lobe = float(owner["box"]["ms_contribution"])
     freeze(True, owner); time.sleep(8.0)
     try:
         for vn, (loc, rot) in VIEWS.items():
-            todo = [c for c in LOOK if "%s|%s" % (c[0], vn) not in res.get("cap", {})]
+            todo = [c for c in (cfgs or LOOK) if "%s%s|%s" % (prefix, c[0], vn) not in res.get("cap", {})]
             if not todo: continue
             set_cam(loc, rot); time.sleep(4.0)
             for cfg in todo:
                 flood_check()
                 apply_look(cfg, owner_albedo, owner_lobe); time.sleep(4.0)
-                nm = "look_%s_%s" % (cfg[0], vn)
+                name = prefix + cfg[0]
+                nm = "look_%s_%s" % (name, vn)
                 _, got = capture(nm, LOOK_FRAMES)
                 F = d.load(nm).astype(np.float32)
                 img = F[-2:].mean(axis=0)
-                Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)).save(os.path.join(LOOKDIR, "%s_%s.png" % (cfg[0], vn)))
+                Image.fromarray(np.clip(img, 0, 255).astype(np.uint8)).save(os.path.join(LOOKDIR, "%s_%s.png" % (name, vn)))
                 L4 = F[-4:].mean(axis=3)
                 flick = float(np.mean([np.abs(L4[i] - L4[i - 1]).mean() for i in range(1, len(L4))])) if len(L4) >= 2 else None
-                res = _load(LP); res.setdefault("cap", {})["%s|%s" % (cfg[0], vn)] = {"frames_got": got, "flicker_abs": flick,
-                                                                                    "status": d.status()[:160]}
-                res.update({"views": {k: [list(v[0]), list(v[1])] for k, v in VIEWS.items()}, "sun": [travel, elev], "host": _state["host"]})
+                res = _load(LP); res.setdefault("cap", {})["%s|%s" % (name, vn)] = {"frames_got": got, "flicker_abs": flick,
+                                                                                  "status": d.status()[:160], "host": host}
+                if not prefix:
+                    res.update({"views": {k: [list(v[0]), list(v[1])] for k, v in VIEWS.items()}, "sun": [travel, elev], "host": _state["host"]})
                 _atomic_dump(res, LP)
                 print("LOOK", nm, got, "flicker %.3f" % (flick or -1), flush=True)
     finally:
         apply_look(("restore", "froxel", {}, {}), owner_albedo, owner_lobe)
         freeze(False, owner)
     look_metrics()
+
+
+LOOK_D5 = [c for c in LOOK if c[0] in ("P1", "P1_black")]
 
 
 def _lum(p):
@@ -418,6 +446,8 @@ def look_metrics():
         P = lambda c: os.path.join(LOOKDIR, "%s_%s.png" % (c, vn))
         if not all(os.path.isfile(P(c)) for c in ("boxoff", "W38", "P1")): continue
         off = _lum(P("boxoff")); lit = {c: _lum(P(c)) for c, *_ in LOOK if os.path.isfile(P(c))}
+        for c in ("d5_P1", "d5_P1_black"):      # look_d5 pass (host D 5 km)
+            if os.path.isfile(P(c)): lit[c] = _lum(P(c))
         valid = off > 12.0
         alpha = {}
         for c, blk in (("W38", "W38_black"), ("P1", "P1_black")):
@@ -438,6 +468,9 @@ def look_metrics():
                 e["iou_a%.1f" % th] = round(float((a & b).sum() / u), 3) if u else None
             ra, rb = np.abs(lit["W38"] - off) > 4, np.abs(lit["P1"] - off) > 4
             e["iou_roi"] = round(float((ra & rb).sum() / max((ra | rb).sum(), 1)), 3)
+            if "d5_P1" in lit:
+                rd = np.abs(lit["d5_P1"] - off) > 4
+                e["iou_roi_d5"] = round(float((ra & rd).sum() / max((ra | rd).sum(), 1)), 3)
             for c, blk in (("W38", "W38_black"), ("W38_nolobe", "W38_black"), ("P1", "P1_black"), ("P1_g2", "P1_black"),
                            ("P1_nolobe", "P1_black"), ("P1_iso", "P1_black"), ("P1_iso_nolobe", "P1_black")):
                 if c not in lit or blk not in lit: continue
@@ -454,7 +487,7 @@ def look_metrics():
         if "P1" in alpha:
             a = alpha["P1"]; edge = (a >= 0.1) & (a <= 0.5); core = a >= 0.9
             if edge.sum() > 200 and core.sum() > 200:
-                for c in ("W38", "W38_nolobe", "P1", "P1_nolobe", "P1_g2", "P1_iso", "P1_iso_nolobe", "P1_nofield"):
+                for c in ("W38", "W38_nolobe", "P1", "P1_nolobe", "P1_g2", "P1_iso", "P1_iso_nolobe", "P1_nofield", "d5_P1"):
                     if c not in lit: continue
                     own = lit[c] - off * (1.0 - np.nan_to_num(a))
                     e["rimgeo_lit_%s" % c] = round(float(lit[c][edge].mean() / max(lit[c][core].mean(), 1e-3)), 3)
@@ -491,6 +524,8 @@ def profile(label):
         block.append(l)
     frame = next((float(re.search(r"Frame Time\s*:\s*([\d.]+)ms", l).group(1)) for l in block if "Frame Time" in l), None)
     rows = [(float(m.group(1)), m.group(2)) for m in (ROW.search(l) for l in block) if m]
+    if len(rows) < 100 or not any(n == "Scene" for _, n in rows):
+        return {"error": "no scene passes in the profile (%d events): viewport not rendering, editor minimized?" % len(rows)}
     def tot(names):
         return round(sum(ms for ms, n in rows if n in names), 3)
     def pre(prefix):
@@ -784,6 +819,7 @@ def main(cmd):
     try:
         if cmd == "smoke": smoke(owner)
         if cmd == "blackdiag": print(json.dumps(blackdiag(owner), indent=1), flush=True)
+        if cmd == "look_d5": look(owner, host="p1_d5", cfgs=LOOK_D5, prefix="d5_", views=("owner", "base", "against"))
         if cmd in ("series", "all"): series(owner)
         if cmd in ("series_td", "all"): series(owner, td=True)
         if cmd in ("inside_frz", "all"):

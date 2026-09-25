@@ -1,0 +1,2861 @@
+{
+ "id_pre_a": {
+  "frames_got": 8,
+  "weight": 1.0,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+ },
+ "id_pre_b": {
+  "frames_got": 8,
+  "weight": 1.0,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+ },
+ "id_post_a": {
+  "frames_got": 8,
+  "weight": 1.0,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S"
+ },
+ "id_post_b": {
+  "frames_got": 8,
+  "weight": 1.0,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,"
+ },
+ "b39_base_boxoff_0_s20_0": {
+  "d2": 0.387,
+  "d2_blur": 0.056,
+  "hp9": 0.021,
+  "d2_p99": 2.0,
+  "frac_d2_gt4": 0.0,
+  "d1": 0.209,
+  "mean": 116.5,
+  "frames": 48,
+  "wob_med": 0.005,
+  "wob_p75": 0.006,
+  "wob_period": 8.4,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 694,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 0.0
+  },
+  "host": null,
+  "wob_cloud_med": null,
+  "wob_cloud_tiles": 0,
+  "cloud_frac": 0.0,
+  "wob_cloud_p75": null
+ },
+ "b39_base_boxoff_W_s20_0": {
+  "d2": 0.388,
+  "d2_blur": 0.057,
+  "hp9": 0.021,
+  "d2_p99": 2.0,
+  "frac_d2_gt4": 0.0,
+  "d1": 0.21,
+  "mean": 116.5,
+  "frames": 48,
+  "wob_med": 0.006,
+  "wob_p75": 0.007,
+  "wob_period": 8.4,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 1171,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 0.0
+  },
+  "host": null
+ },
+ "b39_base_boxoff_D_s20_0": {
+  "d2": 0.389,
+  "d2_blur": 0.057,
+  "hp9": 0.021,
+  "d2_p99": 2.0,
+  "frac_d2_gt4": 0.0,
+  "d1": 0.21,
+  "mean": 116.5,
+  "frames": 48,
+  "wob_med": 0.005,
+  "wob_p75": 0.006,
+  "wob_period": 8.4,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 1639,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 0.0
+  },
+  "host": null
+ },
+ "b39_base_boxoff_0_s20_1": {
+  "d2": 0.389,
+  "d2_blur": 0.057,
+  "hp9": 0.021,
+  "d2_p99": 2.0,
+  "frac_d2_gt4": 0.0,
+  "d1": 0.21,
+  "mean": 116.49,
+  "frames": 48,
+  "wob_med": 0.005,
+  "wob_p75": 0.006,
+  "wob_period": 8.4,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 2268,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 0.0
+  },
+  "host": null,
+  "wob_cloud_med": null,
+  "wob_cloud_tiles": 0,
+  "cloud_frac": 0.0,
+  "wob_cloud_p75": null
+ },
+ "b39_base_boxoff_W_s20_1": {
+  "d2": 0.389,
+  "d2_blur": 0.057,
+  "hp9": 0.022,
+  "d2_p99": 2.0,
+  "frac_d2_gt4": 0.0,
+  "d1": 0.21,
+  "mean": 116.5,
+  "frames": 48,
+  "wob_med": 0.006,
+  "wob_p75": 0.007,
+  "wob_period": 8.4,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 2718,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 0.0
+  },
+  "host": null
+ },
+ "b39_base_boxoff_D_s20_1": {
+  "d2": 0.389,
+  "d2_blur": 0.057,
+  "hp9": 0.021,
+  "d2_p99": 2.0,
+  "frac_d2_gt4": 0.0,
+  "d1": 0.21,
+  "mean": 116.49,
+  "frames": 48,
+  "wob_med": 0.005,
+  "wob_p75": 0.007,
+  "wob_period": 8.4,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 3184,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 0.0
+  },
+  "host": null
+ },
+ "b39_base_cur_0_s20_0": {
+  "d2": 0.625,
+  "d2_blur": 0.237,
+  "hp9": 0.109,
+  "d2_p99": 3.0,
+  "frac_d2_gt4": 0.0045,
+  "d1": 0.596,
+  "mean": 178.8,
+  "frames": 48,
+  "wob_med": 0.122,
+  "wob_p75": 0.2,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 3828,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "wob_cloud_med": 0.113,
+  "wob_cloud_tiles": 126,
+  "cloud_frac": 0.778,
+  "wob_cloud_p75": 0.182
+ },
+ "b39_base_cur_W_s20_0": {
+  "d2": 0.57,
+  "d2_blur": 0.221,
+  "hp9": 0.099,
+  "d2_p99": 3.0,
+  "frac_d2_gt4": 0.0053,
+  "d1": 0.507,
+  "mean": 166.07,
+  "frames": 48,
+  "wob_med": 0.13,
+  "wob_p75": 0.259,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 4289,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null
+ },
+ "b39_base_cur_D_s20_0": {
+  "d2": 0.81,
+  "d2_blur": 0.476,
+  "hp9": 0.238,
+  "d2_p99": 8.0,
+  "frac_d2_gt4": 0.0297,
+  "d1": 0.949,
+  "mean": 142.9,
+  "frames": 48,
+  "wob_med": 0.165,
+  "wob_p75": 0.651,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 4733,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null
+ },
+ "b39_base_cur_0_s20_1": {
+  "d2": 0.728,
+  "d2_blur": 0.356,
+  "hp9": 0.18,
+  "d2_p99": 6.0,
+  "frac_d2_gt4": 0.0175,
+  "d1": 0.69,
+  "mean": 165.87,
+  "frames": 48,
+  "wob_med": 0.15,
+  "wob_p75": 0.532,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 5296,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "wob_cloud_med": 0.198,
+  "wob_cloud_tiles": 102,
+  "cloud_frac": 0.617,
+  "wob_cloud_p75": 0.72
+ },
+ "b39_base_cur_W_s20_1": {
+  "d2": 0.729,
+  "d2_blur": 0.358,
+  "hp9": 0.17,
+  "d2_p99": 5.67,
+  "frac_d2_gt4": 0.0169,
+  "d1": 0.71,
+  "mean": 167.94,
+  "frames": 48,
+  "wob_med": 0.129,
+  "wob_p75": 0.349,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 5755,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null
+ },
+ "b39_base_cur_D_s20_1": {
+  "d2": 0.859,
+  "d2_blur": 0.492,
+  "hp9": 0.251,
+  "d2_p99": 7.33,
+  "frac_d2_gt4": 0.0275,
+  "d1": 0.931,
+  "mean": 183.04,
+  "frames": 48,
+  "wob_med": 0.21,
+  "wob_p75": 0.573,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 6249,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null
+ },
+ "b39_base_animoff_0_s20_0": {
+  "d2": 0.467,
+  "d2_blur": 0.126,
+  "hp9": 0.065,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0012,
+  "d1": 0.262,
+  "mean": 162.17,
+  "frames": 48,
+  "wob_med": 0.03,
+  "wob_p75": 0.049,
+  "wob_period": 5.2,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 6892,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "wob_cloud_med": 0.037,
+  "wob_cloud_tiles": 84,
+  "cloud_frac": 0.543,
+  "wob_cloud_p75": 0.056
+ },
+ "b39_base_animoff_W_s20_0": {
+  "d2": 0.594,
+  "d2_blur": 0.253,
+  "hp9": 0.125,
+  "d2_p99": 4.0,
+  "frac_d2_gt4": 0.009,
+  "d1": 0.473,
+  "mean": 163.15,
+  "frames": 48,
+  "wob_med": 0.039,
+  "wob_p75": 0.112,
+  "wob_period": 3.8,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 7352,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null
+ },
+ "b39_base_animoff_D_s20_0": {
+  "d2": 0.77,
+  "d2_blur": 0.417,
+  "hp9": 0.192,
+  "d2_p99": 6.67,
+  "frac_d2_gt4": 0.0269,
+  "d1": 0.931,
+  "mean": 163.33,
+  "frames": 48,
+  "wob_med": 0.104,
+  "wob_p75": 0.484,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 7816,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null
+ },
+ "b39_base_animoff_0_s20_1": {
+  "d2": 0.467,
+  "d2_blur": 0.127,
+  "hp9": 0.065,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0012,
+  "d1": 0.262,
+  "mean": 162.17,
+  "frames": 48,
+  "wob_med": 0.03,
+  "wob_p75": 0.053,
+  "wob_period": 5.2,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 8479,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "wob_cloud_med": 0.038,
+  "wob_cloud_tiles": 84,
+  "cloud_frac": 0.543,
+  "wob_cloud_p75": 0.062
+ },
+ "b39_base_animoff_W_s20_1": {
+  "d2": 0.595,
+  "d2_blur": 0.256,
+  "hp9": 0.127,
+  "d2_p99": 4.0,
+  "frac_d2_gt4": 0.0093,
+  "d1": 0.473,
+  "mean": 163.14,
+  "frames": 48,
+  "wob_med": 0.042,
+  "wob_p75": 0.119,
+  "wob_period": 3.8,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 8936,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null
+ },
+ "b39_base_animoff_D_s20_1": {
+  "d2": 0.77,
+  "d2_blur": 0.418,
+  "hp9": 0.192,
+  "d2_p99": 6.67,
+  "frac_d2_gt4": 0.0272,
+  "d1": 0.934,
+  "mean": 163.33,
+  "frames": 48,
+  "wob_med": 0.105,
+  "wob_p75": 0.492,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 9388,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null
+ },
+ "b39_base_p1_0_s20_0": {
+  "d2": 1.577,
+  "d2_blur": 0.877,
+  "hp9": 0.382,
+  "d2_p99": 18.33,
+  "frac_d2_gt4": 0.0818,
+  "d1": 1.484,
+  "mean": 160.46,
+  "frames": 48,
+  "wob_med": 0.541,
+  "wob_p75": 1.781,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 10027,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "wob_cloud_med": 0.785,
+  "wob_cloud_tiles": 130,
+  "cloud_frac": 0.797,
+  "wob_cloud_p75": 2.193
+ },
+ "b39_base_p1_W_s20_0": {
+  "d2": 0.982,
+  "d2_blur": 0.497,
+  "hp9": 0.195,
+  "d2_p99": 12.67,
+  "frac_d2_gt4": 0.0416,
+  "d1": 0.871,
+  "mean": 133.57,
+  "frames": 48,
+  "wob_med": 0.141,
+  "wob_p75": 0.898,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 10519,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1"
+ },
+ "b39_base_p1_D_s20_0": {
+  "d2": 1.061,
+  "d2_blur": 0.597,
+  "hp9": 0.213,
+  "d2_p99": 13.0,
+  "frac_d2_gt4": 0.0512,
+  "d1": 0.814,
+  "mean": 134.34,
+  "frames": 48,
+  "wob_med": 0.157,
+  "wob_p75": 0.661,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 11018,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1"
+ },
+ "b39_base_p1_0_s20_1": {
+  "d2": 1.222,
+  "d2_blur": 0.626,
+  "hp9": 0.268,
+  "d2_p99": 18.0,
+  "frac_d2_gt4": 0.0562,
+  "d1": 1.139,
+  "mean": 137.75,
+  "frames": 48,
+  "wob_med": 0.442,
+  "wob_p75": 1.798,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 11670,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "wob_cloud_med": 0.793,
+  "wob_cloud_tiles": 67,
+  "cloud_frac": 0.439,
+  "wob_cloud_p75": 2.978
+ },
+ "b39_base_p1_W_s20_1": {
+  "d2": 1.877,
+  "d2_blur": 1.161,
+  "hp9": 0.436,
+  "d2_p99": 24.0,
+  "frac_d2_gt4": 0.1012,
+  "d1": 1.627,
+  "mean": 153.74,
+  "frames": 48,
+  "wob_med": 0.882,
+  "wob_p75": 2.246,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 12158,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1"
+ },
+ "b39_base_p1_D_s20_1": {
+  "d2": 1.412,
+  "d2_blur": 0.828,
+  "hp9": 0.302,
+  "d2_p99": 14.33,
+  "frac_d2_gt4": 0.078,
+  "d1": 1.088,
+  "mean": 154.69,
+  "frames": 48,
+  "wob_med": 0.414,
+  "wob_p75": 1.22,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 12639,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1"
+ },
+ "b39_base_p1_animoff_0_s20_0": {
+  "d2": 0.462,
+  "d2_blur": 0.094,
+  "hp9": 0.035,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0015,
+  "d1": 0.266,
+  "mean": 149.21,
+  "frames": 48,
+  "wob_med": 0.012,
+  "wob_p75": 0.022,
+  "wob_period": 8.4,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 13283,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "wob_cloud_med": 0.013,
+  "wob_cloud_tiles": 83,
+  "cloud_frac": 0.545,
+  "wob_cloud_p75": 0.023
+ },
+ "b39_base_p1_animoff_W_s20_0": {
+  "d2": 0.675,
+  "d2_blur": 0.24,
+  "hp9": 0.1,
+  "d2_p99": 5.33,
+  "frac_d2_gt4": 0.016,
+  "d1": 0.514,
+  "mean": 149.54,
+  "frames": 48,
+  "wob_med": 0.054,
+  "wob_p75": 0.123,
+  "wob_period": 3.8,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 13767,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1"
+ },
+ "b39_base_p1_animoff_D_s20_0": {
+  "d2": 1.154,
+  "d2_blur": 0.539,
+  "hp9": 0.239,
+  "d2_p99": 13.0,
+  "frac_d2_gt4": 0.0516,
+  "d1": 1.086,
+  "mean": 150.05,
+  "frames": 48,
+  "wob_med": 0.189,
+  "wob_p75": 0.445,
+  "wob_period": 10.5,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 14259,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1"
+ },
+ "b39_base_p1_d1_0_s20_0": {
+  "d2": 1.255,
+  "d2_blur": 0.697,
+  "hp9": 0.313,
+  "d2_p99": 15.33,
+  "frac_d2_gt4": 0.0598,
+  "d1": 1.192,
+  "mean": 153.11,
+  "frames": 48,
+  "wob_med": 0.621,
+  "wob_p75": 1.446,
+  "wob_period": 10.5,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 14927,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d1",
+  "wob_cloud_med": 0.928,
+  "wob_cloud_tiles": 104,
+  "cloud_frac": 0.634,
+  "wob_cloud_p75": 1.779
+ },
+ "b39_base_p1_d1_W_s20_0": {
+  "d2": 1.194,
+  "d2_blur": 0.667,
+  "hp9": 0.256,
+  "d2_p99": 15.0,
+  "frac_d2_gt4": 0.0522,
+  "d1": 1.076,
+  "mean": 152.85,
+  "frames": 48,
+  "wob_med": 0.406,
+  "wob_p75": 1.028,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 15429,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d1"
+ },
+ "b39_base_p1_d1_D_s20_0": {
+  "d2": 1.594,
+  "d2_blur": 1.04,
+  "hp9": 0.372,
+  "d2_p99": 17.33,
+  "frac_d2_gt4": 0.0829,
+  "d1": 1.312,
+  "mean": 164.88,
+  "frames": 48,
+  "wob_med": 0.596,
+  "wob_p75": 1.581,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 15920,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d1"
+ },
+ "b39_base_p1_d5_0_s20_0": {
+  "d2": 1.874,
+  "d2_blur": 0.946,
+  "hp9": 0.406,
+  "d2_p99": 27.33,
+  "frac_d2_gt4": 0.0965,
+  "d1": 1.513,
+  "mean": 138.21,
+  "frames": 48,
+  "wob_med": 0.683,
+  "wob_p75": 1.936,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 16589,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d5",
+  "wob_cloud_med": 1.728,
+  "wob_cloud_tiles": 81,
+  "cloud_frac": 0.537,
+  "wob_cloud_p75": 4.461
+ },
+ "b39_base_p1_d5_W_s20_0": {
+  "d2": 1.361,
+  "d2_blur": 0.599,
+  "hp9": 0.246,
+  "d2_p99": 15.33,
+  "frac_d2_gt4": 0.0775,
+  "d1": 1.098,
+  "mean": 134.46,
+  "frames": 48,
+  "wob_med": 0.375,
+  "wob_p75": 1.155,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 17086,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d5"
+ },
+ "b39_base_p1_d5_D_s20_0": {
+  "d2": 2.133,
+  "d2_blur": 1.002,
+  "hp9": 0.42,
+  "d2_p99": 28.33,
+  "frac_d2_gt4": 0.1188,
+  "d1": 1.526,
+  "mean": 134.71,
+  "frames": 48,
+  "wob_med": 0.433,
+  "wob_p75": 1.424,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 17585,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d5"
+ },
+ "b39_base_p1_s4_0_s20_0": {
+  "d2": 2.028,
+  "d2_blur": 1.064,
+  "hp9": 0.468,
+  "d2_p99": 26.67,
+  "frac_d2_gt4": 0.1053,
+  "d1": 1.748,
+  "mean": 160.39,
+  "frames": 48,
+  "wob_med": 1.064,
+  "wob_p75": 2.705,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 18239,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_s4",
+  "wob_cloud_med": 1.656,
+  "wob_cloud_tiles": 112,
+  "cloud_frac": 0.686,
+  "wob_cloud_p75": 3.39
+ },
+ "b39_base_p1_s4_W_s20_0": {
+  "d2": 1.226,
+  "d2_blur": 0.554,
+  "hp9": 0.228,
+  "d2_p99": 12.67,
+  "frac_d2_gt4": 0.0549,
+  "d1": 0.999,
+  "mean": 159.54,
+  "frames": 48,
+  "wob_med": 0.22,
+  "wob_p75": 0.695,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 18722,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_s4"
+ },
+ "b39_base_p1_s4_D_s20_0": {
+  "d2": 1.284,
+  "d2_blur": 0.585,
+  "hp9": 0.244,
+  "d2_p99": 13.67,
+  "frac_d2_gt4": 0.0584,
+  "d1": 0.929,
+  "mean": 157.3,
+  "frames": 48,
+  "wob_med": 0.162,
+  "wob_p75": 0.53,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 19188,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_s4"
+ },
+ "b39_base_p1_m1_0_s20_0": {
+  "d2": 2.753,
+  "d2_blur": 2.034,
+  "hp9": 1.06,
+  "d2_p99": 33.67,
+  "frac_d2_gt4": 0.1569,
+  "d1": 2.243,
+  "mean": 142.68,
+  "frames": 48,
+  "wob_med": 1.14,
+  "wob_p75": 3.194,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 19850,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_m1",
+  "wob_cloud_med": 2.53,
+  "wob_cloud_tiles": 95,
+  "cloud_frac": 0.638,
+  "wob_cloud_p75": 4.553
+ },
+ "b39_base_p1_m1_W_s20_0": {
+  "d2": 1.461,
+  "d2_blur": 0.917,
+  "hp9": 0.467,
+  "d2_p99": 19.33,
+  "frac_d2_gt4": 0.0806,
+  "d1": 1.212,
+  "mean": 132.08,
+  "frames": 48,
+  "wob_med": 0.288,
+  "wob_p75": 1.547,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 20337,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_m1"
+ },
+ "b39_base_p1_m1_D_s20_0": {
+  "d2": 1.273,
+  "d2_blur": 0.774,
+  "hp9": 0.386,
+  "d2_p99": 16.33,
+  "frac_d2_gt4": 0.0657,
+  "d1": 1.009,
+  "mean": 135.05,
+  "frames": 48,
+  "wob_med": 0.233,
+  "wob_p75": 1.242,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 20805,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_m1"
+ },
+ "b39_base_p1_ef200_0_s20_0": {
+  "d2": 0.977,
+  "d2_blur": 0.427,
+  "hp9": 0.171,
+  "d2_p99": 13.33,
+  "frac_d2_gt4": 0.0437,
+  "d1": 0.838,
+  "mean": 135.14,
+  "frames": 48,
+  "wob_med": 0.161,
+  "wob_p75": 0.509,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 21460,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "wob_cloud_med": 0.294,
+  "wob_cloud_tiles": 60,
+  "cloud_frac": 0.405,
+  "wob_cloud_p75": 0.631
+ },
+ "b39_base_p1_ef200_W_s20_0": {
+  "d2": 1.388,
+  "d2_blur": 0.761,
+  "hp9": 0.278,
+  "d2_p99": 13.33,
+  "frac_d2_gt4": 0.0703,
+  "d1": 1.263,
+  "mean": 165.2,
+  "frames": 48,
+  "wob_med": 0.503,
+  "wob_p75": 0.851,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 21954,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1"
+ },
+ "b39_base_p1_ef200_D_s20_0": {
+  "d2": 0.921,
+  "d2_blur": 0.414,
+  "hp9": 0.148,
+  "d2_p99": 8.33,
+  "frac_d2_gt4": 0.0352,
+  "d1": 0.681,
+  "mean": 153.18,
+  "frames": 48,
+  "wob_med": 0.182,
+  "wob_p75": 0.339,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 22421,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1"
+ },
+ "b39_inside_cur_W_s20_0": {
+  "d2": 0.655,
+  "d2_blur": 0.228,
+  "hp9": 0.104,
+  "d2_p99": 2.67,
+  "frac_d2_gt4": 0.0008,
+  "d1": 0.562,
+  "mean": 196.99,
+  "frames": 48,
+  "wob_med": 0.259,
+  "wob_p75": 0.417,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 23042,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null
+ },
+ "b39_inside_p1_W_s20_0": {
+  "d2": 1.395,
+  "d2_blur": 0.72,
+  "hp9": 0.292,
+  "d2_p99": 19.0,
+  "frac_d2_gt4": 0.0801,
+  "d1": 1.152,
+  "mean": 129.32,
+  "frames": 48,
+  "wob_med": 0.009,
+  "wob_p75": 2.406,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 23662,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1"
+ },
+ "b39_inside_p1_m1_W_s20_0": {
+  "d2": 3.035,
+  "d2_blur": 2.614,
+  "hp9": 1.414,
+  "d2_p99": 30.0,
+  "frac_d2_gt4": 0.1893,
+  "d1": 2.358,
+  "mean": 173.31,
+  "frames": 48,
+  "wob_med": 2.356,
+  "wob_p75": 5.685,
+  "wob_period": 10.5,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 24313,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_m1"
+ },
+ "b39_base_cur_td_0_s20_0": {
+  "d2": 0.547,
+  "d2_blur": 0.203,
+  "hp9": 0.105,
+  "d2_p99": 3.0,
+  "frac_d2_gt4": 0.0051,
+  "d1": 0.4,
+  "mean": 160.17,
+  "frames": 48,
+  "wob_med": 0.04,
+  "wob_p75": 0.114,
+  "wob_period": 5.2,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 685,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1536,
+  "anim_s_per_frame": 0.0384,
+  "wob_cloud_med": 0.059,
+  "wob_cloud_tiles": 87,
+  "cloud_frac": 0.563,
+  "wob_cloud_p75": 0.114
+ },
+ "b39_base_cur_td_W_s20_0": {
+  "d2": 0.585,
+  "d2_blur": 0.254,
+  "hp9": 0.123,
+  "d2_p99": 3.67,
+  "frac_d2_gt4": 0.0084,
+  "d1": 0.491,
+  "mean": 152.49,
+  "frames": 48,
+  "wob_med": 0.028,
+  "wob_p75": 0.137,
+  "wob_period": 4.2,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 1151,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1541,
+  "anim_s_per_frame": 0.0385
+ },
+ "b39_base_cur_td_D_s20_0": {
+  "d2": 0.775,
+  "d2_blur": 0.45,
+  "hp9": 0.243,
+  "d2_p99": 6.33,
+  "frac_d2_gt4": 0.0274,
+  "d1": 0.81,
+  "mean": 147.7,
+  "frames": 48,
+  "wob_med": 0.102,
+  "wob_p75": 0.341,
+  "wob_period": 5.2,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 1649,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.155,
+  "anim_s_per_frame": 0.0388
+ },
+ "b39_base_cur_td_0_s20_1": {
+  "d2": 0.598,
+  "d2_blur": 0.279,
+  "hp9": 0.162,
+  "d2_p99": 4.67,
+  "frac_d2_gt4": 0.0124,
+  "d1": 0.446,
+  "mean": 145.36,
+  "frames": 48,
+  "wob_med": 0.035,
+  "wob_p75": 0.171,
+  "wob_period": 5.2,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 2315,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1536,
+  "anim_s_per_frame": 0.0384,
+  "wob_cloud_med": 0.123,
+  "wob_cloud_tiles": 56,
+  "cloud_frac": 0.391,
+  "wob_cloud_p75": 0.33
+ },
+ "b39_base_cur_td_W_s20_1": {
+  "d2": 0.589,
+  "d2_blur": 0.262,
+  "hp9": 0.131,
+  "d2_p99": 3.67,
+  "frac_d2_gt4": 0.008,
+  "d1": 0.498,
+  "mean": 158.7,
+  "frames": 48,
+  "wob_med": 0.064,
+  "wob_p75": 0.138,
+  "wob_period": 4.2,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 2797,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1541,
+  "anim_s_per_frame": 0.0385
+ },
+ "b39_base_cur_td_D_s20_1": {
+  "d2": 0.639,
+  "d2_blur": 0.311,
+  "hp9": 0.15,
+  "d2_p99": 4.67,
+  "frac_d2_gt4": 0.0138,
+  "d1": 0.7,
+  "mean": 151.88,
+  "frames": 48,
+  "wob_med": 0.086,
+  "wob_p75": 0.237,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 3260,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1536,
+  "anim_s_per_frame": 0.0384
+ },
+ "b39_base_p1_td_0_s20_0": {
+  "d2": 0.641,
+  "d2_blur": 0.211,
+  "hp9": 0.08,
+  "d2_p99": 5.33,
+  "frac_d2_gt4": 0.0147,
+  "d1": 0.472,
+  "mean": 134.46,
+  "frames": 48,
+  "wob_med": 0.052,
+  "wob_p75": 0.133,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 3927,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1565,
+  "anim_s_per_frame": 0.0391,
+  "wob_cloud_med": 0.11,
+  "wob_cloud_tiles": 55,
+  "cloud_frac": 0.396,
+  "wob_cloud_p75": 0.219
+ },
+ "b39_base_p1_td_W_s20_0": {
+  "d2": 0.643,
+  "d2_blur": 0.214,
+  "hp9": 0.079,
+  "d2_p99": 5.33,
+  "frac_d2_gt4": 0.0161,
+  "d1": 0.515,
+  "mean": 132.63,
+  "frames": 48,
+  "wob_med": 0.016,
+  "wob_p75": 0.121,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 4399,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1542,
+  "anim_s_per_frame": 0.0385
+ },
+ "b39_base_p1_td_D_s20_0": {
+  "d2": 0.69,
+  "d2_blur": 0.247,
+  "hp9": 0.089,
+  "d2_p99": 7.0,
+  "frac_d2_gt4": 0.0216,
+  "d1": 0.573,
+  "mean": 128.79,
+  "frames": 48,
+  "wob_med": 0.008,
+  "wob_p75": 0.09,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 4875,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1523,
+  "anim_s_per_frame": 0.0381
+ },
+ "b39_base_p1_td_0_s20_1": {
+  "d2": 0.544,
+  "d2_blur": 0.151,
+  "hp9": 0.056,
+  "d2_p99": 4.33,
+  "frac_d2_gt4": 0.0109,
+  "d1": 0.364,
+  "mean": 128.63,
+  "frames": 48,
+  "wob_med": 0.007,
+  "wob_p75": 0.073,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 5501,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1533,
+  "anim_s_per_frame": 0.0383,
+  "wob_cloud_med": 0.079,
+  "wob_cloud_tiles": 25,
+  "cloud_frac": 0.229,
+  "wob_cloud_p75": 0.173
+ },
+ "b39_base_p1_td_W_s20_1": {
+  "d2": 0.721,
+  "d2_blur": 0.287,
+  "hp9": 0.113,
+  "d2_p99": 7.0,
+  "frac_d2_gt4": 0.0244,
+  "d1": 0.584,
+  "mean": 130.79,
+  "frames": 48,
+  "wob_med": 0.016,
+  "wob_p75": 0.217,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 5947,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1716,
+  "anim_s_per_frame": 0.0429
+ },
+ "b39_base_p1_td_D_s20_1": {
+  "d2": 0.918,
+  "d2_blur": 0.361,
+  "hp9": 0.135,
+  "d2_p99": 10.67,
+  "frac_d2_gt4": 0.043,
+  "d1": 0.734,
+  "mean": 129.72,
+  "frames": 48,
+  "wob_med": 0.084,
+  "wob_p75": 0.189,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 6407,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.155,
+  "anim_s_per_frame": 0.0387
+ },
+ "b39_base_p1_d1_td_0_s20_0": {
+  "d2": 0.676,
+  "d2_blur": 0.248,
+  "hp9": 0.083,
+  "d2_p99": 5.67,
+  "frac_d2_gt4": 0.0181,
+  "d1": 0.586,
+  "mean": 138.16,
+  "frames": 48,
+  "wob_med": 0.043,
+  "wob_p75": 0.212,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 7078,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d1",
+  "dump_dt": 0.156,
+  "anim_s_per_frame": 0.039,
+  "wob_cloud_med": 0.193,
+  "wob_cloud_tiles": 51,
+  "cloud_frac": 0.387,
+  "wob_cloud_p75": 0.46
+ },
+ "b39_base_p1_d1_td_W_s20_0": {
+  "d2": 0.663,
+  "d2_blur": 0.257,
+  "hp9": 0.088,
+  "d2_p99": 5.33,
+  "frac_d2_gt4": 0.0158,
+  "d1": 0.556,
+  "mean": 146.53,
+  "frames": 48,
+  "wob_med": 0.05,
+  "wob_p75": 0.171,
+  "wob_period": 2.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 7544,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d1",
+  "dump_dt": 0.1569,
+  "anim_s_per_frame": 0.0392
+ },
+ "b39_base_p1_d1_td_D_s20_0": {
+  "d2": 0.794,
+  "d2_blur": 0.352,
+  "hp9": 0.121,
+  "d2_p99": 6.67,
+  "frac_d2_gt4": 0.0244,
+  "d1": 0.784,
+  "mean": 156.11,
+  "frames": 48,
+  "wob_med": 0.113,
+  "wob_p75": 0.231,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 8047,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d1",
+  "dump_dt": 0.1593,
+  "anim_s_per_frame": 0.0398
+ },
+ "b39_base_p1_d1_td_0_s20_1": {
+  "d2": 0.652,
+  "d2_blur": 0.219,
+  "hp9": 0.08,
+  "d2_p99": 4.33,
+  "frac_d2_gt4": 0.0117,
+  "d1": 0.531,
+  "mean": 164.18,
+  "frames": 48,
+  "wob_med": 0.065,
+  "wob_p75": 0.172,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 8668,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d1",
+  "dump_dt": 0.1579,
+  "anim_s_per_frame": 0.0395,
+  "wob_cloud_med": 0.075,
+  "wob_cloud_tiles": 117,
+  "cloud_frac": 0.707,
+  "wob_cloud_p75": 0.185
+ },
+ "b39_base_p1_d1_td_W_s20_1": {
+  "d2": 0.664,
+  "d2_blur": 0.239,
+  "hp9": 0.082,
+  "d2_p99": 4.0,
+  "frac_d2_gt4": 0.0099,
+  "d1": 0.571,
+  "mean": 162.12,
+  "frames": 48,
+  "wob_med": 0.053,
+  "wob_p75": 0.13,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 9147,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d1",
+  "dump_dt": 0.1418,
+  "anim_s_per_frame": 0.0354
+ },
+ "b39_base_p1_d1_td_D_s20_1": {
+  "d2": 0.66,
+  "d2_blur": 0.232,
+  "hp9": 0.079,
+  "d2_p99": 4.33,
+  "frac_d2_gt4": 0.0114,
+  "d1": 0.549,
+  "mean": 161.07,
+  "frames": 48,
+  "wob_med": 0.047,
+  "wob_p75": 0.108,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 9639,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d1",
+  "dump_dt": 0.1575,
+  "anim_s_per_frame": 0.0394
+ },
+ "b39_base_p1_m1_td_0_s20_0": {
+  "d2": 1.066,
+  "d2_blur": 0.625,
+  "hp9": 0.334,
+  "d2_p99": 7.67,
+  "frac_d2_gt4": 0.0463,
+  "d1": 0.644,
+  "mean": 158.64,
+  "frames": 48,
+  "wob_med": 0.083,
+  "wob_p75": 0.251,
+  "wob_period": 3.8,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 10298,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_m1",
+  "dump_dt": 0.1605,
+  "anim_s_per_frame": 0.0401,
+  "wob_cloud_med": 0.095,
+  "wob_cloud_tiles": 138,
+  "cloud_frac": 0.818,
+  "wob_cloud_p75": 0.314
+ },
+ "b39_base_p1_m1_td_W_s20_0": {
+  "d2": 1.292,
+  "d2_blur": 0.861,
+  "hp9": 0.466,
+  "d2_p99": 10.33,
+  "frac_d2_gt4": 0.066,
+  "d1": 0.843,
+  "mean": 156.83,
+  "frames": 48,
+  "wob_med": 0.153,
+  "wob_p75": 0.361,
+  "wob_period": 4.2,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 10777,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_m1",
+  "dump_dt": 0.1605,
+  "anim_s_per_frame": 0.0401
+ },
+ "b39_base_p1_m1_td_D_s20_0": {
+  "d2": 1.324,
+  "d2_blur": 0.9,
+  "hp9": 0.504,
+  "d2_p99": 11.33,
+  "frac_d2_gt4": 0.071,
+  "d1": 0.873,
+  "mean": 155.11,
+  "frames": 48,
+  "wob_med": 0.162,
+  "wob_p75": 0.448,
+  "wob_period": 3.8,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 11246,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_m1",
+  "dump_dt": 0.159,
+  "anim_s_per_frame": 0.0397
+ },
+ "b39_base_p1_d5_td_0_s20_0": {
+  "d2": 0.698,
+  "d2_blur": 0.215,
+  "hp9": 0.087,
+  "d2_p99": 5.67,
+  "frac_d2_gt4": 0.0152,
+  "d1": 0.461,
+  "mean": 159.15,
+  "frames": 48,
+  "wob_med": 0.034,
+  "wob_p75": 0.081,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 11915,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d5",
+  "dump_dt": 0.1646,
+  "anim_s_per_frame": 0.0411,
+  "wob_cloud_med": 0.032,
+  "wob_cloud_tiles": 134,
+  "cloud_frac": 0.795,
+  "wob_cloud_p75": 0.076
+ },
+ "b39_base_p1_d5_td_W_s20_0": {
+  "d2": 0.893,
+  "d2_blur": 0.317,
+  "hp9": 0.134,
+  "d2_p99": 9.0,
+  "frac_d2_gt4": 0.0286,
+  "d1": 0.621,
+  "mean": 158.12,
+  "frames": 48,
+  "wob_med": 0.042,
+  "wob_p75": 0.112,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 12416,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d5",
+  "dump_dt": 0.163,
+  "anim_s_per_frame": 0.0408
+ },
+ "b39_base_p1_d5_td_D_s20_0": {
+  "d2": 1.113,
+  "d2_blur": 0.383,
+  "hp9": 0.162,
+  "d2_p99": 11.0,
+  "frac_d2_gt4": 0.0458,
+  "d1": 0.772,
+  "mean": 158.24,
+  "frames": 48,
+  "wob_med": 0.046,
+  "wob_p75": 0.095,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 12911,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d5",
+  "dump_dt": 0.1638,
+  "anim_s_per_frame": 0.041
+ },
+ "b39_inside_cur_td_W_s20_0": {
+  "d2": 0.528,
+  "d2_blur": 0.104,
+  "hp9": 0.048,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0001,
+  "d1": 0.293,
+  "mean": 196.31,
+  "frames": 48,
+  "wob_med": 0.046,
+  "wob_p75": 0.064,
+  "wob_period": 5.2,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 13549,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1464,
+  "anim_s_per_frame": 0.0366
+ },
+ "b39_inside_p1_td_W_s20_0": {
+  "d2": 0.476,
+  "d2_blur": 0.097,
+  "hp9": 0.041,
+  "d2_p99": 2.0,
+  "frac_d2_gt4": 0.0001,
+  "d1": 0.273,
+  "mean": 154.75,
+  "frames": 48,
+  "wob_med": 0.05,
+  "wob_p75": 0.074,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 14197,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.155,
+  "anim_s_per_frame": 0.0387
+ },
+ "b39_inside_p1_m1_td_W_s20_0": {
+  "d2": 1.017,
+  "d2_blur": 0.697,
+  "hp9": 0.413,
+  "d2_p99": 4.67,
+  "frac_d2_gt4": 0.0192,
+  "d1": 0.596,
+  "mean": 172.49,
+  "frames": 48,
+  "wob_med": 0.276,
+  "wob_p75": 0.584,
+  "wob_period": 3.8,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 14846,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_m1",
+  "dump_dt": 0.1562,
+  "anim_s_per_frame": 0.0391
+ },
+ "b39_inside_cur_frz_W_s20_0": {
+  "d2": 0.576,
+  "d2_blur": 0.243,
+  "hp9": 0.12,
+  "d2_p99": 3.67,
+  "frac_d2_gt4": 0.0065,
+  "d1": 0.437,
+  "mean": 176.15,
+  "frames": 48,
+  "wob_med": 0.038,
+  "wob_p75": 0.098,
+  "wob_period": 3.8,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 671,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1539,
+  "anim_s_per_frame": 0.1539
+ },
+ "b39_inside_p1_frz_W_s20_0": {
+  "d2": 0.77,
+  "d2_blur": 0.264,
+  "hp9": 0.119,
+  "d2_p99": 6.67,
+  "frac_d2_gt4": 0.0228,
+  "d1": 0.534,
+  "mean": 166.09,
+  "frames": 48,
+  "wob_med": 0.07,
+  "wob_p75": 0.147,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 1342,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1577,
+  "anim_s_per_frame": 0.1577
+ },
+ "b39_inside_p1_m1_frz_W_s20_0": {
+  "d2": 1.909,
+  "d2_blur": 1.427,
+  "hp9": 0.808,
+  "d2_p99": 14.0,
+  "frac_d2_gt4": 0.1231,
+  "d1": 1.106,
+  "mean": 166.15,
+  "frames": 48,
+  "wob_med": 0.332,
+  "wob_p75": 1.004,
+  "wob_period": 3.8,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 2008,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_m1",
+  "dump_dt": 0.1551,
+  "anim_s_per_frame": 0.1551
+ },
+ "b39_inside_p1_d1_frz_W_s20_0": {
+  "d2": 0.604,
+  "d2_blur": 0.214,
+  "hp9": 0.095,
+  "d2_p99": 3.33,
+  "frac_d2_gt4": 0.0048,
+  "d1": 0.477,
+  "mean": 166.01,
+  "frames": 48,
+  "wob_med": 0.061,
+  "wob_p75": 0.148,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 2647,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1_d1",
+  "dump_dt": 0.1577,
+  "anim_s_per_frame": 0.1577
+ },
+ "b39_base_cur_w0_0_s20_0": {
+  "d2": 0.768,
+  "d2_blur": 0.426,
+  "hp9": 0.215,
+  "d2_p99": 6.67,
+  "frac_d2_gt4": 0.0212,
+  "d1": 0.749,
+  "mean": 175.54,
+  "frames": 48,
+  "wob_med": 0.183,
+  "wob_p75": 0.626,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 678,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1562,
+  "anim_s_per_frame": 0.1562,
+  "cloud_frac": 0.71,
+  "wob_cloud_tiles": 117,
+  "wob_cloud_med": 0.23,
+  "wob_cloud_p75": 0.732
+ },
+ "b39_base_cur_w0_W_s20_0": {
+  "d2": 0.697,
+  "d2_blur": 0.353,
+  "hp9": 0.159,
+  "d2_p99": 5.0,
+  "frac_d2_gt4": 0.0146,
+  "d1": 0.647,
+  "mean": 174.49,
+  "frames": 48,
+  "wob_med": 0.181,
+  "wob_p75": 0.441,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 1146,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1565,
+  "anim_s_per_frame": 0.1565
+ },
+ "b39_base_cur_w0_D_s20_0": {
+  "d2": 0.848,
+  "d2_blur": 0.509,
+  "hp9": 0.241,
+  "d2_p99": 7.0,
+  "frac_d2_gt4": 0.0284,
+  "d1": 0.966,
+  "mean": 172.79,
+  "frames": 48,
+  "wob_med": 0.306,
+  "wob_p75": 0.692,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 1632,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1569,
+  "anim_s_per_frame": 0.1569
+ },
+ "b39_base_cur_w0_0_s20_1": {
+  "d2": 0.692,
+  "d2_blur": 0.349,
+  "hp9": 0.169,
+  "d2_p99": 5.0,
+  "frac_d2_gt4": 0.0147,
+  "d1": 0.694,
+  "mean": 171.18,
+  "frames": 48,
+  "wob_med": 0.18,
+  "wob_p75": 0.488,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 2277,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1552,
+  "anim_s_per_frame": 0.1552,
+  "cloud_frac": 0.67,
+  "wob_cloud_tiles": 111,
+  "wob_cloud_med": 0.223,
+  "wob_cloud_p75": 0.513
+ },
+ "b39_base_cur_w0_W_s20_1": {
+  "d2": 0.725,
+  "d2_blur": 0.383,
+  "hp9": 0.173,
+  "d2_p99": 6.0,
+  "frac_d2_gt4": 0.0177,
+  "d1": 0.68,
+  "mean": 174.44,
+  "frames": 48,
+  "wob_med": 0.179,
+  "wob_p75": 0.508,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 2737,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1574,
+  "anim_s_per_frame": 0.1574
+ },
+ "b39_base_cur_w0_D_s20_1": {
+  "d2": 0.785,
+  "d2_blur": 0.437,
+  "hp9": 0.204,
+  "d2_p99": 6.67,
+  "frac_d2_gt4": 0.0233,
+  "d1": 0.897,
+  "mean": 174.95,
+  "frames": 48,
+  "wob_med": 0.196,
+  "wob_p75": 0.504,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 3242,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1586,
+  "anim_s_per_frame": 0.1586
+ },
+ "b39_base_p1_w0_0_s20_0": {
+  "d2": 1.413,
+  "d2_blur": 0.755,
+  "hp9": 0.331,
+  "d2_p99": 15.33,
+  "frac_d2_gt4": 0.0749,
+  "d1": 1.341,
+  "mean": 152.51,
+  "frames": 48,
+  "wob_med": 0.926,
+  "wob_p75": 2.117,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 3893,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1616,
+  "anim_s_per_frame": 0.1616,
+  "cloud_frac": 0.66,
+  "wob_cloud_tiles": 107,
+  "wob_cloud_med": 1.254,
+  "wob_cloud_p75": 2.372
+ },
+ "b39_base_p1_w0_W_s20_0": {
+  "d2": 1.539,
+  "d2_blur": 0.888,
+  "hp9": 0.35,
+  "d2_p99": 17.0,
+  "frac_d2_gt4": 0.0871,
+  "d1": 1.426,
+  "mean": 153.08,
+  "frames": 48,
+  "wob_med": 0.635,
+  "wob_p75": 1.817,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 4392,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1606,
+  "anim_s_per_frame": 0.1606
+ },
+ "b39_base_p1_w0_D_s20_0": {
+  "d2": 1.604,
+  "d2_blur": 0.941,
+  "hp9": 0.353,
+  "d2_p99": 17.33,
+  "frac_d2_gt4": 0.0884,
+  "d1": 1.372,
+  "mean": 154.25,
+  "frames": 48,
+  "wob_med": 0.57,
+  "wob_p75": 1.607,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 4880,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1611,
+  "anim_s_per_frame": 0.1611
+ },
+ "b39_base_p1_w0_0_s20_1": {
+  "d2": 1.598,
+  "d2_blur": 0.884,
+  "hp9": 0.388,
+  "d2_p99": 18.0,
+  "frac_d2_gt4": 0.0907,
+  "d1": 1.502,
+  "mean": 153.49,
+  "frames": 48,
+  "wob_med": 0.825,
+  "wob_p75": 2.281,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 5536,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1611,
+  "anim_s_per_frame": 0.1611,
+  "cloud_frac": 0.663,
+  "wob_cloud_tiles": 105,
+  "wob_cloud_med": 1.275,
+  "wob_cloud_p75": 2.81
+ },
+ "b39_base_p1_w0_W_s20_1": {
+  "d2": 1.518,
+  "d2_blur": 0.877,
+  "hp9": 0.328,
+  "d2_p99": 16.0,
+  "frac_d2_gt4": 0.0854,
+  "d1": 1.423,
+  "mean": 153.35,
+  "frames": 48,
+  "wob_med": 0.668,
+  "wob_p75": 2.036,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 6027,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1614,
+  "anim_s_per_frame": 0.1614
+ },
+ "b39_base_p1_w0_D_s20_1": {
+  "d2": 1.474,
+  "d2_blur": 0.853,
+  "hp9": 0.315,
+  "d2_p99": 15.67,
+  "frac_d2_gt4": 0.0797,
+  "d1": 1.233,
+  "mean": 154.8,
+  "frames": 48,
+  "wob_med": 0.428,
+  "wob_p75": 1.173,
+  "wob_period": 14.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 6525,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1629,
+  "anim_s_per_frame": 0.1629
+ },
+ "b39_base_cur_w0_td_0_s20_0": {
+  "d2": 0.648,
+  "d2_blur": 0.314,
+  "hp9": 0.181,
+  "d2_p99": 4.67,
+  "frac_d2_gt4": 0.0132,
+  "d1": 0.514,
+  "mean": 171.89,
+  "frames": 48,
+  "wob_med": 0.051,
+  "wob_p75": 0.176,
+  "wob_period": 4.7,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 7178,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1584,
+  "anim_s_per_frame": 0.0396,
+  "cloud_frac": 0.669,
+  "wob_cloud_tiles": 108,
+  "wob_cloud_med": 0.058,
+  "wob_cloud_p75": 0.193
+ },
+ "b39_base_cur_w0_td_W_s20_0": {
+  "d2": 0.612,
+  "d2_blur": 0.272,
+  "hp9": 0.134,
+  "d2_p99": 4.0,
+  "frac_d2_gt4": 0.0089,
+  "d1": 0.485,
+  "mean": 169.11,
+  "frames": 48,
+  "wob_med": 0.051,
+  "wob_p75": 0.135,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 7660,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1576,
+  "anim_s_per_frame": 0.0394
+ },
+ "b39_base_cur_w0_td_D_s20_0": {
+  "d2": 0.678,
+  "d2_blur": 0.335,
+  "hp9": 0.16,
+  "d2_p99": 4.67,
+  "frac_d2_gt4": 0.0147,
+  "d1": 0.729,
+  "mean": 171.71,
+  "frames": 48,
+  "wob_med": 0.091,
+  "wob_p75": 0.249,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 1.0,
+   "tick": true,
+   "ticks": 8161,
+   "error": "",
+   "cloud_hidden": [
+    true
+   ],
+   "box_weight": 1.0
+  },
+  "host": null,
+  "dump_dt": 0.1577,
+  "anim_s_per_frame": 0.0394
+ },
+ "b39_base_p1_w0_td_0_s20_0": {
+  "d2": 0.749,
+  "d2_blur": 0.266,
+  "hp9": 0.101,
+  "d2_p99": 6.0,
+  "frac_d2_gt4": 0.0213,
+  "d1": 0.571,
+  "mean": 151.43,
+  "frames": 48,
+  "wob_med": 0.091,
+  "wob_p75": 0.197,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 8821,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1622,
+  "anim_s_per_frame": 0.0405,
+  "cloud_frac": 0.604,
+  "wob_cloud_tiles": 94,
+  "wob_cloud_med": 0.126,
+  "wob_cloud_p75": 0.243
+ },
+ "b39_base_p1_w0_td_W_s20_0": {
+  "d2": 0.805,
+  "d2_blur": 0.31,
+  "hp9": 0.113,
+  "d2_p99": 6.67,
+  "frac_d2_gt4": 0.0257,
+  "d1": 0.686,
+  "mean": 150.85,
+  "frames": 48,
+  "wob_med": 0.102,
+  "wob_p75": 0.243,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 9308,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1622,
+  "anim_s_per_frame": 0.0406
+ },
+ "b39_base_p1_w0_td_D_s20_0": {
+  "d2": 1.165,
+  "d2_blur": 0.518,
+  "hp9": 0.192,
+  "d2_p99": 11.33,
+  "frac_d2_gt4": 0.0566,
+  "d1": 1.091,
+  "mean": 156.21,
+  "frames": 48,
+  "wob_med": 0.151,
+  "wob_p75": 0.383,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 9808,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1649,
+  "anim_s_per_frame": 0.0412
+ },
+ "b39_base_p1_w0_td_0_s20_1": {
+  "d2": 0.742,
+  "d2_blur": 0.262,
+  "hp9": 0.099,
+  "d2_p99": 6.67,
+  "frac_d2_gt4": 0.0225,
+  "d1": 0.559,
+  "mean": 153.57,
+  "frames": 48,
+  "wob_med": 0.058,
+  "wob_p75": 0.198,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT,",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 10467,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1626,
+  "anim_s_per_frame": 0.0406,
+  "cloud_frac": 0.641,
+  "wob_cloud_tiles": 101,
+  "wob_cloud_med": 0.085,
+  "wob_cloud_p75": 0.232
+ },
+ "b39_base_p1_w0_td_W_s20_1": {
+  "d2": 0.758,
+  "d2_blur": 0.283,
+  "hp9": 0.105,
+  "d2_p99": 6.0,
+  "frac_d2_gt4": 0.0202,
+  "d1": 0.642,
+  "mean": 150.37,
+  "frames": 48,
+  "wob_med": 0.077,
+  "wob_p75": 0.198,
+  "wob_period": 21.0,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 10968,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.1622,
+  "anim_s_per_frame": 0.0405
+ },
+ "b39_base_p1_w0_td_D_s20_1": {
+  "d2": 1.384,
+  "d2_blur": 0.825,
+  "hp9": 0.433,
+  "d2_p99": 17.0,
+  "frac_d2_gt4": 0.0614,
+  "d1": 1.049,
+  "mean": 155.77,
+  "frames": 48,
+  "wob_med": 0.678,
+  "wob_p75": 1.759,
+  "wob_period": 10.5,
+  "wob_tiles": 165,
+  "frames_got": 48,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: S",
+  "p1_state": {
+   "weight": 0.0,
+   "tick": true,
+   "ticks": 11382,
+   "error": "",
+   "cloud_hidden": [
+    false
+   ],
+   "box_weight": 0.0
+  },
+  "host": "p1",
+  "dump_dt": 0.162,
+  "anim_s_per_frame": 0.0405
+ }
+}
