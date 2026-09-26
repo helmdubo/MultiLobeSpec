@@ -12,9 +12,45 @@ class UActorComponent;
 class UDirectionalLightComponent;
 class UMaterial;
 class UMaterialInstanceDynamic;
+class UTexture;
 class UVolumetricCloudComponent;
 class UWorld;
 struct FPropertyChangedEvent;
+
+/** W48 (FogMS_Weather_Design.md 3.3-3.6, 4.1): what a FogMS Weather actor (FogMS_Weather.h) hands the cloud host every tick. The weather's
+ * density exists ONLY in the host's cloud shadow pass (M_FogMS_Cloud v3, Shadow Pass Switch): the engine's cloud shadow map (Beer shadow
+ * map) then shadows the ground, the fog, Lumen and the atmosphere with the weather; the visible pass keeps drawing the hero Boxes only. */
+struct FFogMSWeatherFeed
+{
+	TWeakObjectPtr<const AActor> Owner;
+	/** Some weather density exists (a layer with coverage > 0 and extinction > 0, and the weather map passed its RGBA write check). False
+	 * (Clear, or the map is not usable): the shadow branch is off and nothing of the host changes. */
+	bool bActive = false;
+	/** Decision 2 fallback (AFogMSWeather::ShadowLayer = Thin): the host layer is NOT extended; the whole weather column along the sun
+	 * (RT_FogMS_WeatherSun) is spread over the host layer in the shadow pass. */
+	bool bThinLayer = false;
+	/** Altitude envelope [cm above the SkyAtmosphere ground] of the active weather layers (both states of a transition, rounded outward):
+	 * the extended host layer covers it. BaseCm = the lowest active base (the thin band without a hero Box sits just under it). */
+	double BottomCm = 0.0;
+	double TopCm = 0.0;
+	double BaseCm = 0.0;
+	/** Shadow-pass textures: RT_FogMS_WeatherMap (RGBA16F), RT_FogMS_WeatherSun (R16F, thin layer), the cloud-type LUT, the pattern
+	 * (detail noise), the 2D curl. */
+	TWeakObjectPtr<UTexture> Map;
+	TWeakObjectPtr<UTexture> SunMap;
+	TWeakObjectPtr<UTexture> TypeLUT;
+	TWeakObjectPtr<UTexture> Pattern;
+	TWeakObjectPtr<UTexture> Curl;
+	/** M_FogMS_Cloud v3 parameters (FogMS_WeatherFn): origin of the weather domain [cm]; (1 / domain [1/cm], 1 / detail tile [1/cm], curl
+	 * strength, detail mip); wind displacement [cm] (xy); L0 = (base, top [cm], sigma [1/m], detail strength); L1 = (deck base, top [cm],
+	 * sigma [1/m], 0). FogMS_WeatherSunDir (toward the sun, host layer height) is written by the subsystem. */
+	FLinearColor Origin = FLinearColor(0, 0, 0, 0);
+	FLinearColor Domain = FLinearColor(0, 0, 0, 0);
+	FLinearColor Wind = FLinearColor(0, 0, 0, 0);
+	FLinearColor L0 = FLinearColor(0, 0, 0, 0);
+	FLinearColor L1 = FLinearColor(0, 0, 0, 0);
+	uint64 FedFrame = 0;
+};
 
 /** P2 Render Path = Cloud Host: where a Box's density can be (FogMS_PerPixelClouds_Design.md 3.9, layer check / fit). The density
  * cube's transform (cube space -50..50, the LocalPosition of M_FogMS_Density / M_FogMS_Cloud) and the cube-space z range that can
@@ -89,6 +125,24 @@ struct FFogMSCloudHostBinding
  *     r.VolumetricCloud.ShadowMap.MaxResolution), a hint when the sun's Cast Cloud Shadows is off and a warning when the texel is
  *     larger than the Box. Console FogMS.CloudHost.SetupShadows [ExtentKm 5] [ResolutionScale 2] (SetupSunShadows) sets the sun up
  *     on request, one log line with the previous values (an undo step in the editor); the plugin never edits the sun on its own.
+ *   W48 weather (FogMS_Weather_Design.md 3.2-3.6, 4.1; AFogMSWeather, FogMS_Weather.h): the weather actor feeds FeedWeather every tick.
+ *     Tick (TickWeather): the weather uses the host a Box renders through, else the first rendering host; none -> WeatherNeedsHost (the
+ *     actor spawns one with SpawnHost, the FogMS.CloudHost.Create path, when its Create Cloud Host is ticked). Its MID (the same wrap as a
+ *     Box's) gets the M_FogMS_Cloud v3 weather parameters every tick; the material adds the weather density to the extinction and the
+ *     conservative density ONLY in the cloud shadow pass (Shadow Pass Switch; SHADOW_DEPTH_SHADER 1 only in FVolumetricCloudShadowPS), so
+ *     the engine's cloud shadow map (and sky AO) carries hero Boxes + weather and the visible pass the hero Boxes only.
+ *     Extended layer (default): the host layer = the Box's band +-10 m UNION the weather envelope (FitLayer); while a Box renders through
+ *     that extended host, r.VolumetricCloud.StepSizeOnZeroConservativeDensity = r.FogMS.Weather.SkipSteps (8; empty view steps are
+ *     skipped 8 at a time) and FogMS_CloudSkipMargin = that value x the host step widens the Box's conservative region by as much (a skip
+ *     never jumps over the Box's entry; the sample grid is unchanged). Thin layer (decision 2 fallback): the layer stays at the Box's band
+ *     (without a Box: a 0.1 km band right under the weather base) and the shadow pass spreads the weather column's optical depth along
+ *     the sun (RT_FogMS_WeatherSun) over it: the ground below gets exp(-OD), the air above the band gets no weather shadow.
+ *     No Box renders through the weather's host: 'shadows only': FogMS_Density 0 (no hero), the layer fitted to the weather (thin: the
+ *     band under its base), Tracing Start Distance = Tracing Max Distance (the view trace is empty: minimal visible cost; a Box binding
+ *     puts 0 back), and of the managed cvars only the W47 cloud-shadow-map ones (while the sun casts cloud shadows). A host the weather
+ *     took without a Box keeps its previous layer and start distance in FHost and gets them back when the weather stops (actor deleted,
+ *     disabled, another world); a hero host just refits to its Box. Clear (no active layer): the weather branch is off and nothing of the
+ *     host changes (identical to W47). One weather actor per world (ClaimWeather: the first one feeding wins).
  */
 UCLASS()
 class UFogMSCloudHostSubsystem : public UTickableWorldSubsystem
@@ -97,8 +151,8 @@ class UFogMSCloudHostSubsystem : public UTickableWorldSubsystem
 
 public:
 	/** W46: number of engine cvars ApplyHostSettings manages (FogMS_CloudHost.cpp FogMS_ManagedCVarNames); W47 adds the three
-	 * cloud-shadow-map cvars. */
-	static constexpr int32 ManagedCount = 10;
+	 * cloud-shadow-map cvars, W48 r.VolumetricCloud.StepSizeOnZeroConservativeDensity. */
+	static constexpr int32 ManagedCount = 11;
 
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
@@ -123,10 +177,25 @@ public:
 	 * light with Atmosphere Sun Light, index 0) gets Cast Cloud Shadows on, Cloud Shadow Extent = ExtentKm (the map's radius around
 	 * the camera) and Cloud Shadow Map Resolution Scale = ResolutionScale, as one undo step in the editor. OutMessage = the one log
 	 * line: sun, previous -> new values, map resolution and texel size. False when there is no such sun (nothing changed). */
-	static bool SetupSunShadows(UWorld* World, float ExtentKm, float ResolutionScale, FString& OutMessage);
+	static bool SetupSunShadows(UWorld* World, float ExtentKm, float ResolutionScale, FString& OutMessage, float RaySampleScale = -1.0f);
 	/** W47: the world's atmosphere sun as the renderer picks it (FScene::AtmosphereLights[0]: the brightest visible, world-affecting
 	 * directional light with Atmosphere Sun Light and index 0); OutCount = how many qualify. Null when none. */
 	static UDirectionalLightComponent* FindAtmosphereSun(const UWorld* World, int32* OutCount = nullptr);
+
+	/** W48: one weather actor per world. True when Owner drives the weather (it already does, or nobody fed in the last frame);
+	 * OutOther = the label of the actor that does otherwise. */
+	bool ClaimWeather(const AActor& Owner, FString& OutOther);
+	/** W48, the weather actor's tick (game thread): this frame's feed (FFogMSWeatherFeed); applied by the subsystem tick. */
+	void FeedWeather(const FFogMSWeatherFeed& Feed);
+	/** W48: the weather actor stops (deleted, disabled, end of play): the weather branch goes off, a host it took without a Box gets its
+	 * layer and start distance back now, the cvars on the next tick. One log line. */
+	void StopWeather(const AActor& Owner, const TCHAR* Reason);
+	/** W48: the fed weather found no cloud host in this world (none exists, not even a hidden one). */
+	bool WeatherNeedsHost() const { return bWeatherNeedsHost; }
+	/** W48: the host part of the weather actor's status (from the last tick). */
+	const FString& GetWeatherNote() const { return WeatherNote; }
+	/** W48: a Box renders through the cloud component of HostActor (its hero part is in use). */
+	bool IsHostBoundToBox(const AActor* HostActor) const;
 
 private:
 	struct FHost
@@ -144,6 +213,15 @@ private:
 		FFogMSCloudBoxGeometry Geometry;
 		/** W47: the cloud-shadow part of the last status (logged once whenever it changes). */
 		FString LastShadowNote;
+		/** W48: the weather writes its shadow-pass parameters into this host's MID. */
+		bool bWeather = false;
+		/** W48: this host renders weather shadows only (no Box): its Tracing Start Distance is the plugin's 'empty view trace'. */
+		bool bShadowsOnly = false;
+		/** W48: the layer and start distance the host had before the weather managed it without a Box (restored when the weather stops). */
+		bool bWeatherSaved = false;
+		float SavedLayerBottomKm = 0.0f;
+		float SavedLayerHeightKm = 0.1f;
+		float SavedStartDistanceKm = 0.0f;
 	};
 
 	/** W46: one managed engine cvar (ApplyHostSettings): its value before the first write, the value last asked for. */
@@ -167,8 +245,21 @@ private:
 	 * and the engine's cloud-shadow-map cvars; empty when there is nothing to say. */
 	FString CloudShadowNote(const FFogMSCloudBoxGeometry& Geometry) const;
 	void EmptyHost(FHost& Host, const TCHAR* Reason);
-	/** W46: the managed engine cvars (class comment) for the host a Box renders through; one log line when a value changes. */
-	void ApplyHostSettings(const UVolumetricCloudComponent& Host);
+	/** W46: the managed engine cvars (class comment) for the host a Box renders through (bHero) or the weather uses without a Box (only
+	 * the W47 cloud-shadow-map cvars then); W48: StepSizeOnZeroConservativeDensity while bHero and the weather extends the layer. One log
+	 * line when a value changes. Writes FogMS_CloudSkipMargin (the Box's conservative-region margin for that skip) into the host MID. */
+	void ApplyHostSettings(UVolumetricCloudComponent& Host, bool bHero, bool bWeatherActive, bool bWeatherExtended);
+	/** The host's MID: its material when that already is a MID, else a new MID of it (outer = the component) set on it. Null (with
+	 * OutProblem) when that fails. Context = who asks, for the log line. */
+	UMaterialInstanceDynamic* EnsureHostMID(UVolumetricCloudComponent& Component, const FString& Context, FString& OutProblem);
+	/** W48: the fresh weather feed that extends a host layer (active, extended mode), else null. */
+	const FFogMSWeatherFeed* ExtendingWeather() const;
+	/** W48 subsystem tick part: host choice, MID parameters, layer and 'shadows only' state without a Box. Returns the weather's host. */
+	UVolumetricCloudComponent* TickWeather();
+	/** W48: writes the weather parameters (bOn false: the branch off, textures kept) into a host MID. */
+	void WriteWeatherParameters(UMaterialInstanceDynamic& MID, const UVolumetricCloudComponent& Component, bool bOn) const;
+	/** W48: the weather leaves Host: branch off, saved layer / start distance back (a host without a Box). Reason for the log line. */
+	void ReleaseWeatherHost(FHost& Host, const TCHAR* Reason);
 	/** Every managed cvar back to its previous value (only those still at game-setting priority); one log line. */
 	void RestoreHostSettings();
 	void RestoreSetting(int32 Index, IConsoleVariable* Variable, FString& InOutChanges);
@@ -196,4 +287,12 @@ private:
 	FString SettingsNote;
 	FDelegateHandle MarkDirtyHandle;
 	FDelegateHandle PropertyChangedHandle;
+	/** W48 weather state: the last feed (FeedWeather), the tick's result for the actor's status. */
+	FFogMSWeatherFeed WeatherFeed;
+	bool bWeatherNeedsHost = false;
+	/** W48: the last TickWeather bound the weather to a host with the v3 material (so the layer may be extended). */
+	bool bWeatherHostUsable = false;
+	FString WeatherNote;
+	/** W48: the last weather log line of the tick (host choice / problem), logged once whenever it changes. */
+	FString LastWeatherLog;
 };

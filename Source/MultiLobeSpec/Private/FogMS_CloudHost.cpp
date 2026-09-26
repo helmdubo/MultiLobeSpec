@@ -6,6 +6,7 @@
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/Texture.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
@@ -86,6 +87,13 @@ namespace
 		TEXT("with a small snap). The engine centres the shadow map on the camera in steps of the snap length: with its 20 km and a 5 km extent the ")
 		TEXT("camera could be off the map (no shadow near it). Default 0.25 (5 km -> 1.25 km, a whole number of texels at 512 / 1024 / 2048). ")
 		TEXT("0 or negative = leave both engine cvars alone."), ECVF_Default);
+	// W48 weather (FogMS_CloudHost.h class comment, FogMS_Weather.h).
+	TAutoConsoleVariable<int32> CVarWeatherSkipSteps(TEXT("r.FogMS.Weather.SkipSteps"), 8,
+		TEXT("W48: r.VolumetricCloud.StepSizeOnZeroConservativeDensity while a FogMS Weather extends the layer of a cloud host that renders a Box ")
+		TEXT("(Shadow Layer = Extended): the view ray skips empty space (conservative density 0: everything but the Box) this many steps at a time, ")
+		TEXT("so the taller layer (up to the weather top) costs little in the visible pass; the Box's conservative region grows by the same ")
+		TEXT("distance (FogMS_CloudSkipMargin = value x the host step), so a skip never jumps over the Box's entry and its samples stay on the ")
+		TEXT("same grid. Default 8. 1 or less = leave the engine cvar alone (engine default 1: every empty step is visited)."), ECVF_Default);
 
 	// P1 host settings (round 39, FogMS_Prod_Report.md 'Раунд 39'): trace 2 km from the camera, view samples x8 (768), sun march 0.25 km
 	// with 32 samples, stop at transmittance 0.005, layer = the Box's density band +-10 m (at least 0.1 km).
@@ -114,11 +122,12 @@ namespace
 	constexpr float FogMS_SetupShadowExtentKm = 5.0f;
 	constexpr float FogMS_SetupShadowResolutionScale = 2.0f;
 
-	/** W46: the engine cvars ApplyHostSettings manages, in UFogMSCloudHostSubsystem::Managed order (W47: + the cloud shadow map). */
+	/** W46: the engine cvars ApplyHostSettings manages, in UFogMSCloudHostSubsystem::Managed order (W47: + the cloud shadow map, W48:
+	 * + the empty-step skip of the extended weather layer). */
 	enum EFogMSManagedCVar : int32
 	{
 		FogMS_MDistance, FogMS_MSampleMin, FogMS_MSampleMax, FogMS_MMode, FogMS_MUpsampling, FogMS_MBoxConstraint, FogMS_MMinKm,
-		FogMS_MShadowFilter, FogMS_MShadowSnap, FogMS_MShadowSnapToPixel, FogMS_MCount
+		FogMS_MShadowFilter, FogMS_MShadowSnap, FogMS_MShadowSnapToPixel, FogMS_MSkipSteps, FogMS_MCount
 	};
 	static_assert(FogMS_MCount == UFogMSCloudHostSubsystem::ManagedCount, "FogMS_ManagedCVarNames and UFogMSCloudHostSubsystem::ManagedCount differ");
 	const TCHAR* const FogMS_ManagedCVarNames[FogMS_MCount] =
@@ -133,7 +142,14 @@ namespace
 		TEXT("r.VolumetricCloud.ShadowMap.SpatialFiltering"),
 		TEXT("r.VolumetricCloud.ShadowMap.SnapLength"),
 		TEXT("r.VolumetricCloud.ShadowMap.SnapToPixelGrid"),
+		TEXT("r.VolumetricCloud.StepSizeOnZeroConservativeDensity"),
 	};
+
+	/** W48 weather: the band a 'thin layer' host without a Box gets right under the weather base [cm], and the minimum layer height the
+	 * engine allows (Layer Height ClampMin 0.1 km). */
+	constexpr double FogMS_ThinBandCm = 1.0e4;
+	/** W48: the M_FogMS_Cloud v3 scalar that tells a weather-capable host material (matedit_cloud.py). */
+	const TCHAR* const FogMS_WeatherOnParameter = TEXT("FogMS_WeatherOn");
 
 	/** Cached lookups (FindConsoleObject warns about frequent calls; these engine cvars exist from the renderer's start on). */
 	IConsoleVariable* FogMS_ManagedCVar(int32 Index)
@@ -449,7 +465,7 @@ FString UFogMSCloudHostSubsystem::CloudShadowNote(const FFogMSCloudBoxGeometry& 
 	return Note + TEXT("]");
 }
 
-bool UFogMSCloudHostSubsystem::SetupSunShadows(UWorld* World, float ExtentKm, float ResolutionScale, FString& OutMessage)
+bool UFogMSCloudHostSubsystem::SetupSunShadows(UWorld* World, float ExtentKm, float ResolutionScale, FString& OutMessage, float RaySampleScale)
 {
 	int32 Count = 0;
 	UDirectionalLightComponent* Sun = FindAtmosphereSun(World, &Count);
@@ -463,12 +479,18 @@ bool UFogMSCloudHostSubsystem::SetupSunShadows(UWorld* World, float ExtentKm, fl
 	const float OldScale = Sun->CloudShadowMapResolutionScale;
 	const int32 OldResolution = FogMS_ShadowMapResolution(OldScale);
 	const int32 NewResolution = FogMS_ShadowMapResolution(ResolutionScale);
-	const FString Values = FString::Printf(TEXT("Cast Cloud Shadows %s -> on, Cloud Shadow Extent %g -> %g km, Cloud Shadow Map Resolution Scale %g -> %g (map %d -> %d texels, texel %.1f -> %.1f m)"),
+	// W48: the weather's tall layer needs more samples along each shadow ray (the engine traces 16 x Cloud Shadow Ray Sample Count Scale
+	// samples through the whole layer, at most r.VolumetricCloud.ShadowMap.RaySampleMaxCount); <= 0 = leave it (the W47 command).
+	const bool bRaySamples = FMath::IsFinite(RaySampleScale) && RaySampleScale > 0.0f;
+	const float OldRayScale = Sun->CloudShadowRaySampleCountScale;
+	const FString Values = FString::Printf(TEXT("Cast Cloud Shadows %s -> on, Cloud Shadow Extent %g -> %g km, Cloud Shadow Map Resolution Scale %g -> %g (map %d -> %d texels, texel %.1f -> %.1f m)%s"),
 		bWasCasting ? TEXT("on") : TEXT("off"), OldExtent, ExtentKm, OldScale, ResolutionScale, OldResolution, NewResolution,
-		FogMS_ShadowTexelM(OldExtent, OldResolution), FogMS_ShadowTexelM(ExtentKm, NewResolution));
+		FogMS_ShadowTexelM(OldExtent, OldResolution), FogMS_ShadowTexelM(ExtentKm, NewResolution),
+		bRaySamples ? *FString::Printf(TEXT(", Cloud Shadow Ray Sample Count Scale %g -> %g (%g -> %g samples per shadow ray before the horizon boost)"),
+			OldRayScale, RaySampleScale, FMath::Max(4.0f, 16.0f * OldRayScale), FMath::Max(4.0f, 16.0f * RaySampleScale)) : TEXT(""));
 	const FString Several = Count > 1
 		? FString::Printf(TEXT(" (%d atmosphere suns with index 0: the brightest one, which the renderer uses)"), Count) : FString();
-	if (bWasCasting && OldExtent == ExtentKm && OldScale == ResolutionScale)
+	if (bWasCasting && OldExtent == ExtentKm && OldScale == ResolutionScale && (!bRaySamples || OldRayScale == RaySampleScale))
 	{
 		OutMessage = FString::Printf(TEXT("sun '%s'%s is already set (%s): nothing changed."), *FogMS_LightLabel(Sun), *Several, *Values);
 		return true;
@@ -483,6 +505,7 @@ bool UFogMSCloudHostSubsystem::SetupSunShadows(UWorld* World, float ExtentKm, fl
 	Sun->bCastCloudShadows = true;
 	Sun->CloudShadowExtent = ExtentKm;
 	Sun->CloudShadowMapResolutionScale = ResolutionScale;
+	if (bRaySamples) Sun->CloudShadowRaySampleCountScale = RaySampleScale;
 	Sun->MarkRenderStateDirty();
 #if WITH_EDITOR
 	if (Transaction != INDEX_NONE && GEngine) GEngine->EndTransaction();
@@ -538,6 +561,15 @@ FString UFogMSCloudHostSubsystem::FitLayer(UVolumetricCloudComponent& Component,
 		// hysteresis, so the render state (MarkRenderStateDirty by the caller) is not re-created every frame for small changes.
 		double WantBottom = 0.0, WantTop = 0.0;
 		FogMS_TargetLayer(AltMin, AltMax, WantBottom, WantTop);
+		// W48 extended weather layer: the layer also covers the weather envelope (shadow pass only; the view pass skips its empty steps
+		// StepSizeOnZeroConservativeDensity at a time, ApplyHostSettings). The envelope is rounded outward by the actor, so a transition
+		// refits the layer at its start and end only.
+		const FFogMSWeatherFeed* Weather = ExtendingWeather();
+		if (Weather)
+		{
+			WantBottom = FMath::Min(WantBottom, FMath::Max(0.0, Weather->BottomCm));
+			WantTop = FMath::Max(WantTop, Weather->TopCm);
+		}
 		if (FMath::Abs(Bottom - WantBottom) > FogMS_LayerRefitCm || FMath::Abs(Top - WantTop) > FogMS_LayerRefitCm)
 		{
 			const double OldBottom = Bottom, OldTop = Top;
@@ -550,16 +582,20 @@ FString UFogMSCloudHostSubsystem::FitLayer(UVolumetricCloudComponent& Component,
 			const double Now = FPlatformTime::Seconds();
 			if (Now - Host.LastRefitLogTime >= 1.0)
 			{
-				UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s': layer %.3f-%.3f -> %.3f-%.3f km above the ground, fitted to Box '%s' (density band %.3f-%.3f km +-%.0f m; %d refit(s) since the previous line)."),
+				UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s': layer %.3f-%.3f -> %.3f-%.3f km above the ground, fitted to Box '%s' (density band %.3f-%.3f km +-%.0f m%s; %d refit(s) since the previous line)."),
 					*FogMS_Label(&Component), OldBottom * 1.0e-5, OldTop * 1.0e-5, Bottom * 1.0e-5, Top * 1.0e-5, *Box.GetActorNameOrLabel(),
-					AltMin * 1.0e-5, AltMax * 1.0e-5, FogMS_HostLayerMarginCm * 0.01, Host.RefitsSinceLog);
+					AltMin * 1.0e-5, AltMax * 1.0e-5, FogMS_HostLayerMarginCm * 0.01,
+					Weather ? *FString::Printf(TEXT(" + FogMS Weather %.3f-%.3f km, shadow pass only"), Weather->BottomCm * 1.0e-5, Weather->TopCm * 1.0e-5) : TEXT(""),
+					Host.RefitsSinceLog);
 				Host.LastRefitLogTime = Now;
 				Host.RefitsSinceLog = 0;
 			}
 		}
 	}
+	const FFogMSWeatherFeed* Weather = bFit ? ExtendingWeather() : nullptr;
 	OutNote = FString::Printf(TEXT("layer %.3f-%.3f km%s"), Bottom * 1.0e-5, Top * 1.0e-5,
-		bFit ? TEXT(" (fitted to the Box)") : TEXT(" (r.FogMS.CloudHost.FitLayer 0)"));
+		!bFit ? TEXT(" (r.FogMS.CloudHost.FitLayer 0)")
+		: Weather ? TEXT(" (fitted to the Box + the weather layers, shadow pass only)") : TEXT(" (fitted to the Box)"));
 	if (AltMin >= Bottom - FogMS_LayerToleranceCm && AltMax <= Top + FogMS_LayerToleranceCm) return FString();
 	if (AltMin < -FogMS_LayerToleranceCm)
 		return FString::Printf(TEXT("the Box's density band %.3f-%.3f km reaches below the ground of the cloud layer (altitude 0 of the SkyAtmosphere planet), where no cloud layer can start: move the Box up or use Render Path Froxel Fog"),
@@ -614,21 +650,12 @@ FFogMSCloudHostBinding UFogMSCloudHostSubsystem::AcquireHost(const AFogMSBoxVolu
 	const FString MaterialProblem = ValidateHostMaterial(*Chosen);
 	if (!MaterialProblem.IsEmpty()) return Fallback(FString::Printf(TEXT("'%s': %s"), *FogMS_Label(Chosen), *MaterialProblem));
 
-	// The host's MID: its material when that is already a MID (ours, also one saved with the level), else a new MID of it with the
-	// cloud component as outer. SetMaterial re-creates the component's render state, which puts the host on top of the scene's
-	// cloud stack.
-	UMaterialInterface* Current = Chosen->Material.Get();
-	UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Current);
-	if (!MID)
-	{
-		MID = UMaterialInstanceDynamic::Create(Current, Chosen,
-			MakeUniqueObjectName(Chosen, UMaterialInstanceDynamic::StaticClass(), TEXT("MID_FogMS_CloudHost")));
-		if (MID) Chosen->SetMaterial(MID);
-		if (!MID || Chosen->Material.Get() != MID)
-			return Fallback(FString::Printf(TEXT("'%s': cannot assign a dynamic material (a Static-mobility host in a game world?)"), *FogMS_Label(Chosen)));
-		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s': material %s wrapped in %s for Box '%s'."), *FogMS_Label(Chosen),
-			*GetNameSafe(Current), *MID->GetName(), *Box.GetActorNameOrLabel());
-	}
+	// The host's MID: its material when that is already a MID (ours, also one saved with the level, or the weather's), else a new MID of
+	// it with the cloud component as outer. SetMaterial re-creates the component's render state, which puts the host on top of the
+	// scene's cloud stack.
+	FString MIDProblem;
+	UMaterialInstanceDynamic* MID = EnsureHostMID(*Chosen, FString::Printf(TEXT("Box '%s'"), *Box.GetActorNameOrLabel()), MIDProblem);
+	if (!MID) return Fallback(FString::Printf(TEXT("'%s': %s"), *FogMS_Label(Chosen), *MIDProblem));
 	FHost* Host = FindBinding(Chosen);
 	if (!Host)
 	{
@@ -639,6 +666,16 @@ FFogMSCloudHostBinding UFogMSCloudHostSubsystem::AcquireHost(const AFogMSBoxVolu
 	// W46 host settings the plugin owns (CPU only; one render-state update when something changed): View Sample Count Scale and the
 	// layer fitted to this Box's density band. The component is movable here (it took a MID above), as a spawned host always is.
 	bool bDirty = false;
+	// W48: a host the weather ran 'shadows only' (Tracing Start Distance >= Tracing Max Distance: an empty view trace, also as saved with a
+	// level) draws this Box again from the camera on: start distance 0. A smaller authored start distance is the author's and stays.
+	if (Host->bShadowsOnly || (Chosen->TracingStartDistanceFromCamera > 0.0f && Chosen->TracingStartDistanceFromCamera >= Chosen->TracingMaxDistance))
+	{
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s': Tracing Start Distance %g -> 0 km (it renders Box '%s' again; weather shadows-only mode ends)."),
+			*FogMS_Label(Chosen), Chosen->TracingStartDistanceFromCamera, *Box.GetActorNameOrLabel());
+		Chosen->TracingStartDistanceFromCamera = 0.0f;
+		Host->bShadowsOnly = false;
+		bDirty = true;
+	}
 	const float WantScale = CVarCloudHostViewSampleScale.GetValueOnGameThread();
 	if (FMath::IsFinite(WantScale) && WantScale > 0.0f)
 	{
@@ -713,7 +750,7 @@ void UFogMSCloudHostSubsystem::ReleaseBox(const AFogMSBoxVolume& Box)
 
 void UFogMSCloudHostSubsystem::Tick(float DeltaTime)
 {
-	const UVolumetricCloudComponent* SettingsHost = nullptr;
+	UVolumetricCloudComponent* SettingsHost = nullptr;
 	// W46 near/far settings: the nearest camera rendered last frame (every perspective editor viewport / game view; the list is filled
 	// after this world's previous tick and reset at the end of this one) to any hosted Box's density band box.
 	const UWorld* World = GetWorld();
@@ -734,7 +771,9 @@ void UFogMSCloudHostSubsystem::Tick(float DeltaTime)
 		if (World)
 			for (const FVector& View : World->ViewLocationsRenderedLastFrame) NearestCm = FMath::Min(NearestCm, FogMS_BandDistanceCm(Host.Geometry, View));
 	}
-	if (!SettingsHost)
+	// W48: the weather's host (shadow pass), with or without a Box.
+	UVolumetricCloudComponent* WeatherHost = TickWeather();
+	if (!SettingsHost && !WeatherHost)
 	{
 		ClaimedOver.Reset();
 		bOthersDirty = false;
@@ -745,7 +784,8 @@ void UFogMSCloudHostSubsystem::Tick(float DeltaTime)
 	}
 	// Displacement: FScene renders the most recently added cloud. When the set of other rendering clouds changes, or one of them was
 	// re-created (MarkRenderStateDirty, an editor property edit), re-create the bound hosts' render state now, so they are on top again
-	// from this frame's end-of-frame update on.
+	// from this frame's end-of-frame update on (W48: also the weather's host: the engine builds the cloud shadow map from the rendering
+	// cloud only).
 	Scan();
 	bool bChanged = ScanOthers.Num() != ClaimedOver.Num();
 	for (int32 Index = 0; !bChanged && Index < ScanOthers.Num(); ++Index) bChanged = ScanOthers[Index] != ClaimedOver[Index];
@@ -755,7 +795,7 @@ void UFogMSCloudHostSubsystem::Tick(float DeltaTime)
 		{
 			for (FHost& Host : Hosts)
 			{
-				if (!Host.bBound) continue;
+				if (!Host.bBound && !Host.bWeather) continue;
 				Host.Component->MarkRenderStateDirty();
 				UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s' takes the render over %d other Volumetric Cloud(s), e.g. '%s' (one cloud renders per scene)."),
 					*FogMS_Label(Host.Component.Get()), ScanOthers.Num(), *FogMS_Label(ScanOthers[0].Get()));
@@ -763,29 +803,35 @@ void UFogMSCloudHostSubsystem::Tick(float DeltaTime)
 		}
 		ClaimedOver = ScanOthers;
 	}
-	// Near or far settings (r.FogMS.CloudHost.NearDistanceKm, 10 % hysteresis). No camera rendered last frame (minimized, a non-realtime
-	// viewport): keep the state.
-	const float NearKm = CVarCloudHostNearDistanceKm.GetValueOnGameThread();
-	const bool bWasNear = bNearSettings;
-	if (!(FMath::IsFinite(NearKm) && NearKm > 0.0f))
-		bNearSettings = true;
-	else if (NearestCm < TNumericLimits<double>::Max())
+	if (SettingsHost)
 	{
-		NearestViewKm = NearestCm * 1.0e-5;
-		if (bNearSettings && NearestViewKm > 1.1 * NearKm) bNearSettings = false;
-		else if (!bNearSettings && NearestViewKm < NearKm) bNearSettings = true;
+		// Near or far settings (r.FogMS.CloudHost.NearDistanceKm, 10 % hysteresis). No camera rendered last frame (minimized, a
+		// non-realtime viewport): keep the state.
+		const float NearKm = CVarCloudHostNearDistanceKm.GetValueOnGameThread();
+		const bool bWasNear = bNearSettings;
+		if (!(FMath::IsFinite(NearKm) && NearKm > 0.0f))
+			bNearSettings = true;
+		else if (NearestCm < TNumericLimits<double>::Max())
+		{
+			NearestViewKm = NearestCm * 1.0e-5;
+			if (bNearSettings && NearestViewKm > 1.1 * NearKm) bNearSettings = false;
+			else if (!bNearSettings && NearestViewKm < NearKm) bNearSettings = true;
+		}
+		if (bWasNear != bNearSettings)
+			UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host: camera %.2f km from the nearest hosted Box -> %s settings (r.FogMS.CloudHost.NearDistanceKm %g)."),
+				NearestViewKm, bNearSettings ? TEXT("near") : TEXT("far"), NearKm);
 	}
-	if (bWasNear != bNearSettings)
-		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host: camera %.2f km from the nearest hosted Box -> %s settings (r.FogMS.CloudHost.NearDistanceKm %g)."),
-			NearestViewKm, bNearSettings ? TEXT("near") : TEXT("far"), NearKm);
-	ApplyHostSettings(*SettingsHost);
+	const bool bWeatherActive = WeatherHost && WeatherFeed.bActive;
+	const bool bWeatherExtended = WeatherHost && WeatherHost == SettingsHost && ExtendingWeather() != nullptr;
+	ApplyHostSettings(SettingsHost ? *SettingsHost : *WeatherHost, SettingsHost != nullptr, bWeatherActive, bWeatherExtended);
 }
 
-void UFogMSCloudHostSubsystem::ApplyHostSettings(const UVolumetricCloudComponent& Host)
+void UFogMSCloudHostSubsystem::ApplyHostSettings(UVolumetricCloudComponent& Host, bool bHero, bool bWeatherActive, bool bWeatherExtended)
 {
 	float Want[ManagedCount] = {};
 	bool bWant[ManagedCount] = {};
-	const bool bStep = CVarCloudHostStepSettings.GetValueOnGameThread() != 0;
+	// W46 view settings: only while a Box renders through the host (a weather-only host traces nothing in view: 'shadows only').
+	const bool bStep = bHero && CVarCloudHostStepSettings.GetValueOnGameThread() != 0;
 	bWant[FogMS_MDistance] = bStep;
 	Want[FogMS_MDistance] = FMath::Max(Host.TracingMaxDistance, 0.1f);
 	// View Sample Count Scale above 8 needs a higher cap than the engine's 768 samples (VolumetricCloudRendering.cpp SampleCountMax).
@@ -793,24 +839,28 @@ void UFogMSCloudHostSubsystem::ApplyHostSettings(const UVolumetricCloudComponent
 	bWant[FogMS_MSampleMax] = bStep && Samples > FogMS_EngineViewRaySampleMaxCount;
 	Want[FogMS_MSampleMax] = Samples;
 	const int32 Mode = bNearSettings ? CVarCloudHostRTMode.GetValueOnGameThread() : CVarCloudHostFarRTMode.GetValueOnGameThread();
-	bWant[FogMS_MMode] = Mode >= 0;
+	bWant[FogMS_MMode] = bHero && Mode >= 0;
 	Want[FogMS_MMode] = static_cast<float>(FMath::Min(Mode, 3));
 	const int32 MinCount = bNearSettings ? CVarCloudHostSampleMinCount.GetValueOnGameThread() : CVarCloudHostFarSampleMinCount.GetValueOnGameThread();
-	bWant[FogMS_MSampleMin] = MinCount >= 0;
+	bWant[FogMS_MSampleMin] = bHero && MinCount >= 0;
 	Want[FogMS_MSampleMin] = static_cast<float>(FMath::Min(MinCount, 4096));
 	const int32 Upsampling = CVarCloudHostUpsamplingMode.GetValueOnGameThread();
-	bWant[FogMS_MUpsampling] = Upsampling >= 0;
+	bWant[FogMS_MUpsampling] = bHero && Upsampling >= 0;
 	Want[FogMS_MUpsampling] = static_cast<float>(FMath::Min(Upsampling, 4));
 	const int32 Constraint = CVarCloudHostBoxConstraint.GetValueOnGameThread();
-	bWant[FogMS_MBoxConstraint] = Constraint >= 0;
+	bWant[FogMS_MBoxConstraint] = bHero && Constraint >= 0;
 	Want[FogMS_MBoxConstraint] = Constraint > 0 ? 1.0f : 0.0f;
 	const float MinKm = CVarCloudHostReprojectionMinKm.GetValueOnGameThread();
-	bWant[FogMS_MMinKm] = FMath::IsFinite(MinKm) && MinKm >= 0.0f;
+	bWant[FogMS_MMinKm] = bHero && FMath::IsFinite(MinKm) && MinKm >= 0.0f;
 	Want[FogMS_MMinKm] = MinKm;
+	// W48: the extended weather layer makes every upward view ray march up to Tracing Max Distance through empty space: skip it.
+	const int32 SkipSteps = CVarWeatherSkipSteps.GetValueOnGameThread();
+	bWant[FogMS_MSkipSteps] = bHero && bWeatherExtended && SkipSteps > 1;
+	Want[FogMS_MSkipSteps] = static_cast<float>(FMath::Min(SkipSteps, 64));
 	// W47 cloud shadow map: only while the atmosphere sun casts cloud shadows (the engine builds the map only then); otherwise, and when
-	// the sun stops casting them, the previous values come back.
+	// the sun stops casting them, the previous values come back. W48: also for the weather without a Box.
 	const UDirectionalLightComponent* Sun = ScanSun.Get();
-	const bool bShadowMap = FogMS_SunCastsCloudShadows(Sun);
+	const bool bShadowMap = (bHero || bWeatherActive) && FogMS_SunCastsCloudShadows(Sun);
 	const int32 ShadowFilter = CVarCloudHostShadowFilter.GetValueOnGameThread();
 	bWant[FogMS_MShadowFilter] = bShadowMap && ShadowFilter >= 0;
 	Want[FogMS_MShadowFilter] = static_cast<float>(FMath::Min(ShadowFilter, 4));
@@ -854,15 +904,25 @@ void UFogMSCloudHostSubsystem::ApplyHostSettings(const UVolumetricCloudComponent
 		}
 		if (!bSet) Kept += FString::Printf(TEXT(", %s %g kept (%s)"), FogMS_ManagedCVarNames[Index], Variable->GetFloat(), *FogMS_SetByName(Variable));
 	}
+	// W48: with an empty-step skip in effect (the weather's or any explicit value), the Box's conservative region grows by skip x the host
+	// step (M_FogMS_Cloud v3 FogMS_CloudConservative v2), so a skip from outside never lands past the Box's entry; 0 without a skip.
+	const IConsoleVariable* SkipVariable = FogMS_ManagedCVar(FogMS_MSkipSteps);
+	const int32 SkipNow = SkipVariable ? FMath::Max(SkipVariable->GetInt(), 1) : 1;
+	if (bHero)
+	{
+		if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Host.Material.Get()))
+			MID->SetScalarParameterValue(TEXT("FogMS_CloudSkipMargin"), SkipNow > 1 ? static_cast<float>(SkipNow) * FogMS_HostStepCm(Host) : 0.0f);
+	}
 	const IConsoleVariable* ModeVariable = FogMS_ManagedCVar(FogMS_MMode);
 	const IConsoleVariable* MinVariable = FogMS_ManagedCVar(FogMS_MSampleMin);
 	const float NearKm = CVarCloudHostNearDistanceKm.GetValueOnGameThread();
-	SettingsNote = FString::Printf(TEXT(", rt mode %d, min samples %d, %s"), ModeVariable ? ModeVariable->GetInt() : -1, MinVariable ? MinVariable->GetInt() : -1,
+	SettingsNote = FString::Printf(TEXT(", rt mode %d, min samples %d, %s%s"), ModeVariable ? ModeVariable->GetInt() : -1, MinVariable ? MinVariable->GetInt() : -1,
 		!(FMath::IsFinite(NearKm) && NearKm > 0.0f) ? TEXT("near settings always")
-		: *FString::Printf(TEXT("%s settings (camera %.2f km, near within %g km)"), bNearSettings ? TEXT("near") : TEXT("far"), NearestViewKm, NearKm)) + Kept;
+		: *FString::Printf(TEXT("%s settings (camera %.2f km, near within %g km)"), bNearSettings ? TEXT("near") : TEXT("far"), NearestViewKm, NearKm),
+		SkipNow > 1 ? *FString::Printf(TEXT(", empty-step skip x%d%s"), SkipNow, bWeatherExtended ? TEXT(" (weather layer)") : TEXT("")) : TEXT("")) + Kept;
 	if (!Changes.IsEmpty())
-		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host settings (SetByGameSetting while a Box renders through a host; %s):%s"),
-			bNearSettings ? TEXT("near") : TEXT("far"), *Changes);
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host settings (SetByGameSetting while a Box renders through a host%s; %s):%s"),
+			bHero ? TEXT("") : TEXT(" or the weather uses one without a Box: cloud shadow map only"), bNearSettings ? TEXT("near") : TEXT("far"), *Changes);
 }
 
 void UFogMSCloudHostSubsystem::RestoreSetting(int32 Index, IConsoleVariable* Variable, FString& InOutChanges)
@@ -893,6 +953,274 @@ void UFogMSCloudHostSubsystem::RestoreHostSettings()
 	SettingsNote.Reset();
 	if (!Changes.IsEmpty())
 		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host settings restored (no Box renders through a host):%s"), *Changes);
+}
+
+UMaterialInstanceDynamic* UFogMSCloudHostSubsystem::EnsureHostMID(UVolumetricCloudComponent& Component, const FString& Context, FString& OutProblem)
+{
+	UMaterialInterface* Current = Component.Material.Get();
+	if (UMaterialInstanceDynamic* Existing = Cast<UMaterialInstanceDynamic>(Current)) return Existing;
+	UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Current, &Component,
+		MakeUniqueObjectName(&Component, UMaterialInstanceDynamic::StaticClass(), TEXT("MID_FogMS_CloudHost")));
+	if (MID) Component.SetMaterial(MID);
+	if (!MID || Component.Material.Get() != MID)
+	{
+		OutProblem = TEXT("cannot assign a dynamic material (a Static-mobility host in a game world?)");
+		return nullptr;
+	}
+	UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s': material %s wrapped in %s for %s."), *FogMS_Label(&Component),
+		*GetNameSafe(Current), *MID->GetName(), *Context);
+	return MID;
+}
+
+bool UFogMSCloudHostSubsystem::IsHostBoundToBox(const AActor* HostActor) const
+{
+	for (const FHost& Host : Hosts)
+		if (Host.bBound && Host.Component.IsValid() && Host.Component->GetOwner() == HostActor) return true;
+	return false;
+}
+
+bool UFogMSCloudHostSubsystem::ClaimWeather(const AActor& Owner, FString& OutOther)
+{
+	const AActor* Current = WeatherFeed.Owner.Get();
+	if (!Current || Current == &Owner || WeatherFeed.FedFrame + 1 < GFrameCounter) return true;
+	OutOther = Current->GetActorNameOrLabel();
+	return false;
+}
+
+void UFogMSCloudHostSubsystem::FeedWeather(const FFogMSWeatherFeed& Feed)
+{
+	const AActor* Previous = WeatherFeed.Owner.Get();
+	if (Previous && Previous != Feed.Owner.Get())
+		for (FHost& Host : Hosts) if (Host.bWeather) ReleaseWeatherHost(Host, TEXT("another FogMS Weather actor took over"));
+	WeatherFeed = Feed;
+	WeatherFeed.FedFrame = GFrameCounter;
+}
+
+void UFogMSCloudHostSubsystem::StopWeather(const AActor& Owner, const TCHAR* Reason)
+{
+	if (WeatherFeed.Owner.Get() != &Owner) return;
+	for (FHost& Host : Hosts)
+		if (Host.bWeather) ReleaseWeatherHost(Host, Reason);
+	UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather '%s' stopped (%s): its shadow-pass branch is off; the managed cloud cvars follow on the next tick."),
+		*Owner.GetActorNameOrLabel(), Reason);
+	WeatherFeed = FFogMSWeatherFeed();
+	bWeatherNeedsHost = false;
+	bWeatherHostUsable = false;
+	WeatherNote.Reset();
+	LastWeatherLog.Reset();
+}
+
+const FFogMSWeatherFeed* UFogMSCloudHostSubsystem::ExtendingWeather() const
+{
+	if (!WeatherFeed.Owner.IsValid() || WeatherFeed.FedFrame + 1 < GFrameCounter) return nullptr;
+	if (!WeatherFeed.bActive || WeatherFeed.bThinLayer || !bWeatherHostUsable) return nullptr;
+	return &WeatherFeed;
+}
+
+void UFogMSCloudHostSubsystem::WriteWeatherParameters(UMaterialInstanceDynamic& MID, const UVolumetricCloudComponent& Component, bool bOn) const
+{
+	MID.SetScalarParameterValue(FogMS_WeatherOnParameter, bOn ? 1.0f : 0.0f);
+	if (!bOn) return;
+	MID.SetScalarParameterValue(TEXT("FogMS_WeatherThin"), WeatherFeed.bThinLayer ? 1.0f : 0.0f);
+	if (UTexture* Texture = WeatherFeed.Map.Get()) MID.SetTextureParameterValue(TEXT("FogMS_WeatherMap"), Texture);
+	if (UTexture* Texture = WeatherFeed.SunMap.Get()) MID.SetTextureParameterValue(TEXT("FogMS_WeatherSunMap"), Texture);
+	if (UTexture* Texture = WeatherFeed.TypeLUT.Get()) MID.SetTextureParameterValue(TEXT("FogMS_WeatherTypeLUT"), Texture);
+	if (UTexture* Texture = WeatherFeed.Pattern.Get()) MID.SetTextureParameterValue(TEXT("FogMS_WeatherPattern"), Texture);
+	if (UTexture* Texture = WeatherFeed.Curl.Get()) MID.SetTextureParameterValue(TEXT("FogMS_WeatherCurl"), Texture);
+	MID.SetVectorParameterValue(TEXT("FogMS_WeatherOrigin"), WeatherFeed.Origin);
+	MID.SetVectorParameterValue(TEXT("FogMS_WeatherDomain"), WeatherFeed.Domain);
+	MID.SetVectorParameterValue(TEXT("FogMS_WeatherWind"), WeatherFeed.Wind);
+	MID.SetVectorParameterValue(TEXT("FogMS_WeatherL0"), WeatherFeed.L0);
+	MID.SetVectorParameterValue(TEXT("FogMS_WeatherL1"), WeatherFeed.L1);
+	// Toward the atmosphere sun (the one the engine's cloud shadow map uses) and the host layer height [cm] (thin layer: the weather column
+	// is spread over the layer's path along the sun).
+	const UDirectionalLightComponent* Sun = ScanSun.Get();
+	const FVector ToSun = Sun ? FVector(-Sun->GetForwardVector()).GetSafeNormal() : FVector::UpVector;
+	MID.SetVectorParameterValue(TEXT("FogMS_WeatherSunDir"), FLinearColor(static_cast<float>(ToSun.X), static_cast<float>(ToSun.Y), static_cast<float>(ToSun.Z),
+		FMath::Max(Component.LayerHeight, 0.1f) * 1.0e5f));
+}
+
+void UFogMSCloudHostSubsystem::ReleaseWeatherHost(FHost& Host, const TCHAR* Reason)
+{
+	if (!Host.bWeather) return;
+	UVolumetricCloudComponent* Component = Host.Component.Get();
+	FString Restored;
+	if (Component)
+	{
+		if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Component->Material.Get()))
+			MID->SetScalarParameterValue(FogMS_WeatherOnParameter, 0.0f);
+		bool bDirty = false;
+		if (!Host.bBound && Host.bWeatherSaved)
+		{
+			// A host the weather took without a Box: its layer and start distance as before the weather (a hero host refits to its Box).
+			Restored += FString::Printf(TEXT("; layer %.3f-%.3f -> %.3f-%.3f km, Tracing Start Distance %g -> %g km"), Component->LayerBottomAltitude,
+				Component->LayerBottomAltitude + Component->LayerHeight, Host.SavedLayerBottomKm, Host.SavedLayerBottomKm + Host.SavedLayerHeightKm,
+				Component->TracingStartDistanceFromCamera, Host.SavedStartDistanceKm);
+			Component->LayerBottomAltitude = Host.SavedLayerBottomKm;
+			Component->LayerHeight = Host.SavedLayerHeightKm;
+			Component->TracingStartDistanceFromCamera = Host.SavedStartDistanceKm;
+			bDirty = true;
+		}
+		else if (!Host.bBound && Host.bShadowsOnly)
+		{
+			Restored += FString::Printf(TEXT("; Tracing Start Distance %g -> 0 km"), Component->TracingStartDistanceFromCamera);
+			Component->TracingStartDistanceFromCamera = 0.0f;
+			bDirty = true;
+		}
+		else if (Host.bBound)
+			Restored += TEXT("; the layer refits to its Box on the Box's next update");
+		if (bDirty) Component->MarkRenderStateDirty();
+	}
+	UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather leaves cloud host '%s' (%s): weather shadows off%s."), *FogMS_Label(Component), Reason, *Restored);
+	Host.bWeather = false;
+	Host.bShadowsOnly = false;
+	Host.bWeatherSaved = false;
+}
+
+UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
+{
+	bWeatherNeedsHost = false;
+	const AActor* Owner = WeatherFeed.Owner.Get();
+	if (!Owner || WeatherFeed.FedFrame + 1 < GFrameCounter)
+	{
+		// The actor stopped feeding without StopWeather (removed with its level, ticking off): release what it used.
+		for (FHost& Host : Hosts)
+			if (Host.bWeather) ReleaseWeatherHost(Host, TEXT("the FogMS Weather actor stopped feeding"));
+		if (WeatherFeed.FedFrame != 0) WeatherFeed = FFogMSWeatherFeed();
+		bWeatherHostUsable = false;
+		WeatherNote.Reset();
+		LastWeatherLog.Reset();
+		return nullptr;
+	}
+	const FString Label = Owner->GetActorNameOrLabel();
+	const auto Problem = [this, &Label](const FString& Note)
+	{
+		for (FHost& Host : Hosts)
+			if (Host.bWeather) ReleaseWeatherHost(Host, TEXT("the weather cannot use it now"));
+		bWeatherHostUsable = false;
+		WeatherNote = Note;
+		if (Note != LastWeatherLog)
+		{
+			LastWeatherLog = Note;
+			UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS Weather '%s': %s"), *Label, *Note);
+		}
+		return static_cast<UVolumetricCloudComponent*>(nullptr);
+	};
+	Scan();
+	// The host a Box renders through (both share it: one cloud renders per scene), else the first rendering host.
+	UVolumetricCloudComponent* Chosen = nullptr;
+	for (const TWeakObjectPtr<UVolumetricCloudComponent>& Weak : ScanHosts)
+	{
+		UVolumetricCloudComponent* Component = Weak.Get();
+		if (!Component) continue;
+		const FHost* Binding = FindBinding(Component);
+		if (Binding && Binding->bBound) { Chosen = Component; break; }
+		if (!Chosen) Chosen = Component;
+	}
+	for (FHost& Host : Hosts)
+		if (Host.bWeather && Host.Component.Get() != Chosen) ReleaseWeatherHost(Host, TEXT("the weather uses another cloud host now"));
+	if (!Chosen)
+	{
+		FString Hidden;
+		for (const TWeakObjectPtr<UVolumetricCloudComponent>& Idle : ScanIdle)
+			if (Idle.IsValid()) { Hidden = FogMS_Label(Idle.Get()); break; }
+		bWeatherNeedsHost = Hidden.IsEmpty();
+		return Problem(Hidden.IsEmpty()
+			? FString(TEXT("no cloud host in this level: no weather shadows (tick Create Cloud Host on the weather actor, or run FogMS.CloudHost.Create)"))
+			: FString::Printf(TEXT("cloud host '%s' exists but does not render (hidden or not visible): show it for the weather shadows"), *Hidden));
+	}
+	const FString MaterialProblem = ValidateHostMaterial(*Chosen);
+	if (!MaterialProblem.IsEmpty()) return Problem(FString::Printf(TEXT("cloud host '%s': %s: no weather shadows"), *FogMS_Label(Chosen), *MaterialProblem));
+	float WeatherDefault = 0.0f;
+	const UMaterial* Base = FogMS_BaseMaterial(Chosen);
+	if (!Base || !Base->GetScalarParameterDefaultValue(FHashedMaterialParameterInfo(FogMS_WeatherOnParameter), WeatherDefault))
+		return Problem(FString::Printf(TEXT("cloud host '%s': M_FogMS_Cloud has no weather shadow branch (older than W48): run matedit_cloud.py; no weather shadows"),
+			*FogMS_Label(Chosen)));
+	FString MIDProblem;
+	UMaterialInstanceDynamic* MID = EnsureHostMID(*Chosen, FString::Printf(TEXT("FogMS Weather '%s'"), *Label), MIDProblem);
+	if (!MID) return Problem(FString::Printf(TEXT("cloud host '%s': %s"), *FogMS_Label(Chosen), *MIDProblem));
+	FHost* Host = FindBinding(Chosen);
+	if (!Host)
+	{
+		Host = &Hosts.AddDefaulted_GetRef();
+		Host->Component = Chosen;
+	}
+	bWeatherHostUsable = true;
+	if (!Host->bWeather)
+	{
+		Host->bWeather = true;
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather '%s' casts its shadows through cloud host '%s' (shadow pass only, %s layer)."), *Label, *FogMS_Label(Chosen),
+			WeatherFeed.bThinLayer ? TEXT("thin") : TEXT("extended"));
+	}
+	LastWeatherLog.Reset();
+	FString Mode;
+	if (!Host->bBound)
+	{
+		// 'Shadows only': no Box renders through this host. Its previous layer and start distance are kept once for the restore.
+		bool bDirty = false;
+		if (!Host->bWeatherSaved)
+		{
+			Host->bWeatherSaved = true;
+			Host->SavedLayerBottomKm = Chosen->LayerBottomAltitude;
+			Host->SavedLayerHeightKm = Chosen->LayerHeight;
+			Host->SavedStartDistanceKm = Chosen->TracingStartDistanceFromCamera;
+		}
+		// The view pass traces nothing (TMin = TMax = Tracing Max Distance: SampleMinCount steps at one point, all skipped by conservative
+		// density 0); the cloud shadow map is traced from the layer, independent of it.
+		const float EmptyTrace = FMath::Max(Chosen->TracingMaxDistance, 0.1f);
+		if (Chosen->TracingStartDistanceFromCamera < EmptyTrace)
+		{
+			UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s': weather shadows only (no Box renders through it): Tracing Start Distance %g -> %g km (empty view trace)."),
+				*FogMS_Label(Chosen), Chosen->TracingStartDistanceFromCamera, EmptyTrace);
+			Chosen->TracingStartDistanceFromCamera = EmptyTrace;
+			bDirty = true;
+		}
+		Host->bShadowsOnly = true;
+		if (WeatherFeed.bActive && CVarCloudHostFitLayer.GetValueOnGameThread() != 0)
+		{
+			double WantBottom = 0.0, WantTop = 0.0;
+			if (WeatherFeed.bThinLayer)
+			{
+				WantTop = FMath::Max(WeatherFeed.BaseCm, FogMS_ThinBandCm);
+				WantBottom = WantTop - FogMS_ThinBandCm;
+			}
+			else
+			{
+				WantBottom = FMath::Max(0.0, WeatherFeed.BottomCm);
+				WantTop = FMath::Max(WeatherFeed.TopCm, WantBottom + FogMS_HostLayerMinHeightCm);
+			}
+			const double Bottom = static_cast<double>(Chosen->LayerBottomAltitude) * 1.0e5;
+			const double Top = Bottom + static_cast<double>(Chosen->LayerHeight) * 1.0e5;
+			if (FMath::Abs(Bottom - WantBottom) > FogMS_LayerRefitCm || FMath::Abs(Top - WantTop) > FogMS_LayerRefitCm)
+			{
+				UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s': layer %.3f-%.3f -> %.3f-%.3f km above the ground, fitted to FogMS Weather '%s' (%s, shadows only)."),
+					*FogMS_Label(Chosen), Bottom * 1.0e-5, Top * 1.0e-5, WantBottom * 1.0e-5, WantTop * 1.0e-5, *Label,
+					WeatherFeed.bThinLayer ? TEXT("thin layer: a 0.1 km band under the weather base") : TEXT("the weather layers"));
+				Chosen->LayerBottomAltitude = static_cast<float>(WantBottom * 1.0e-5);
+				Chosen->LayerHeight = static_cast<float>((WantTop - WantBottom) * 1.0e-5);
+				bDirty = true;
+			}
+		}
+		// No hero in the view or the shadow pass (EmptyHost wrote these when the Box left; a host the weather wrapped never had one).
+		MID->SetScalarParameterValue(TEXT("FogMS_Density"), 0.0f);
+		MID->SetScalarParameterValue(TEXT("FogMS_InjectionMode"), 0.0f);
+		if (bDirty) Chosen->MarkRenderStateDirty();
+		Mode = TEXT("shadows only: no Box renders through it, the view trace is empty");
+	}
+	else
+	{
+		const AFogMSBoxVolume* Box = Host->Owner.Get();
+		Mode = FString::Printf(TEXT("also renders Box '%s'"), Box ? *Box->GetActorNameOrLabel() : TEXT("?"));
+	}
+	WriteWeatherParameters(*MID, *Chosen, WeatherFeed.bActive);
+	const IConsoleVariable* Skip = FogMS_ManagedCVar(FogMS_MSkipSteps);
+	WeatherNote = FString::Printf(TEXT("host '%s' (%s): layer %.3f-%.3f km%s%s"), *FogMS_Label(Chosen), *Mode, Chosen->LayerBottomAltitude,
+		Chosen->LayerBottomAltitude + Chosen->LayerHeight,
+		!WeatherFeed.bActive ? TEXT(", weather branch off (no active layer)")
+		: WeatherFeed.bThinLayer ? TEXT(", thin layer: the weather column is spread over it in the shadow pass")
+		: TEXT(", extended to the weather layers (shadow pass only)"),
+		Host->bBound && WeatherFeed.bActive && !WeatherFeed.bThinLayer && Skip ? *FString::Printf(TEXT(", view empty-step skip x%d"), FMath::Max(Skip->GetInt(), 1)) : TEXT(""));
+	return Chosen;
 }
 
 void UFogMSCloudHostSubsystem::OnMarkRenderStateDirty(UActorComponent& Component)
@@ -994,10 +1322,11 @@ AActor* UFogMSCloudHostSubsystem::SpawnHost(UWorld* World, const AFogMSBoxVolume
 	Component->MarkRenderStateDirty();
 	// The per-frame scan cache may predate the new host: the next AcquireHost of this frame (the Box button calls UpdateDensity) sees it.
 	if (UFogMSCloudHostSubsystem* Self = World->GetSubsystem<UFogMSCloudHostSubsystem>()) Self->ScanFrame = MAX_uint64;
-	OutMessage = FString::Printf(TEXT("created cloud host '%s' (MI_FogMS_Cloud; layer %.3f-%.3f km above the ground, kept fitted to the Box; trace %.1f km from the camera, ")
+	OutMessage = FString::Printf(TEXT("created cloud host '%s' (MI_FogMS_Cloud; layer %.3f-%.3f km above the ground, %s; trace %.1f km from the camera, ")
 		TEXT("view samples x%g, sun march %.2f km). Only one Volumetric Cloud renders per scene: while this host is visible it displaces %s. ")
 		TEXT("Nothing was saved: save the level to keep the host, delete it to get the sky clouds back."),
-		*Host->GetActorNameOrLabel(), BottomCm * 1.0e-5, TopCm * 1.0e-5, FogMS_HostTraceKm, ViewScale, FogMS_HostShadowTraceKm,
+		*Host->GetActorNameOrLabel(), BottomCm * 1.0e-5, TopCm * 1.0e-5,
+		Box ? TEXT("kept fitted to the Box") : TEXT("fitted to the FogMS Weather layers / the Boxes that use it"), FogMS_HostTraceKm, ViewScale, FogMS_HostShadowTraceKm,
 		Others.IsEmpty() ? TEXT("no other cloud (none is visible now)") : *FString::Printf(TEXT("the sky cloud %s"), *Others));
 	return Host;
 }
