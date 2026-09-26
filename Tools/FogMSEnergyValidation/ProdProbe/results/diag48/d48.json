@@ -1,0 +1,649 @@
+{
+ "matedit": {
+  "matedit_weather.py": {
+   "lines": [
+    "T_FogMS_WeatherPattern current",
+    "T_FogMS_Curl2D current",
+    "T_FogMS_CloudTypeLUT current",
+    "M_FogMS_WeatherCompose current []",
+    "M_FogMS_WeatherSun current []",
+    "DA_FogMS_Weather_Clear present",
+    "DA_FogMS_Weather_Scattered present",
+    "DA_FogMS_Weather_Broken present",
+    "DA_FogMS_Weather_Overcast present",
+    "ALREADY_PATCHED /MultiLobeSpec/FogMS/Weather (FogMS_Weather v1)"
+   ],
+   "ok": true
+  },
+  "matedit_cloud.py": {
+   "lines": [
+    "ALREADY_PATCHED /MultiLobeSpec/FogMS/M_FogMS_Cloud (FogMS_Cloud v4); /MultiLobeSpec/FogMS/MI_FogMS_Cloud present"
+   ],
+   "ok": true
+  }
+ },
+ "check": {
+  "started": "2026-09-26 23:46:10",
+  "precondition": {
+   "rendered": true,
+   "lifted": false,
+   "host": {
+    "label": "FogMS Cloud Host",
+    "hidden": false,
+    "layer_km": [
+     0.10789300501346588,
+     0.10000000149011612
+    ],
+    "start_km": 0.0,
+    "max_km": 2.0,
+    "density": 1.0,
+    "weather_on": 0.0,
+    "weather_thin": 0.0,
+    "skip_margin": 0.0
+   },
+   "status": "ector average] [tau core ~42, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.50 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': layer 0.108-0.208 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.26 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)] [cloud shadow: extent 5 km, res 1024, texel 9.8 m, filter 2]"
+  },
+  "A_clear": {
+   "test": {
+    "status": "Clear: 'Clear': L0 off; deck off; wind 5.0 m/s toward 30 deg | map 512^2 over 20.0 km (39 m/texel), drawn 1 x | shadow layer: extended host layer | host 'FogMS Cloud Host' (also renders Box 'FogMS - Live Box'): layer 0.108-0.208 km, weather branch off (no active layer) | cloud shadow extent 5 km, texel 9.8 m: weather shadows only within 5 km of the camera; Setup Sun Shadows gives 10 km",
+    "draws": 1,
+    "wind": [
+     2679.8217358619117,
+     1547.195800580084
+    ],
+    "coverage": 0.0,
+    "deck": 0.0,
+    "shadow_layer": "<FogMSWeatherShadowLayer.EXTENDED: 0>",
+    "created_host": null
+   },
+   "host_before": {
+    "label": "FogMS Cloud Host",
+    "hidden": false,
+    "layer_km": [
+     0.10789300501346588,
+     0.10000000149011612
+    ],
+    "start_km": 0.0,
+    "max_km": 2.0,
+    "density": 1.0,
+    "weather_on": 0.0,
+    "weather_thin": 0.0,
+    "skip_margin": 0.0
+   },
+   "host_after": {
+    "label": "FogMS Cloud Host",
+    "hidden": false,
+    "layer_km": [
+     0.10789300501346588,
+     0.10000000149011612
+    ],
+    "start_km": 0.0,
+    "max_km": 2.0,
+    "density": 1.0,
+    "weather_on": 0.0,
+    "weather_thin": 0.0,
+    "skip_margin": 0.0
+   },
+   "cvars_changed": {},
+   "log": [
+    "[2026.09.26-19.46.21:205][426]LogPython: SPAWNED FogMS Weather (d48 test) <Object '/MultiLobeSpec/FogMS/Weather/DA_FogMS_Weather_Clear.DA_FogMS_Weather_Clear' (0x000002867BAE6F00) Class 'FogMSWeatherState'>",
+    "[2026.09.26-19.46.21:253][427]LogMultiLobeSpec: Display: FogMS Weather 'FogMS Weather (d48 test)': RT_FogMS_WeatherMap RGBA write check passed (read back 0.2500, 0.5000, 0.7500, 0.1250).",
+    "[2026.09.26-19.46.21:253][427]LogMultiLobeSpec: Display: FogMS Weather 'FogMS Weather (d48 test)' casts its shadows through cloud host 'FogMS Cloud Host' (shadow pass only, extended layer).",
+    "[2026.09.26-19.46.27:321][604]LogPython: D48STATE {\"camera\": [[33453.005452, -24950.682273, 1356.921108], [10.399901390075684, 142.73854064941406, 0.0]], \"throttle\": false, \"game_view\": false, \"weathers\": [\"FogMS Weather (d48 test)\"], \"box\": {\"location\": [0.0, 0.0, 14948.240966796875], \"render_path\""
+   ],
+   "frames": [
+    6,
+    6,
+    6
+   ],
+   "mae_clear_vs_none_a": 0.2686456235033365,
+   "mae_clear_vs_none_b": 1.2597398256591261,
+   "floor_none_a_vs_b": 1.2893281763433577,
+   "ok": true
+  },
+  "B_transition": {
+   "log": [
+    "[2026.09.26-19.46.34:697][793]LogMultiLobeSpec: Display: FogMS Weather 'FogMS Weather (d48 test)': weather: Scattered -> Overcast (10 s).",
+    "[2026.09.26-19.46.44:670][ 83]LogMultiLobeSpec: Display: FogMS Weather 'FogMS Weather (d48 test)': weather: Overcast reached (10 s): L0 coverage 1.00 type 0.15 0.50-1.20 km sigma 0.070/m; deck 0.80 2.00-3.50 km sigma 0.030/m; wind 10.0 m/s toward 30 deg."
+   ],
+   "status_mid": "Active: 'Scattered' -> 'Overcast' 51 % (5.1 of 10.0 s): L0 coverage 0.71 type 0.32 0.74-1.83 km sigma 0.060/m; deck 0.41 2.24-3.50 km sigma 0.030/m; wind 9.0 m/s toward 30 deg | map 512^2 over 20.0 km (39 m/texel), drawn 150 x | shadow layer: extended host layer | host 'FogMS Cloud Host' (also renders Box 'FogMS - Live Box'): layer 0.109-3.500 km, extended to the weather layers (shadow pass only),",
+   "status_end": "Active: 'Overcast': L0 coverage 1.00 type 0.15 0.50-1.20 km sigma 0.070/m; deck 0.80 2.00-3.50 km sigma 0.030/m; wind 10.0 m/s toward 30 deg | map 512^2 over 20.0 km (39 m/texel), drawn 292 x | shadow layer: extended host layer | host 'FogMS Cloud Host' (also renders Box 'FogMS - Live Box'): layer 0.109-3.500 km, extended to the weather layers (shadow pass only), view empty-step skip x8 | cloud sh",
+   "draws": [
+    2,
+    150,
+    292
+   ],
+   "coverage": [
+    0.4000000059604645,
+    0.7093021869659424,
+    1.0
+   ],
+   "deck": [
+    0.0,
+    0.4124029278755188,
+    0.800000011920929
+   ],
+   "wind_cm": [
+    [
+     6587.440100998741,
+     3803.2603155821557
+    ],
+    [
+     10488.93527323707,
+     6055.789603515973
+    ],
+    [
+     16224.803150902131,
+     9367.39446672202
+    ]
+   ],
+   "texels": [
+    [
+     [
+      0.0,
+      0.5,
+      0.0,
+      0.0
+     ],
+     [
+      0.0,
+      0.5,
+      0.0,
+      0.0
+     ]
+    ],
+    [
+     [
+      0.0,
+      0.31396484375,
+      0.0,
+      1.0
+     ],
+     [
+      1.0,
+      0.31396484375,
+      0.0,
+      0.0
+     ]
+    ],
+    [
+     [
+      1.0,
+      0.14990234375,
+      0.0,
+      1.0
+     ],
+     [
+      1.0,
+      0.14990234375,
+      0.0,
+      1.0
+     ]
+    ]
+   ],
+   "host_layer_km": [
+    [
+     0.10948241502046585,
+     2.390517473220825
+    ],
+    [
+     0.10948241502046585,
+     3.390517473220825
+    ],
+    [
+     0.10948241502046585,
+     3.390517473220825
+    ]
+   ],
+   "host_weather_on": 1.0,
+   "cvars_end": {
+    "r.VolumetricCloud.StepSizeOnZeroConservativeDensity": 8.0,
+    "r.VolumetricCloud.ShadowMap.SpatialFiltering": 2.0,
+    "r.VolumetricCloud.ShadowMap.SnapLength": 1.25,
+    "r.VolumetricCloud.ShadowMap.SnapToPixelGrid": 1.0,
+    "r.VolumetricRenderTarget.Mode": 3.0,
+    "r.VolumetricCloud.SampleMinCount": 32.0,
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 2.0
+   },
+   "ok": true
+  },
+  "C_delete": {
+   "log": [
+    "[2026.09.26-19.46.47:654][168]LogMultiLobeSpec: Display: FogMS Weather leaves cloud host 'FogMS Cloud Host' (the actor was deleted): weather shadows off; the layer refits to its Box on the Box's next update.",
+    "[2026.09.26-19.46.47:654][168]LogMultiLobeSpec: Display: FogMS Weather 'FogMS Weather (d48 test)' stopped (the actor was deleted): its shadow-pass branch is off; the managed cloud cvars follow on the next tick.",
+    "[2026.09.26-19.46.47:665][169]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host': layer 0.109-3.500 -> 0.109-0.209 km above the ground, fitted to Box 'FogMS - Live Box' (density band 0.119-0.179 km +-10 m; 1 refit(s) since the previous line).",
+    "[2026.09.26-19.46.47:665][169]LogMultiLobeSpec: Display: FogMS cloud host settings (SetByGameSetting while a Box renders through a host; near): r.VolumetricCloud.StepSizeOnZeroConservativeDensity 1;"
+   ],
+   "host_before": {
+    "label": "FogMS Cloud Host",
+    "hidden": false,
+    "layer_km": [
+     0.10789300501346588,
+     0.10000000149011612
+    ],
+    "start_km": 0.0,
+    "max_km": 2.0,
+    "density": 1.0,
+    "weather_on": 0.0,
+    "weather_thin": 0.0,
+    "skip_margin": 0.0
+   },
+   "host_after": {
+    "label": "FogMS Cloud Host",
+    "hidden": false,
+    "layer_km": [
+     0.10948241502046585,
+     0.10000000149011612
+    ],
+    "start_km": 0.0,
+    "max_km": 2.0,
+    "density": 1.0,
+    "weather_on": 0.0,
+    "weather_thin": 0.0,
+    "skip_margin": 0.0
+   },
+   "hosts": [
+    "FogMS Cloud Host"
+   ],
+   "weathers": [],
+   "cvars_back": {
+    "r.VolumetricCloud.StepSizeOnZeroConservativeDensity": [
+     1.0,
+     1.0
+    ],
+    "r.VolumetricCloud.ShadowMap.SpatialFiltering": [
+     2.0,
+     2.0
+    ],
+    "r.VolumetricCloud.ShadowMap.SnapLength": [
+     1.25,
+     1.25
+    ],
+    "r.VolumetricCloud.ShadowMap.SnapToPixelGrid": [
+     1.0,
+     1.0
+    ],
+    "r.VolumetricRenderTarget.Mode": [
+     3.0,
+     3.0
+    ],
+    "r.VolumetricCloud.SampleMinCount": [
+     32.0,
+     32.0
+    ],
+    "r.VolumetricCloud.DistanceToSampleMaxCount": [
+     2.0,
+     2.0
+    ]
+   },
+   "ok": true
+  },
+  "F_log": {
+   "python_errors": 0,
+   "ensures": [],
+   "material_errors": [],
+   "multilobespec_errors": [],
+   "warnings": [],
+   "ok": true
+  }
+ },
+ "cost": {
+  "started": "2026-09-26 23:49:44",
+  "rendered": true,
+  "none": {
+   "median": {
+    "cloud_trace": 4.807,
+    "shadow": 0.186,
+    "cloud_shadow": 0.163,
+    "reconstruct": 0,
+    "compose": 0.021,
+    "frame_ms": 15.67
+   },
+   "runs": [
+    {
+     "frame_ms": 18.66,
+     "cloud_trace": 4.836,
+     "shadow": 0.187,
+     "cloud_shadow": 0.163,
+     "reconstruct": 0,
+     "compose": 0.021,
+     "events": 592
+    },
+    {
+     "frame_ms": 15.67,
+     "cloud_trace": 4.807,
+     "shadow": 0.184,
+     "cloud_shadow": 0.163,
+     "reconstruct": 0,
+     "compose": 0.021,
+     "events": 448
+    },
+    {
+     "frame_ms": 15.51,
+     "cloud_trace": 4.676,
+     "shadow": 0.186,
+     "cloud_shadow": 0.164,
+     "reconstruct": 0,
+     "compose": 0.022,
+     "events": 441
+    }
+   ]
+  },
+  "extended_state": {
+   "host": {
+    "label": "FogMS Cloud Host",
+    "hidden": false,
+    "layer_km": [
+     0.10948241502046585,
+     3.390517473220825
+    ],
+    "start_km": 0.0,
+    "max_km": 2.0,
+    "density": 1.0,
+    "weather_on": 1.0,
+    "weather_thin": 0.0,
+    "skip_margin": 2083.333251953125
+   },
+   "status": "Active: 'Overcast': L0 coverage 1.00 type 0.15 0.50-1.20 km sigma 0.070/m; deck 0.80 2.00-3.50 km sigma 0.030/m; wind 10.0 m/s toward 30 deg | map 512^2 over 20.0 km (39 m/texel), drawn 1 x | shadow layer: extended host layer | host 'FogMS Cloud Host' (also renders Box 'FogMS - Live Box'): layer 0.109-3.500 km, extended to the weather layers (shadow pass only), view empty-step skip x8 | cloud shadow extent 10 km, texel 19.5 m",
+   "skip": 8.0
+  },
+  "extended": {
+   "median": {
+    "cloud_trace": 5.02,
+    "shadow": 0.473,
+    "cloud_shadow": 0.451,
+    "reconstruct": 0,
+    "compose": 0.023,
+    "frame_ms": 15.67
+   },
+   "runs": [
+    {
+     "frame_ms": 16.77,
+     "cloud_trace": 6.024,
+     "shadow": 0.473,
+     "cloud_shadow": 0.451,
+     "reconstruct": 0,
+     "compose": 0.024,
+     "events": 448
+    },
+    {
+     "frame_ms": 15.67,
+     "cloud_trace": 5.02,
+     "shadow": 0.47,
+     "cloud_shadow": 0.448,
+     "reconstruct": 0,
+     "compose": 0.023,
+     "events": 441
+    },
+    {
+     "frame_ms": 15.51,
+     "cloud_trace": 4.964,
+     "shadow": 0.474,
+     "cloud_shadow": 0.451,
+     "reconstruct": 0,
+     "compose": 0.023,
+     "events": 442
+    }
+   ]
+  },
+  "extended32_state": {
+   "skip": 32.0,
+   "margin": 8333.3330078125
+  },
+  "extended32": {
+   "median": {
+    "cloud_trace": 7.212,
+    "shadow": 0.472,
+    "cloud_shadow": 0.449,
+    "reconstruct": 0,
+    "compose": 0.024,
+    "frame_ms": 20.47
+   },
+   "runs": [
+    {
+     "frame_ms": 20.47,
+     "cloud_trace": 7.099,
+     "shadow": 0.472,
+     "cloud_shadow": 0.449,
+     "reconstruct": 0,
+     "compose": 0.024,
+     "events": 585
+    },
+    {
+     "frame_ms": 18.75,
+     "cloud_trace": 8.009,
+     "shadow": 0.471,
+     "cloud_shadow": 0.449,
+     "reconstruct": 0,
+     "compose": 0.023,
+     "events": 448
+    },
+    {
+     "frame_ms": 20.59,
+     "cloud_trace": 7.212,
+     "shadow": 0.474,
+     "cloud_shadow": 0.451,
+     "reconstruct": 0,
+     "compose": 0.025,
+     "events": 585
+    }
+   ]
+  },
+  "thin_state": {
+   "host": {
+    "label": "FogMS Cloud Host",
+    "hidden": false,
+    "layer_km": [
+     0.10948241502046585,
+     0.10000000149011612
+    ],
+    "start_km": 0.0,
+    "max_km": 2.0,
+    "density": 1.0,
+    "weather_on": 1.0,
+    "weather_thin": 1.0,
+    "skip_margin": 0.0
+   },
+   "status": "Active: 'Overcast': L0 coverage 1.00 type 0.15 0.50-1.20 km sigma 0.070/m; deck 0.80 2.00-3.50 km sigma 0.030/m; wind 10.0 m/s toward 30 deg | map 512^2 over 20.0 km (39 m/texel), drawn 1 x | shadow layer: thin (the weather column spread over the host layer) | host 'FogMS Cloud Host' (also renders Box 'FogMS - Live Box'): layer 0.109-0.209 km, thin layer: the weather column is spread over it in the shadow pass | cloud shadow extent 10 km, texel 19.5 m",
+   "skip": 1.0
+  },
+  "thin": {
+   "median": {
+    "cloud_trace": 4.642,
+    "shadow": 0.394,
+    "cloud_shadow": 0.37,
+    "reconstruct": 0,
+    "compose": 0.021,
+    "frame_ms": 16.96
+   },
+   "runs": [
+    {
+     "frame_ms": 16.96,
+     "cloud_trace": 6.353,
+     "shadow": 0.397,
+     "cloud_shadow": 0.371,
+     "reconstruct": 0,
+     "compose": 0.022,
+     "events": 441
+    },
+    {
+     "frame_ms": 15.07,
+     "cloud_trace": 4.6,
+     "shadow": 0.394,
+     "cloud_shadow": 0.37,
+     "reconstruct": 0,
+     "compose": 0.021,
+     "events": 442
+    },
+    {
+     "frame_ms": 18.13,
+     "cloud_trace": 4.642,
+     "shadow": 0.393,
+     "cloud_shadow": 0.369,
+     "reconstruct": 0,
+     "compose": 0.021,
+     "events": 592
+    }
+   ]
+  },
+  "delta_visible_extended_ms": 0.213,
+  "delta_visible_extended32_ms": 2.405,
+  "delta_visible_thin_ms": -0.165,
+  "shadow_ms": {
+   "none": 0.186,
+   "extended": 0.473,
+   "extended32": 0.472,
+   "thin": 0.394
+  },
+  "gate_ms": 0.3,
+  "decision2": "extended"
+ },
+ "restore": {
+  "diff": {
+   "host.layer_km": [
+    [
+     0.10789300501346588,
+     0.10000000149011612
+    ],
+    [
+     0.10948241502046585,
+     0.10000000149011612
+    ]
+   ]
+  },
+  "cvars": {}
+ },
+ "gate": {
+  "started": "2026-09-26 23:52:52",
+  "rounds": [
+   {
+    "none": {
+     "frame_ms": 18.59,
+     "cloud_trace": 4.478,
+     "shadow": 0.193,
+     "cloud_shadow": 0.164,
+     "reconstruct": 0,
+     "compose": 0.021,
+     "events": 592
+    },
+    "extended": {
+     "frame_ms": 17.12,
+     "cloud_trace": 6.603,
+     "shadow": 0.471,
+     "cloud_shadow": 0.451,
+     "reconstruct": 0,
+     "compose": 0.022,
+     "events": 442
+    },
+    "thin": {
+     "frame_ms": 14.99,
+     "cloud_trace": 4.015,
+     "shadow": 0.394,
+     "cloud_shadow": 0.37,
+     "reconstruct": 0,
+     "compose": 0.022,
+     "events": 441
+    },
+    "d_ext": 2.125,
+    "d_thin": -0.463
+   },
+   {
+    "none": {
+     "frame_ms": 16.13,
+     "cloud_trace": 5.66,
+     "shadow": 0.185,
+     "cloud_shadow": 0.163,
+     "reconstruct": 0,
+     "compose": 0.021,
+     "events": 448
+    },
+    "extended": {
+     "frame_ms": 20.18,
+     "cloud_trace": 5.799,
+     "shadow": 0.471,
+     "cloud_shadow": 0.451,
+     "reconstruct": 0,
+     "compose": 0.023,
+     "events": 588
+    },
+    "thin": {
+     "frame_ms": 19.5,
+     "cloud_trace": 5.648,
+     "shadow": 0.393,
+     "cloud_shadow": 0.369,
+     "reconstruct": 0,
+     "compose": 0.022,
+     "events": 585
+    },
+    "d_ext": 0.139,
+    "d_thin": -0.012
+   },
+   {
+    "none": {
+     "frame_ms": 15.68,
+     "cloud_trace": 4.794,
+     "shadow": 0.185,
+     "cloud_shadow": 0.163,
+     "reconstruct": 0,
+     "compose": 0.021,
+     "events": 448
+    },
+    "extended": {
+     "frame_ms": 21.94,
+     "cloud_trace": 8.144,
+     "shadow": 0.475,
+     "cloud_shadow": 0.452,
+     "reconstruct": 0,
+     "compose": 0.027,
+     "events": 592
+    },
+    "thin": {
+     "frame_ms": 19.96,
+     "cloud_trace": 6.512,
+     "shadow": 0.393,
+     "cloud_shadow": 0.369,
+     "reconstruct": 0,
+     "compose": 0.021,
+     "events": 585
+    },
+    "d_ext": 3.35,
+    "d_thin": 1.718
+   },
+   {
+    "none": {
+     "frame_ms": 16.48,
+     "cloud_trace": 5.841,
+     "shadow": 0.184,
+     "cloud_shadow": 0.163,
+     "reconstruct": 0,
+     "compose": 0.021,
+     "events": 441
+    },
+    "extended": {
+     "frame_ms": 18.89,
+     "cloud_trace": 5.227,
+     "shadow": 0.476,
+     "cloud_shadow": 0.454,
+     "reconstruct": 0,
+     "compose": 0.022,
+     "events": 593
+    },
+    "thin": {
+     "frame_ms": 15.42,
+     "cloud_trace": 4.357,
+     "shadow": 0.413,
+     "cloud_shadow": 0.39,
+     "reconstruct": 0,
+     "compose": 0.022,
+     "events": 444
+    },
+    "d_ext": -0.614,
+    "d_thin": -1.484
+   }
+  ],
+  "rendered": true,
+  "median_d_ext": 2.125,
+  "median_d_thin": -0.012,
+  "decision2": "thin"
+ }
+}

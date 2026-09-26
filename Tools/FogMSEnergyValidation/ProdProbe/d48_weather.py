@@ -23,6 +23,7 @@ Subcommands (python d48_weather.py <sub>; FOGMS_LOG = the running editor's log, 
   check               criteria 1, 2, 4, 5
   cost                criterion 6
   all                 check + cost, then restore and summary (one command)
+  gate                decision 2 with paired, interleaved profiles (no weather / extended / thin per round), median delta
   restore             restore the snapshot
   summary             verdicts from results/diag48/d48.json
 Rules: the map is never saved; no tick callbacks, no mark_render_state_dirty, no engine cvar set from the console (the plugin owns them;
@@ -556,6 +557,53 @@ def cost(owner):
     return res
 
 
+def gate(owner, rounds=4):
+    """Decision-2 gate with paired, interleaved profiles: each round profiles no weather, Overcast extended and Overcast thin back to back
+    (one ProfileGPU each), so slow drifts of the GPU clock / other load cancel in the per-round differences (the visible trace of the same
+    configuration moved 0.5 ms between separate runs). Reports the median of the per-round deltas."""
+    res = _load(OUT)
+    begin()
+    G = {"started": time.strftime("%Y-%m-%d %H:%M:%S"), "rounds": []}
+    res["gate"] = G
+    try:
+        st = ensure_rendered(owner)
+        G["rendered"] = rendered(st)
+        d.cmd("FogMS.Weather.SetupShadows"); time.sleep(SETTLE)
+        d.set_cam(*owner["camera"]); time.sleep(SETTLE)
+        delete_weather(); spawn_weather("Clear", "EXTENDED"); time.sleep(SETTLE * 2)
+        def one(label):
+            flood_check(); wait_not_minimized("gate")
+            p = profile(label)
+            if "error" in p:
+                p = profile(label + "_retry")
+            if "error" in p:
+                raise RuntimeError(p["error"])
+            return p
+        for i in range(rounds):
+            r = {}
+            d.cmd("FogMS.Weather.Set Clear 0"); time.sleep(SETTLE * 2)
+            r["none"] = one("gate_none_%d" % i)
+            d.cmd("FogMS.Weather.Set Overcast 0"); set_layer("EXTENDED"); time.sleep(SETTLE * 2)
+            r["extended"] = one("gate_ext_%d" % i)
+            set_layer("THIN"); time.sleep(SETTLE * 2)
+            r["thin"] = one("gate_thin_%d" % i)
+            set_layer("EXTENDED")
+            r["d_ext"] = round(r["extended"]["cloud_trace"] - r["none"]["cloud_trace"], 3)
+            r["d_thin"] = round(r["thin"]["cloud_trace"] - r["none"]["cloud_trace"], 3)
+            G["rounds"].append(r)
+            print("GATE %d none %.3f ext %.3f (%+.3f) thin %.3f (%+.3f) | shadow %.3f / %.3f / %.3f" % (
+                i, r["none"]["cloud_trace"], r["extended"]["cloud_trace"], r["d_ext"], r["thin"]["cloud_trace"], r["d_thin"],
+                r["none"]["shadow"], r["extended"]["shadow"], r["thin"]["shadow"]), flush=True)
+            step(res, "gate", G)
+        de = sorted(r["d_ext"] for r in G["rounds"]); dt = sorted(r["d_thin"] for r in G["rounds"])
+        G["median_d_ext"] = de[len(de) // 2]; G["median_d_thin"] = dt[len(dt) // 2]
+        G["decision2"] = "extended" if G["median_d_ext"] <= GATE_MS else "thin"
+        step(res, "gate", G)
+    finally:
+        delete_weather()
+    return res
+
+
 # ------------------------------------------------------------------ matedit / copyback
 def matedit():
     res = _load(OUT)
@@ -631,7 +679,7 @@ def main(cmd):
         matedit(); return
     if cmd == "restore":
         r = restore(owner); res = _load(OUT); res["restore"] = r; _atomic_dump(res, OUT); return
-    runs = {"check": [check], "cost": [cost], "all": [check, cost]}.get(cmd)
+    runs = {"check": [check], "cost": [cost], "gate": [gate], "all": [check, cost]}.get(cmd)
     if runs is None:
         raise SystemExit("unknown subcommand " + cmd)
     try:
