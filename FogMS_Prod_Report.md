@@ -1356,6 +1356,94 @@ Volumetric Cloud — движок рисует один облачный ком�
 не видят погоду (W50); видимых облаков погоды нет (W49); ассеты погоды грузятся по пути (для упаковки — ссылка из актёра или
 `Additional Asset Directories to Cook`); решение 4 (масштаб) открыто, решение 2 = Thin по воротам (владелец может выбрать Extended).
 
+## Раунд 49 (W49): видимое небо погоды — купол-небо и амбиент из захвата неба
+
+Срез W49 из `FogMS_Weather_Design.md` (разделы 1.4, 3.2–3.5, 3.10–3.13, 4.2, 6), решение владельца 1 = **купол-небо**. Фаза 1 (код,
+скрипты, сборка) — коммит `a0a87a2`; фаза 2 (установка и облегчённая проверка в редакторе) — **не выполнена** (ниже, «Фаза 2»).
+
+**Путь данных за кадр:**
+
+```text
+GAME THREAD
+  AFogMSWeather (тик, после подачи хосту): смешанные значения W48 + перистые L2 -> UpdateSkyDome:
+    купол виден, если есть видимый слой (L0 / дека / перистые), галка Sky Dome, r.FogMS.Weather.SkyDome 1, есть рисующийся
+    SkyAtmosphere и M_FogMS_WeatherSky (скаляр FogMS_SkyOn, Is Sky); иначе скрыт с причиной в статусе (одна строка лога на смену)
+    SkyDome = transient UStaticMeshComponent (/Engine/BasicShapes/Sphere x 1000 км вокруг актёра; не сохраняется, не выделяется,
+      без теней / коллизии / ray tracing / distance fields / Lumen / HLOD / фокуса редактора / границ уровня)
+    MID купола <- ТЕ ЖЕ параметры, что MID хоста (FogMS_WeatherOrigin / _Domain / _Wind / _L0 / _L1, карта погоды, LUT, узор, curl)
+      + FogMS_SkyL2 (покрытие, высота, τ, направление полос) + FogMS_SkyMarch (дальность, 20 / 8 шагов, 4 выборки к солнцу)
+      + FogMS_SkyLight (фаза 0,8 / −0,3 / 0,25, небо у основания 0,5) + FogMS_SkyOn 1
+  FogMS_BoxRuntime BeginRenderViewFamily: FFogMSWorldSky::bWeatherSky = AFogMSWeather::IsSkyDomeActive(World)
+RENDER THREAD (движок без правок)
+  depth prepass, base pass: купола нет (ShouldIncludeMaterialInDefaultOpaquePass: !IsSky)
+  SkyPass (после base pass, SkyPassRendering.cpp: тест глубины, БЕЗ записи глубины) -> только пиксели неба, они остаются «дальними»
+  SkyAtmosphere: bRenderSkyPixel = !bSceneHasSkyMaterial -> свои пиксели неба не рисует, перспективу на «дальние» не кладёт
+  Height / Volumetric Fog, облачный хост (VolCloudComposeOverScene): над куполом ровно как над небом атмосферы
+  Real Time Capture: «If there are any mesh tagged as IsSky then we render them only» -> купол (Reflection Capture Pass Switch:
+    6 + 4 шага, 1 выборка к солнцу) -> кубмапа + SH -> поверхности, Lumen, Volumetric Fog, решатель
+  решатель (FogMS_WorldSources.cpp): авто + Real Time Capture + bWeatherSky -> SH захвата, статус '[sky: SH (Real Time Capture,
+    weather clouds)]'; без купола — как в раунде 48 (LUT)
+```
+
+**Материал `M_FogMS_WeatherSky`** (`matedit_weather.py`, Unlit, Opaque, Is Sky, Two Sided). Нативные ноды: `SkyAtmosphereViewLuminance` и
+`LightDiskLuminance[0]` (фон = то же небо, что рисует атмосфера), `LightDirection[0]`, `LightIlluminance[0]` и `AerialPerspective` в трёх
+точках луча (начало / конец облачного отрезка, точка перистых — узлы `FogMS_SkyPoint*`), `DistantLightScatteredLuminance` (небесный свет
+облаков), `Reflection Capture Pass Switch` (качество в захвате), `CameraVectorWS`, `CameraPositionWS`. Свой код — только луч: оболочки
+вокруг планеты SkyAtmosphere (устойчивые корни, float32 < 1 см против float64), марш 20 шагов через L0 и 8 через деку функцией
+`FogMSWeatherFn` (дословно та же, что в проходе теней хоста), 4 выборки к солнцу, двухпотоковая диффузная доля под слоями (дизайн 1.4),
+перистые как 2D-слой. HLSL проверен DXC (ps_6_6 / ps_6_0, HV 2018 / 2021, `-WX`): 0 ошибок, 14 выборок текстур в DXIL.
+
+**Решения по ходу (отличия от буквы дизайна):**
+- Купол — компонент актёра погоды, а не отдельный `AFogMSWeatherSky`: один объект, живёт и умирает с актёром, не сохраняется, ничего
+  спаунить и удалять не нужно.
+- Радиус 1000 км вокруг актёра: у Is Sky-меша картинка не зависит от радиуса (материал считает от камеры по направлению), глубина не
+  пишется; радиус нужен только чтобы сфера закрывала все камеры (движок иначе печатает в кадре «SKYDOME MESH ... DOES NOT COVER»).
+- Воздушная перспектива облаков — нодой `SkyAtmosphereAerialPerspective` на средней (по пропусканию) глубине облаков между двумя
+  точками; фон уже содержит всю атмосферу (LUT). Двойной перспективы нет: движок на «дальние» пиксели её не накладывает.
+- Clear без перистых = купола нет (небо уровня точно как без актёра — сохраняет критерий 2 раунда 48); перистые пресетов: Scattered
+  0,3 на 8 км, Broken 0,3 на 7 км.
+- Героические облака и захват: хост создаётся с `Visible In Real Time Sky Captures` выкл. (раунд 45), значит героев в захвате нет;
+  переключатель Reflection Capture Pass Switch в `M_FogMS_Cloud` не понадобился — вместо него статус погоды предупреждает, если у хоста
+  галку включили.
+
+**Сборка.** Сборка 49 — BUILD PASS: UnrealEditor + UnrealGame Development / Shipping, только 9 известных C4701
+(`FogMS_BoxVolume.cpp:976`). Первая попытка упала на C4458 (локальная `Layers` скрывает `AActor::Layers`), отложена как
+`Source49_failedLayers` / `Package49_failedLayers`.
+
+**Фаза 2 — не выполнена.** Команды установки (`cycle.sh 49 Main49`) и перенос `Saved/Autosaves/PackageRestoreData.json` отклонены
+системой разрешений сессии агента; редактор не запускался, ассеты не создавались. Остаётся (≈ 25 мин редактора):
+
+```text
+(редактор закрыт; PackageRestoreData.json, если есть, переименовать в .bak)
+bash E:/GITHUB/MultiLobeSpec/.codex-build/FogMS_Prod_20260922/cycle.sh 49 Main49
+cd <worktree>/Tools/FogMSEnergyValidation/ProdProbe
+export FOGMS_LOG=E:/GITHUB/MultiLobeSpec/.codex-build/FogMS_Prod_20260922/Main49.log
+python d49_sky.py snapshot     # measure/owner_pre49.json
+python d49_sky.py matedit      # M_FogMS_WeatherSky (ожидается WEATHER_OK, W48-ассеты ALREADY_PATCHED, перистые пресетов в строках DA_*)
+python d49_sky.py copyback     # M_FogMS_WeatherSky.uasset в Content/FogMS/Weather worktree -> коммит
+python d49_sky.py all          # check + cost, restore, summary -> results/diag49/d49.json
+```
+
+**Проверка** (`d49_sky.py all`; заполнить после фазы 2):
+
+| # | Критерий W49 | Результат | Вердикт |
+|---|---|---|---|
+| 1 | Облака неба совпадают с тенями на земле | — | владелец |
+| 2 | Overcast: купол виден, статус Box `[sky: SH (Real Time Capture, weather clouds)]`; небесный свет сереет и темнеет | — (статус; число амбиента ниже) | — |
+| 3 | Без актёра / Clear / после удаления: купола нет, источник неба как в снимке | — | — |
+| 4 | Героическое облако хоста поверх купола без шва и ореолов | — | владелец |
+| 5 | **Цифра**: `SkyPassParallel` у камеры владельца ≤ 1 мс на 1080p; иначе следующий срез — панорама-RT | — | — |
+| + | Захват неба содержит купол: зонд темнее с куполом, чем без него при той же Overcast | — | — |
+| + | Лог чистый: LogPython, ensure, Failed to compile Material, LogMultiLobeSpec Error | — | — |
+
+**Число амбиента** (зонд: белая сфера, видимая только сцен-захвату, SceneCapture2D HDR 32², прямой солнечный свет выкл., GI None — сфера
+освещена только захватом SkyLight): Overcast / Clear = —; купол вкл. / выкл. при той же Overcast = —; шумовой пол = —.
+
+**Открыто:** фаза 2 (выше); упаковка (`M_FogMS_WeatherSky` грузится по пути, как остальные ассеты погоды); цвет дальнего тумана по
+погоде (W51: Height Fog берёт небесный свет из атмосферы, не из захвата); погода внутри героев и солнце решателя (W50); солнечный диск
+купола ограничен эмиссией материала (32256 предэкспонированных единиц); лёгкий шлейф облаков купола при быстром полёте камеры (облака на
+«дальних» пикселях репроецируются как бесконечно далёкие).
+
 ## Что не сделано / открыто
 
 - Квадратура, ориентированная на солнце: работает после исключения диска и префильтрации неба, включена по умолчанию.
