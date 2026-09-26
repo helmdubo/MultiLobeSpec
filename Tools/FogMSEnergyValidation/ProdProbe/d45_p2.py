@@ -101,7 +101,17 @@ def restore(owner):
     if alb:
         d.setbox("b.set_editor_property('density_albedo', unreal.LinearColor(%r, %r, %r, %r))" % tuple(alb))
     d.cmd("ShowFlag.OverrideDiffuseAndSpecular 2")
+    set_game_view(owner.get("extra", {}).get("game_view"))
     return X.restore(owner)
+
+
+def set_game_view(on):
+    """Level viewport Game View (G): hides editor primitives (Box bounds, axis gizmo). The round-44 owner frames had it on (no Box
+    bounds drawn; inferred, the snapshot predates the property); the relaunched editor starts with it off."""
+    if on is None:
+        return None
+    return d.py("import unreal\nles=unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)\nles.editor_set_game_view(%s)\n"
+                "print('GAMEVIEW', les.editor_get_game_view())" % bool(on))
 
 
 def begin(owner, lit=True):
@@ -115,6 +125,11 @@ def begin(owner, lit=True):
     d.py(S.FIND + "[A[l].set_is_temporarily_hidden_in_editor(True) for l in %r if l in A]\nprint('sky hidden')" % labels)
     if lit:
         d.cmd("ShowFlag.OverrideDiffuseAndSpecular 0")
+    set_game_view(True)       # captures without editor primitives, as the round-44 owner frames
+    # P1 host step (2 km / 768 = 2.6 m). The plugin sets these itself at game-setting priority while a Box uses a host, but a
+    # console value (this harness's restore pushes the snapshot's cloud cvars by console) outranks it for the rest of the session.
+    d.cmd("r.VolumetricCloud.DistanceToSampleMaxCount 2")
+    d.cmd("r.VolumetricCloud.SampleMinCount 8")
 
 
 def freeze(owner, on):
@@ -383,7 +398,7 @@ def tremble_report():
 
 
 # ------------------------------------------------------------------ look (criterion 4 / P1 criterion 6)
-LOOK = [("boxoff", "boxoff"), ("froxel", "froxel"), ("froxel_dl", "froxel_dl"), ("host", "host"), ("host_dl", "host_dl"),
+LOOK = [("boxoff", "boxoff"), ("froxel", "froxel"), ("froxel_dl", "froxel_dl"), ("host", "host"), ("host_rep", "host"), ("host_dl", "host_dl"),
         ("host_black", "host_black")]
 
 
@@ -452,9 +467,9 @@ def look_metrics():
     m = {}
     for vn in res.get("views", {}):
         P = lambda c: os.path.join(LOOKDIR, "lk_%s_%s.png" % (c, vn))
-        if not all(os.path.isfile(P(c)) for c, _ in LOOK):
+        if not all(os.path.isfile(P(c)) for c, _ in LOOK if c != "host_rep"):
             continue
-        Lm = {c: _lum(P(c)) for c, _ in LOOK}
+        Lm = {c: _lum(P(c)) for c, _ in LOOK if os.path.isfile(P(c))}
         off = Lm["boxoff"]
         rf, rh = np.abs(Lm["froxel"] - off) > 4, np.abs(Lm["host"] - off) > 4
         roi = rf | rh
@@ -469,7 +484,10 @@ def look_metrics():
             if r:
                 rc[c] = {"lit": r[0], "own": r[1], "px": [r[2], r[3]]}
         e["rim_core"] = rc
-        e["flicker"] = {c: (res.get("cap", {}).get("%s|%s" % (c, vn)) or {}).get("flicker") for c in ("froxel", "host", "host_dl", "froxel_dl")}
+        e["flicker"] = {c: (res.get("cap", {}).get("%s|%s" % (c, vn)) or {}).get("flicker") for c in ("froxel", "host", "host_rep", "host_dl", "froxel_dl")}
+        if "host_rep" in Lm:
+            d_rep = np.abs(Lm["host"] - Lm["host_rep"])
+            e["host_floor_roi_mae"] = round(float(d_rep[roi].mean()), 3)
         m[vn] = e
     res["metrics"] = m; _atomic_dump(res, LKP)
     for vn, e in m.items():

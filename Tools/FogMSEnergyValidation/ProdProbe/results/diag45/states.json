@@ -1,0 +1,745 @@
+{
+ "started": "2026-09-26 14:18:49",
+ "froxel0": {
+  "host": {
+   "exists": false,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]",
+   "box": {
+    "FogMS_FroxelWeight": 1.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5
+   },
+   "box_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ]
+   },
+   "cvars": {
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 15.0,
+    "r.VolumetricCloud.SampleMinCount": 2.0
+   },
+   "render_path": "<FogMSRenderPath.FROXEL_FOG: 0>"
+  },
+  "flicker": 0.25
+ },
+ "nohost": {
+  "host": {
+   "exists": false,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00] [cloud host: none, froxel fallback]",
+   "box": {
+    "FogMS_FroxelWeight": 1.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5
+   },
+   "box_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ]
+   },
+   "cvars": {
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 15.0,
+    "r.VolumetricCloud.SampleMinCount": 2.0
+   },
+   "render_path": "<FogMSRenderPath.CLOUD_HOST: 1>"
+  },
+  "flicker": 0.257
+ },
+ "create": {
+  "host": {
+   "exists": true,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~19.5 m, trace 2.0 km, r.VolumetricCloud.DistanceToSampleMaxCount 15 kept (Console)]",
+   "label": "FogMS Cloud Host",
+   "hidden": false,
+   "material": "MID_FogMS_CloudHost_0",
+   "material_class": "MaterialInstanceDynamic",
+   "parent": "MI_FogMS_Cloud",
+   "layer_km": [
+    0.07509467750787735,
+    0.10000000149011612
+   ],
+   "trace_km": 2.0,
+   "trace_mode": "<VolumetricCloudTracingMaxDistanceMode.DISTANCE_FROM_POINT_OF_VIEW: 1>",
+   "view_scale": 8.0,
+   "shadow_scale": 3.200000047683716,
+   "shadow_km": 0.25,
+   "sky_capture": false,
+   "mid": {
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_ForwardG": 0.6000000238418579,
+    "FogMS_ForwardStrength": 0.4000000059604645,
+    "FogMS_ErosionStrength": 0.5,
+    "FogMS_HeightProfile": 1.0,
+    "FogMS_CloudFieldGain": 1.0,
+    "FogMS_CloudPhaseG2": 0.0
+   },
+   "mid_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ],
+    "FogMS_Albedo": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_CloudBoxCenter": [
+     3.036511182785034,
+     2905.859375,
+     10702.533203125,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal0": [
+     0.004072325304150581,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal2": [
+     0.0,
+     0.0,
+     0.004559827968478203,
+     0.0
+    ]
+   },
+   "field": "FogMS_TransportField_0",
+   "noise": "perlin",
+   "box": {
+    "FogMS_FroxelWeight": 0.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5
+   },
+   "box_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ]
+   },
+   "cvars": {
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 15.0,
+    "r.VolumetricCloud.SampleMinCount": 2.0
+   },
+   "render_path": "<FogMSRenderPath.CLOUD_HOST: 1>"
+  },
+  "flicker": 0.54
+ },
+ "back_froxel": {
+  "host": {
+   "exists": true,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]",
+   "label": "FogMS Cloud Host",
+   "hidden": false,
+   "material": "MID_FogMS_CloudHost_0",
+   "material_class": "MaterialInstanceDynamic",
+   "parent": "MI_FogMS_Cloud",
+   "layer_km": [
+    0.07509467750787735,
+    0.10000000149011612
+   ],
+   "trace_km": 2.0,
+   "trace_mode": "<VolumetricCloudTracingMaxDistanceMode.DISTANCE_FROM_POINT_OF_VIEW: 1>",
+   "view_scale": 8.0,
+   "shadow_scale": 3.200000047683716,
+   "shadow_km": 0.25,
+   "sky_capture": false,
+   "mid": {
+    "FogMS_Density": 0.0,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5,
+    "FogMS_InjectionMode": 0.0,
+    "FogMS_ForwardG": 0.6000000238418579,
+    "FogMS_ForwardStrength": 0.4000000059604645,
+    "FogMS_ErosionStrength": 0.5,
+    "FogMS_HeightProfile": 1.0,
+    "FogMS_CloudFieldGain": 1.0,
+    "FogMS_CloudPhaseG2": 0.0
+   },
+   "mid_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ],
+    "FogMS_Albedo": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_CloudBoxCenter": [
+     3.036511182785034,
+     2905.859375,
+     10702.533203125,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal0": [
+     0.004072325304150581,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal2": [
+     0.0,
+     0.0,
+     0.004559827968478203,
+     0.0
+    ]
+   },
+   "field": "FogMS_TransportField_0",
+   "noise": "perlin",
+   "box": {
+    "FogMS_FroxelWeight": 1.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5
+   },
+   "box_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ]
+   },
+   "cvars": {
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 15.0,
+    "r.VolumetricCloud.SampleMinCount": 2.0
+   },
+   "render_path": "<FogMSRenderPath.FROXEL_FOG: 0>"
+  },
+  "flicker": 0.251
+ },
+ "again_cloud": {
+  "host": {
+   "exists": true,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~19.5 m, trace 2.0 km, r.VolumetricCloud.DistanceToSampleMaxCount 15 kept (Console)]",
+   "label": "FogMS Cloud Host",
+   "hidden": false,
+   "material": "MID_FogMS_CloudHost_0",
+   "material_class": "MaterialInstanceDynamic",
+   "parent": "MI_FogMS_Cloud",
+   "layer_km": [
+    0.07509467750787735,
+    0.10000000149011612
+   ],
+   "trace_km": 2.0,
+   "trace_mode": "<VolumetricCloudTracingMaxDistanceMode.DISTANCE_FROM_POINT_OF_VIEW: 1>",
+   "view_scale": 8.0,
+   "shadow_scale": 3.200000047683716,
+   "shadow_km": 0.25,
+   "sky_capture": false,
+   "mid": {
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_ForwardG": 0.6000000238418579,
+    "FogMS_ForwardStrength": 0.4000000059604645,
+    "FogMS_ErosionStrength": 0.5,
+    "FogMS_HeightProfile": 1.0,
+    "FogMS_CloudFieldGain": 1.0,
+    "FogMS_CloudPhaseG2": 0.0
+   },
+   "mid_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ],
+    "FogMS_Albedo": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_CloudBoxCenter": [
+     3.036511182785034,
+     2905.859375,
+     10702.533203125,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal0": [
+     0.004072325304150581,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal2": [
+     0.0,
+     0.0,
+     0.004559827968478203,
+     0.0
+    ]
+   },
+   "field": "FogMS_TransportField_0",
+   "noise": "perlin",
+   "box": {
+    "FogMS_FroxelWeight": 0.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5
+   },
+   "box_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ]
+   },
+   "cvars": {
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 15.0,
+    "r.VolumetricCloud.SampleMinCount": 2.0
+   },
+   "render_path": "<FogMSRenderPath.CLOUD_HOST: 1>"
+  },
+  "flicker": 0.525
+ },
+ "layer_miss": {
+  "host": {
+   "exists": true,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00] [cloud host: 'FogMS Cloud Host': layer 1.075-1.175 km does not cover the Box's density band 0.085-0.129 km above the ground, froxel fallback]",
+   "label": "FogMS Cloud Host",
+   "hidden": false,
+   "material": "MID_FogMS_CloudHost_0",
+   "material_class": "MaterialInstanceDynamic",
+   "parent": "MI_FogMS_Cloud",
+   "layer_km": [
+    1.0750946998596191,
+    0.10000000149011612
+   ],
+   "trace_km": 2.0,
+   "trace_mode": "<VolumetricCloudTracingMaxDistanceMode.DISTANCE_FROM_POINT_OF_VIEW: 1>",
+   "view_scale": 8.0,
+   "shadow_scale": 3.200000047683716,
+   "shadow_km": 0.25,
+   "sky_capture": false,
+   "mid": {
+    "FogMS_Density": 0.0,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5,
+    "FogMS_InjectionMode": 0.0,
+    "FogMS_ForwardG": 0.6000000238418579,
+    "FogMS_ForwardStrength": 0.4000000059604645,
+    "FogMS_ErosionStrength": 0.5,
+    "FogMS_HeightProfile": 1.0,
+    "FogMS_CloudFieldGain": 1.0,
+    "FogMS_CloudPhaseG2": 0.0
+   },
+   "mid_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ],
+    "FogMS_Albedo": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_CloudBoxCenter": [
+     3.036511182785034,
+     2905.859375,
+     10702.533203125,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal0": [
+     0.004072325304150581,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal2": [
+     0.0,
+     0.0,
+     0.004559827968478203,
+     0.0
+    ]
+   },
+   "field": "FogMS_TransportField_0",
+   "noise": "perlin",
+   "box": {
+    "FogMS_FroxelWeight": 1.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5
+   },
+   "box_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ]
+   },
+   "cvars": {
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 15.0,
+    "r.VolumetricCloud.SampleMinCount": 2.0
+   },
+   "render_path": "<FogMSRenderPath.CLOUD_HOST: 1>"
+  },
+  "flicker": 0.255
+ },
+ "layer_ok": {
+  "host": {
+   "exists": true,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~19.5 m, trace 2.0 km, r.VolumetricCloud.DistanceToSampleMaxCount 15 kept (Console)]",
+   "label": "FogMS Cloud Host",
+   "hidden": false,
+   "material": "MID_FogMS_CloudHost_0",
+   "material_class": "MaterialInstanceDynamic",
+   "parent": "MI_FogMS_Cloud",
+   "layer_km": [
+    0.07509467750787735,
+    0.10000000149011612
+   ],
+   "trace_km": 2.0,
+   "trace_mode": "<VolumetricCloudTracingMaxDistanceMode.DISTANCE_FROM_POINT_OF_VIEW: 1>",
+   "view_scale": 8.0,
+   "shadow_scale": 3.200000047683716,
+   "shadow_km": 0.25,
+   "sky_capture": false,
+   "mid": {
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_ForwardG": 0.6000000238418579,
+    "FogMS_ForwardStrength": 0.4000000059604645,
+    "FogMS_ErosionStrength": 0.5,
+    "FogMS_HeightProfile": 1.0,
+    "FogMS_CloudFieldGain": 1.0,
+    "FogMS_CloudPhaseG2": 0.0
+   },
+   "mid_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ],
+    "FogMS_Albedo": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_CloudBoxCenter": [
+     3.036511182785034,
+     2905.859375,
+     10702.533203125,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal0": [
+     0.004072325304150581,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal2": [
+     0.0,
+     0.0,
+     0.004559827968478203,
+     0.0
+    ]
+   },
+   "field": "FogMS_TransportField_0",
+   "noise": "perlin",
+   "box": {
+    "FogMS_FroxelWeight": 0.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5
+   },
+   "box_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ]
+   },
+   "cvars": {
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 15.0,
+    "r.VolumetricCloud.SampleMinCount": 2.0
+   },
+   "render_path": "<FogMSRenderPath.CLOUD_HOST: 1>"
+  },
+  "flicker": 0.547
+ },
+ "host_hidden": {
+  "host": {
+   "exists": true,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00] [cloud host: none, froxel fallback]",
+   "label": "FogMS Cloud Host",
+   "hidden": true,
+   "material": "MID_FogMS_CloudHost_0",
+   "material_class": "MaterialInstanceDynamic",
+   "parent": "MI_FogMS_Cloud",
+   "layer_km": [
+    0.07509467750787735,
+    0.10000000149011612
+   ],
+   "trace_km": 2.0,
+   "trace_mode": "<VolumetricCloudTracingMaxDistanceMode.DISTANCE_FROM_POINT_OF_VIEW: 1>",
+   "view_scale": 8.0,
+   "shadow_scale": 3.200000047683716,
+   "shadow_km": 0.25,
+   "sky_capture": false,
+   "mid": {
+    "FogMS_Density": 0.0,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5,
+    "FogMS_InjectionMode": 0.0,
+    "FogMS_ForwardG": 0.6000000238418579,
+    "FogMS_ForwardStrength": 0.4000000059604645,
+    "FogMS_ErosionStrength": 0.5,
+    "FogMS_HeightProfile": 1.0,
+    "FogMS_CloudFieldGain": 1.0,
+    "FogMS_CloudPhaseG2": 0.0
+   },
+   "mid_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ],
+    "FogMS_Albedo": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_CloudBoxCenter": [
+     3.036511182785034,
+     2905.859375,
+     10702.533203125,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal0": [
+     0.004072325304150581,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal2": [
+     0.0,
+     0.0,
+     0.004559827968478203,
+     0.0
+    ]
+   },
+   "field": "FogMS_TransportField_0",
+   "noise": "perlin",
+   "box": {
+    "FogMS_FroxelWeight": 1.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5
+   },
+   "box_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ]
+   },
+   "cvars": {
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 15.0,
+    "r.VolumetricCloud.SampleMinCount": 2.0
+   },
+   "render_path": "<FogMSRenderPath.CLOUD_HOST: 1>"
+  }
+ },
+ "host_unhidden": {
+  "host": {
+   "exists": true,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~19.5 m, trace 2.0 km, r.VolumetricCloud.DistanceToSampleMaxCount 15 kept (Console)]",
+   "label": "FogMS Cloud Host",
+   "hidden": false,
+   "material": "MID_FogMS_CloudHost_0",
+   "material_class": "MaterialInstanceDynamic",
+   "parent": "MI_FogMS_Cloud",
+   "layer_km": [
+    0.07509467750787735,
+    0.10000000149011612
+   ],
+   "trace_km": 2.0,
+   "trace_mode": "<VolumetricCloudTracingMaxDistanceMode.DISTANCE_FROM_POINT_OF_VIEW: 1>",
+   "view_scale": 8.0,
+   "shadow_scale": 3.200000047683716,
+   "shadow_km": 0.25,
+   "sky_capture": false,
+   "mid": {
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_ForwardG": 0.6000000238418579,
+    "FogMS_ForwardStrength": 0.4000000059604645,
+    "FogMS_ErosionStrength": 0.5,
+    "FogMS_HeightProfile": 1.0,
+    "FogMS_CloudFieldGain": 1.0,
+    "FogMS_CloudPhaseG2": 0.0
+   },
+   "mid_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ],
+    "FogMS_Albedo": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_CloudBoxCenter": [
+     3.036511182785034,
+     2905.859375,
+     10702.533203125,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal0": [
+     0.004072325304150581,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_CloudWorldToLocal2": [
+     0.0,
+     0.0,
+     0.004559827968478203,
+     0.0
+    ]
+   },
+   "field": "FogMS_TransportField_0",
+   "noise": "perlin",
+   "box": {
+    "FogMS_FroxelWeight": 0.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5
+   },
+   "box_vec": {
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ]
+   },
+   "cvars": {
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 15.0,
+    "r.VolumetricCloud.SampleMinCount": 2.0
+   },
+   "render_path": "<FogMSRenderPath.CLOUD_HOST: 1>"
+  }
+ },
+ "log": [
+  "[2026.09.26-10.19.08:277][313]LogMultiLobeSpec: Warning: FogMS FogMS - Live Box: created cloud host 'FogMS Cloud Host' (MI_FogMS_Cloud; layer 0.075-0.175 km above the ground, trace 2.0 km from the camera, view samples x8, sun march 0.25 km). Only one Volumetric Cloud renders per scene: while this host is visible it displaces no other cloud (none is visible now). Nothing was saved: save the level t",
+  "[2026.09.26-10.19.08:277][313]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host': material MI_FogMS_Cloud wrapped in MID_FogMS_CloudHost_0 for Box 'FogMS - Live Box'.",
+  "[2026.09.26-10.19.08:277][313]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' renders Box 'FogMS - Live Box' (Render Path = Cloud Host); the Box's froxel copy is off (FogMS_FroxelWeight 0).",
+  "[2026.09.26-10.19.08:293][314]LogMultiLobeSpec: Display: FogMS cloud host step settings (SetByGameSetting, while a Box renders through a host): r.VolumetricCloud.DistanceToSampleMaxCount 15 -> 15 (kept: Console); r.VolumetricCloud.SampleMinCount 2 -> 2 (kept: Console).",
+  "[2026.09.26-10.19.14:173][468]LogPython: HOST {\"exists\": true, \"status\": \"Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the ",
+  "[2026.09.26-10.19.14:345][473]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' is empty: its Box no longer renders through it.",
+  "[2026.09.26-10.19.14:345][473]LogPython: Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun",
+  "[2026.09.26-10.19.14:355][474]LogMultiLobeSpec: Display: FogMS cloud host step settings restored: r.VolumetricCloud.DistanceToSampleMaxCount 15, r.VolumetricCloud.SampleMinCount 2.",
+  "[2026.09.26-10.19.20:413][636]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' renders Box 'FogMS - Live Box' (Render Path = Cloud Host); the Box's froxel copy is off (FogMS_FroxelWeight 0).",
+  "[2026.09.26-10.19.20:437][637]LogMultiLobeSpec: Display: FogMS cloud host step settings (SetByGameSetting, while a Box renders through a host): r.VolumetricCloud.DistanceToSampleMaxCount 15 -> 15 (kept: Console); r.VolumetricCloud.SampleMinCount 2 -> 2 (kept: Console).",
+  "[2026.09.26-10.19.26:304][794]LogPython: HOST {\"exists\": true, \"status\": \"Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the ",
+  "[2026.09.26-10.19.26:475][799]LogPython: HOST {\"exists\": true, \"status\": \"Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\\u00b0] [forward lobe 0.40 g 0.60] [sun deta",
+  "[2026.09.26-10.19.26:658][803]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' is empty: its Box no longer renders through it.",
+  "[2026.09.26-10.19.26:658][803]LogMultiLobeSpec: Display: FogMS cloud host step settings restored: r.VolumetricCloud.DistanceToSampleMaxCount 15, r.VolumetricCloud.SampleMinCount 2.",
+  "[2026.09.26-10.19.32:806][968]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' renders Box 'FogMS - Live Box' (Render Path = Cloud Host); the Box's froxel copy is off (FogMS_FroxelWeight 0).",
+  "[2026.09.26-10.19.32:806][968]LogMultiLobeSpec: Display: FogMS cloud host step settings (SetByGameSetting, while a Box renders through a host): r.VolumetricCloud.DistanceToSampleMaxCount 15 -> 15 (kept: Console); r.VolumetricCloud.SampleMinCount 2 -> 2 (kept: Console).",
+  "[2026.09.26-10.19.38:656][126]LogPython: HOST {\"exists\": true, \"status\": \"Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the ",
+  "[2026.09.26-10.19.38:815][131]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' is empty: its Box no longer renders through it.",
+  "[2026.09.26-10.19.38:815][131]LogMultiLobeSpec: Display: FogMS cloud host step settings restored: r.VolumetricCloud.DistanceToSampleMaxCount 15, r.VolumetricCloud.SampleMinCount 2.",
+  "[2026.09.26-10.19.42:014][224]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' renders Box 'FogMS - Live Box' (Render Path = Cloud Host); the Box's froxel copy is off (FogMS_FroxelWeight 0).",
+  "[2026.09.26-10.19.42:015][224]LogMultiLobeSpec: Display: FogMS cloud host step settings (SetByGameSetting, while a Box renders through a host): r.VolumetricCloud.DistanceToSampleMaxCount 15 -> 15 (kept: Console); r.VolumetricCloud.SampleMinCount 2 -> 2 (kept: Console).",
+  "[2026.09.26-10.19.45:104][313]LogPython: HOST {\"exists\": true, \"status\": \"Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\\u00b0] [forward lobe 0.40 g 0.60] [sun deta"
+ ],
+ "report": {
+  "floor_id45": {
+   "mae": 0.3359,
+   "p99": 2.0,
+   "psnr": 51.64,
+   "mean_diff": 0.008
+  },
+  "st_nohost~st_froxel0": {
+   "mae": 0.4045,
+   "p99": 2.0,
+   "psnr": 51.29,
+   "mean_diff": -0.0138
+  },
+  "st_back_froxel~st_froxel0": {
+   "mae": 0.417,
+   "p99": 2.5,
+   "psnr": 50.7,
+   "mean_diff": -0.0222
+  },
+  "st_layer_miss~st_froxel0": {
+   "mae": 0.4158,
+   "p99": 2.5,
+   "psnr": 50.68,
+   "mean_diff": -0.0227
+  },
+  "st_again_cloud~st_create": {
+   "mae": 0.7336,
+   "p99": 7.0,
+   "psnr": 42.74,
+   "mean_diff": -0.0101
+  },
+  "st_layer_ok~st_create": {
+   "mae": 1.0823,
+   "p99": 12.0,
+   "psnr": 38.07,
+   "mean_diff": -0.0069
+  },
+  "st_create~st_froxel0": {
+   "mae": 6.2494,
+   "p99": 47.0,
+   "psnr": 26.08,
+   "mean_diff": 3.8093
+  },
+  "st_froxel0~id_45_a": {
+   "mae": 0.3658,
+   "p99": 2.0,
+   "psnr": 51.75,
+   "mean_diff": 0.0093
+  }
+ }
+}

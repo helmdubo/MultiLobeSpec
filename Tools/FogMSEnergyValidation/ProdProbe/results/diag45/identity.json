@@ -241,6 +241,248 @@
    "parent": "M_FogMS_Density"
   }
  },
+ "id_45_a": {
+  "frames": 4,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]",
+  "mid": {
+   "scalars": {
+    "FogMS_WorldAligned": 1.0,
+    "FogMS_DetailScale": 2.0,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_DensityFeather": 12000.0,
+    "FogMS_DetailStrength": 0.20000000298023224,
+    "FogMS_DetailSecondOctave": 0.5,
+    "FogMS_ZeroEmission": 0.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_ErosionStrength": 0.5,
+    "FogMS_ErosionDepth": 0.15000000596046448,
+    "FogMS_HeightProfile": 1.0,
+    "FogMS_HeightBottom": 0.4000000059604645,
+    "FogMS_HeightTop": 0.6000000238418579,
+    "FogMS_HeightBottomSoftness": 0.05000000074505806,
+    "FogMS_HeightTopSoftness": 0.10000000149011612,
+    "FogMS_HeightAnvilStrength": 0.0,
+    "FogMS_DepthPrefilter": 0.0,
+    "FogMS_ForwardStrength": 0.4000000059604645,
+    "FogMS_ForwardG": 0.6000000238418579,
+    "FogMS_ForwardDepth": 0.5,
+    "FogMS_ForwardFloor": 0.5,
+    "FogMS_ForwardEcc": 0.5,
+    "FogMS_FroxelWeight": 1.0,
+    "FogMS_SunDetail": 1.0
+   },
+   "vectors": {
+    "FogMS_TileScale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_WorldFrequencies": [
+     6.666666740784422e-05,
+     0.00013333333481568843,
+     0.00026666666963137686,
+     0.0
+    ],
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ],
+    "FogMS_WorldPhase1": [
+     0.8552554845809937,
+     0.10975248366594315,
+     0.17482002079486847,
+     0.0
+    ],
+    "FogMS_WorldPhase2": [
+     0.4826013743877411,
+     0.1265760064125061,
+     0.5955039858818054,
+     0.0
+    ],
+    "FogMS_ChannelMask": [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_WorldExtent": [
+     12277.9970703125,
+     10764.880859375,
+     10965.326171875,
+     1.0
+    ],
+    "FogMS_Albedo": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_ErosionMask": [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_PrefilterWavelengths": [
+     3750.0,
+     1875.0,
+     937.5,
+     0.0
+    ],
+    "FogMS_SunMapU": [
+     0.008187271654605865,
+     0.0,
+     -0.009063642472028732,
+     0.5
+    ],
+    "FogMS_SunMapV": [
+     0.0,
+     0.009823178872466087,
+     0.0008841049275361001,
+     0.5
+    ],
+    "FogMS_SunMapW": [
+     0.0,
+     0.0,
+     -0.04999999701976776,
+     0.5000000596046448
+    ]
+   },
+   "textures": {
+    "FogMS_Noise": "VolumeTexture",
+    "FogMS_TransportField": "TextureRenderTargetVolume",
+    "FogMS_SunMap": "TextureRenderTargetVolume",
+    "FogMS_SunMapCell": "TextureRenderTargetVolume"
+   },
+   "parent": "M_FogMS_Density"
+  }
+ },
+ "id_45_b": {
+  "frames": 4,
+  "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]",
+  "mid": {
+   "scalars": {
+    "FogMS_WorldAligned": 1.0,
+    "FogMS_DetailScale": 2.0,
+    "FogMS_Threshold": 0.550000011920929,
+    "FogMS_Softness": 0.5,
+    "FogMS_Density": 1.600000023841858,
+    "FogMS_DensityFeather": 12000.0,
+    "FogMS_DetailStrength": 0.20000000298023224,
+    "FogMS_DetailSecondOctave": 0.5,
+    "FogMS_ZeroEmission": 0.0,
+    "FogMS_InjectionMode": 2.0,
+    "FogMS_ErosionStrength": 0.5,
+    "FogMS_ErosionDepth": 0.15000000596046448,
+    "FogMS_HeightProfile": 1.0,
+    "FogMS_HeightBottom": 0.4000000059604645,
+    "FogMS_HeightTop": 0.6000000238418579,
+    "FogMS_HeightBottomSoftness": 0.05000000074505806,
+    "FogMS_HeightTopSoftness": 0.10000000149011612,
+    "FogMS_HeightAnvilStrength": 0.0,
+    "FogMS_DepthPrefilter": 0.0,
+    "FogMS_ForwardStrength": 0.4000000059604645,
+    "FogMS_ForwardG": 0.6000000238418579,
+    "FogMS_ForwardDepth": 0.5,
+    "FogMS_ForwardFloor": 0.5,
+    "FogMS_ForwardEcc": 0.5,
+    "FogMS_FroxelWeight": 1.0,
+    "FogMS_SunDetail": 1.0
+   },
+   "vectors": {
+    "FogMS_TileScale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_WorldFrequencies": [
+     6.666666740784422e-05,
+     0.00013333333481568843,
+     0.00026666666963137686,
+     0.0
+    ],
+    "FogMS_WorldPhase0": [
+     0.3316013514995575,
+     0.5152603387832642,
+     0.015661854296922684,
+     0.0
+    ],
+    "FogMS_WorldPhase1": [
+     0.8552554845809937,
+     0.10975248366594315,
+     0.17482002079486847,
+     0.0
+    ],
+    "FogMS_WorldPhase2": [
+     0.4826013743877411,
+     0.1265760064125061,
+     0.5955039858818054,
+     0.0
+    ],
+    "FogMS_ChannelMask": [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_WorldExtent": [
+     12277.9970703125,
+     10764.880859375,
+     10965.326171875,
+     1.0
+    ],
+    "FogMS_Albedo": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "FogMS_ErosionMask": [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    "FogMS_PrefilterWavelengths": [
+     3750.0,
+     1875.0,
+     937.5,
+     0.0
+    ],
+    "FogMS_SunMapU": [
+     0.008187271654605865,
+     0.0,
+     -0.009063642472028732,
+     0.5
+    ],
+    "FogMS_SunMapV": [
+     0.0,
+     0.009823178872466087,
+     0.0008841049275361001,
+     0.5
+    ],
+    "FogMS_SunMapW": [
+     0.0,
+     0.0,
+     -0.04999999701976776,
+     0.5000000596046448
+    ]
+   },
+   "textures": {
+    "FogMS_Noise": "VolumeTexture",
+    "FogMS_TransportField": "TextureRenderTargetVolume",
+    "FogMS_SunMap": "TextureRenderTargetVolume",
+    "FogMS_SunMapCell": "TextureRenderTargetVolume"
+   },
+   "parent": "M_FogMS_Density"
+  }
+ },
  "report": {
   "id_44_a~id_44_b": {
    "mae": 0.3688,
@@ -248,9 +490,32 @@
    "psnr": 51.41,
    "mean_diff": 0.0211
   },
-  "id_45_a~id_45_b": null,
-  "id_44_a~id_45_a": null,
-  "id_44_b~id_45_b": null,
-  "id_44_b~id_45_a": null
+  "id_45_a~id_45_b": {
+   "mae": 0.3359,
+   "p99": 2.0,
+   "psnr": 51.64,
+   "mean_diff": 0.008
+  },
+  "id_44_a~id_45_a": {
+   "mae": 0.3919,
+   "p99": 2.0,
+   "psnr": 51.43,
+   "mean_diff": 0.0225
+  },
+  "id_44_b~id_45_b": {
+   "mae": 0.375,
+   "p99": 2.0,
+   "psnr": 51.65,
+   "mean_diff": 0.0094
+  },
+  "id_44_b~id_45_a": {
+   "mae": 0.4066,
+   "p99": 2.0,
+   "psnr": 50.87,
+   "mean_diff": 0.0014
+  },
+  "mid_diff": {},
+  "status_44": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]",
+  "status_45": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]"
  }
 }
