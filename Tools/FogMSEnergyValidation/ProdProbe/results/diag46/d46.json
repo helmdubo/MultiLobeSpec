@@ -1,0 +1,479 @@
+{
+ "matedit": {
+  "lines": [
+   "REBUILD /MultiLobeSpec/FogMS/M_FogMS_Cloud: ['Custom node FogMS_CloudBoxLocal has other code']",
+   "COMPILE M_FogMS_Cloud: shader compiled (log E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_Prod_20260922\\Main46.log)",
+   "LINKS verified by T3D: 12 Custom nodes, 76 pins; 5 other nodes",
+   "MATERIAL_OK saved=True /MultiLobeSpec/FogMS/M_FogMS_Cloud domain=<MaterialDomain.MD_VOLUME: 3> blend=<BlendMode.BLEND_ADDITIVE: 3> cloud_usage=True; /MultiLobeSpec/FogMS/MI_FogMS_Cloud present saved=True"
+  ],
+  "ok": true,
+  "time": "2026-09-26 17:31:01"
+ },
+ "check": {
+  "started": "2026-09-26 17:31:01",
+  "A_bound": {
+   "rendered": true,
+   "status": "n; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.50 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': layer 0.138-0.238 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.21 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)]",
+   "host": {
+    "label": "FogMS Cloud Host",
+    "hidden": false,
+    "layer_km": [
+     0.13759055733680725,
+     0.10000000149011612
+    ],
+    "trace_km": 2.0,
+    "view_scale": 8.0,
+    "material": "MID_FogMS_CloudHost_0",
+    "mid": {
+     "scalars": {
+      "FogMS_Density": 1.600000023841858,
+      "FogMS_CloudStep": 260.4166564941406,
+      "FogMS_CloudPrefilter": 1.0,
+      "FogMS_InjectionMode": 2.0
+     },
+     "vectors": {
+      "FogMS_CloudBoxCenter": [
+       3.036511182785034,
+       2905.859375,
+       16952.12109375,
+       0.0
+      ],
+      "FogMS_WorldExtent": [
+       12277.9970703125,
+       10764.880859375,
+       10965.326171875,
+       1.0
+      ],
+      "FogMS_CloudWorldToLocal2": [
+       0.0,
+       0.0,
+       0.004559827968478203,
+       0.0
+      ],
+      "FogMS_PrefilterWavelengths": [
+       3999.999755859375,
+       999.9999389648438,
+       499.9999694824219,
+       0.0
+      ]
+     }
+    }
+   }
+  },
+  "B_defaults": {
+   "near_far": [
+    "near",
+    0.21,
+    1.0
+   ],
+   "want": {
+    "r.VolumetricRenderTarget.Mode": 3.0,
+    "r.VolumetricCloud.SampleMinCount": 32.0,
+    "r.VolumetricRenderTarget.UpsamplingMode": 2.0,
+    "r.VolumetricRenderTarget.ReprojectionBoxConstraint": 1.0,
+    "r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection": 4.0,
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 2.0
+   },
+   "got": {
+    "r.VolumetricRenderTarget.Mode": 3.0,
+    "r.VolumetricCloud.SampleMinCount": 32.0,
+    "r.VolumetricRenderTarget.UpsamplingMode": 2.0,
+    "r.VolumetricRenderTarget.ReprojectionBoxConstraint": 1.0,
+    "r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection": 4.0,
+    "r.VolumetricCloud.DistanceToSampleMaxCount": 2.0
+   },
+   "mismatch": {},
+   "host_view_scale": [
+    8.0,
+    8.0
+   ],
+   "host_view_scale_ok": true,
+   "mid_step_cm": 260.4166564941406,
+   "mid_prefilter": 1.0,
+   "box_host_prefilter": 1.0,
+   "prefilter_ok": true,
+   "ok": true
+  },
+  "C_sun_points": {
+   "sun_softness": 5.0,
+   "soft": {
+    "names": [
+     "FogMS B2 direct cell average + sun transmittance (hybrid) [sun 8 points]"
+    ],
+    "ms": [
+     0.124
+    ],
+    "try": 1,
+    "eight": true,
+    "four": false
+   },
+   "zero": {
+    "names": [
+     "FogMS B2 direct cell average + sun transmittance (hybrid) [sun 4 points, alternating]"
+    ],
+    "ms": [
+     0.073
+    ],
+    "try": 0,
+    "eight": false,
+    "four": true
+   },
+   "ok": true
+  },
+  "D_follow": {
+   "base": {
+    "layer_km": [
+     0.13759055733680725,
+     0.23759055882692337
+    ],
+    "center": [
+     3.036511182785034,
+     2905.859375,
+     16952.12109375,
+     0.0
+    ]
+   },
+   "seq": [
+    {
+     "name": "up30",
+     "rendered": true,
+     "layer_km": [
+      0.16759055852890015,
+      0.26759056001901627
+     ],
+     "center": [
+      3.036511182785034,
+      2905.859375,
+      19952.12109375,
+      0.0
+     ],
+     "extent": [
+      12277.9970703125,
+      10764.880859375,
+      10965.326171875,
+      1.0
+     ],
+     "status": "t 'FogMS Cloud Host': layer 0.168-0.268 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.22 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)]"
+    },
+    {
+     "name": "up32",
+     "rendered": true,
+     "layer_km": [
+      0.16759055852890015,
+      0.26759056001901627
+     ],
+     "center": [
+      3.036511182785034,
+      2905.859375,
+      20152.12109375,
+      0.0
+     ],
+     "extent": [
+      12277.9970703125,
+      10764.880859375,
+      10965.326171875,
+      1.0
+     ],
+     "status": "t 'FogMS Cloud Host': layer 0.168-0.268 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.22 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)]"
+    },
+    {
+     "name": "scale_z",
+     "rendered": true,
+     "layer_km": [
+      0.15862523019313812,
+      0.25862523168325424
+     ],
+     "center": [
+      3.036511182785034,
+      2905.859375,
+      20152.12109375,
+      0.0
+     ],
+     "extent": [
+      12277.9970703125,
+      10764.880859375,
+      16447.990234375,
+      1.0
+     ],
+     "status": "t 'FogMS Cloud Host': layer 0.159-0.259 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.22 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)]"
+    },
+    {
+     "name": "back",
+     "rendered": true,
+     "layer_km": [
+      0.13759055733680725,
+      0.23759055882692337
+     ],
+     "center": [
+      3.036511182785034,
+      2905.859375,
+      16952.12109375,
+      0.0
+     ],
+     "extent": [
+      12277.9970703125,
+      10764.880859375,
+      10965.326171875,
+      1.0
+     ],
+     "status": "t 'FogMS Cloud Host': layer 0.138-0.238 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.21 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)]"
+    }
+   ],
+   "all_rendered": true,
+   "centre_follows_up30_cm": 3000.0,
+   "layer_shift_up30_km": 0.030000001192092896,
+   "hysteresis_no_refit_2m": true,
+   "layer_height_scale_km": [
+    0.10000000149011612,
+    0.10000000149011612
+   ],
+   "back_layer_km": [
+    0.13759055733680725,
+    0.23759055882692337
+   ],
+   "ok": true
+  },
+  "E_near_far": {
+   "far": {
+    "near_far": [
+     "far",
+     1.48,
+     1.0
+    ],
+    "mode": 1.0,
+    "min_count": 8.0
+   },
+   "back": {
+    "near_far": [
+     "near",
+     0.21,
+     1.0
+    ],
+    "mode": 3.0,
+    "min_count": 32.0
+   },
+   "ok": true
+  },
+  "F_log": {
+   "python_errors": 0,
+   "ensures": [],
+   "material_failed": [],
+   "multilobespec_errors": [],
+   "host_lines": [
+    "[2026.09.26-13.31.32:750][141]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host': layer 0.138-0.238 -> 0.168-0.268 km above the ground, fitted to Box 'FogMS - Live Box' (density band 0.178-0.221 km +-10 m; 1 refit(s) since the previous line).",
+    "[2026.09.26-13.31.38:296][302]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host': layer 0.168-0.268 -> 0.159-0.259 km above the ground, fitted to Box 'FogMS - Live Box' (density band 0.169-0.234 km +-10 m; 1 refit(s) since the previous line).",
+    "[2026.09.26-13.31.41:092][383]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host': layer 0.159-0.259 -> 0.138-0.238 km above the ground, fitted to Box 'FogMS - Live Box' (density band 0.148-0.191 km +-10 m; 1 refit(s) since the previous line).",
+    "[2026.09.26-13.31.43:843][463]LogMultiLobeSpec: Display: FogMS cloud host: camera 1.48 km from the nearest hosted Box -> far settings (r.FogMS.CloudHost.NearDistanceKm 1).",
+    "[2026.09.26-13.31.43:843][463]LogMultiLobeSpec: Display: FogMS cloud host settings (SetByGameSetting while a Box renders through a host; far): r.VolumetricCloud.SampleMinCount 32 -> 8; r.VolumetricRenderTarget.Mode 3 -> 1;",
+    "[2026.09.26-13.31.47:567][571]LogMultiLobeSpec: Display: FogMS cloud host: camera 0.21 km from the nearest hosted Box -> near settings (r.FogMS.CloudHost.NearDistanceKm 1).",
+    "[2026.09.26-13.31.47:567][571]LogMultiLobeSpec: Display: FogMS cloud host settings (SetByGameSetting while a Box renders through a host; near): r.VolumetricCloud.SampleMinCount 8 -> 32; r.VolumetricRenderTarget.Mode 1 -> 3;"
+   ],
+   "ok": true,
+   "refit_lines": 3,
+   "settings_lines": 2
+  }
+ },
+ "restore_check": {
+  "diff": {},
+  "engine_cvars": {},
+  "status": "nd] [sun softness 5.0\u00b0] [forward lobe 0.50 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': layer 0.138-0.238 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.21 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)]"
+ },
+ "cost": {
+  "median": {
+   "cloud_ms": 2.888,
+   "trace": 2.869,
+   "reconstruct": 0,
+   "compose": 0.019,
+   "cloud_shadow": 0,
+   "fog": 4.29,
+   "fogms": 3.654,
+   "frame_ms": 14.33
+  },
+  "runs": [
+   {
+    "frame_ms": 14.33,
+    "trace": 2.869,
+    "reconstruct": 0,
+    "compose": 0.019,
+    "cloud_shadow": 0,
+    "fog": 4.295,
+    "fogms": 3.671,
+    "events": 569,
+    "cloud_rows": [
+     [
+      2.869,
+      "VolumetricCloud"
+     ],
+     [
+      2.867,
+      "CloudView (CS) 894x813"
+     ],
+     [
+      0.019,
+      "VolCloudComposeOverScene"
+     ],
+     [
+      0.019,
+      "VolumetricComposeCloudOverScene"
+     ]
+    ],
+    "pass2": [
+     [
+      0.123,
+      "FogMS B2 direct cell average + sun transmittance (hybrid) [sun 8 points]"
+     ]
+    ],
+    "cloud_ms": 2.888
+   },
+   {
+    "frame_ms": 11.08,
+    "trace": 2.534,
+    "reconstruct": 0,
+    "compose": 0.019,
+    "cloud_shadow": 0,
+    "fog": 4.29,
+    "fogms": 0.698,
+    "events": 409,
+    "cloud_rows": [
+     [
+      2.534,
+      "VolumetricCloud"
+     ],
+     [
+      2.533,
+      "CloudView (CS) 894x813"
+     ],
+     [
+      0.019,
+      "VolCloudComposeOverScene"
+     ],
+     [
+      0.019,
+      "VolumetricComposeCloudOverScene"
+     ]
+    ],
+    "pass2": [],
+    "cloud_ms": 2.553
+   },
+   {
+    "frame_ms": 14.86,
+    "trace": 3.543,
+    "reconstruct": 0,
+    "compose": 0.019,
+    "cloud_shadow": 0,
+    "fog": 4.246,
+    "fogms": 3.654,
+    "events": 551,
+    "cloud_rows": [
+     [
+      0.02,
+      "RenderCloud StartFace=2 EndFace=4"
+     ],
+     [
+      0.003,
+      "Capture Volumetric Cloud Face=2"
+     ],
+     [
+      0.002,
+      "ClearRenderTarget(SkyLight.LowResCloudTexture, slice 0, mip 0) 256x256 ClearAction"
+     ],
+     [
+      0.0,
+      "Capture Volumetric Cloud Face=3"
+     ],
+     [
+      0.0,
+      "ClearRenderTarget(SkyLight.LowResCloudTexture, slice 0, mip 0) 256x256 ClearAction"
+     ],
+     [
+      3.543,
+      "VolumetricCloud"
+     ],
+     [
+      3.542,
+      "CloudView (CS) 894x813"
+     ],
+     [
+      0.019,
+      "VolCloudComposeOverScene"
+     ],
+     [
+      0.018,
+      "VolumetricComposeCloudOverScene"
+     ]
+    ],
+    "pass2": [
+     [
+      0.119,
+      "FogMS B2 direct cell average + sun transmittance (hybrid) [sun 8 points]"
+     ]
+    ],
+    "cloud_ms": 3.562
+   }
+  ],
+  "status": "n; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.50 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': layer 0.138-0.238 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.21 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)]",
+  "settings": {
+   "r.VolumetricRenderTarget.Mode": 3.0,
+   "r.VolumetricRenderTarget.UpsamplingMode": 2.0,
+   "r.VolumetricRenderTarget.ReprojectionBoxConstraint": 1.0,
+   "r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection": 4.0,
+   "r.VolumetricCloud.SampleMinCount": 32.0,
+   "r.VolumetricCloud.DistanceToSampleMaxCount": 2.0,
+   "r.VolumetricCloud.ViewRaySampleMaxCount": 768.0,
+   "r.FogMS.Transport.DirectSamples": 4.0,
+   "r.FogMS.Transport.SolveInterval": 2.0
+  },
+  "host": {
+   "label": "FogMS Cloud Host",
+   "hidden": false,
+   "layer_km": [
+    0.13759055733680725,
+    0.10000000149011612
+   ],
+   "trace_km": 2.0,
+   "view_scale": 8.0,
+   "material": "MID_FogMS_CloudHost_0",
+   "mid": {
+    "scalars": {
+     "FogMS_Density": 1.600000023841858,
+     "FogMS_CloudStep": 260.4166564941406,
+     "FogMS_CloudPrefilter": 1.0,
+     "FogMS_InjectionMode": 2.0
+    },
+    "vectors": {
+     "FogMS_CloudBoxCenter": [
+      3.036511182785034,
+      2905.859375,
+      16952.12109375,
+      0.0
+     ],
+     "FogMS_WorldExtent": [
+      12277.9970703125,
+      10764.880859375,
+      10965.326171875,
+      1.0
+     ],
+     "FogMS_CloudWorldToLocal2": [
+      0.0,
+      0.0,
+      0.004559827968478203,
+      0.0
+     ],
+     "FogMS_PrefilterWavelengths": [
+      3999.999755859375,
+      999.9999389648438,
+      499.9999694824219,
+      0.0
+     ]
+    }
+   }
+  },
+  "camera": "owner",
+  "time": "2026-09-26 17:32:24"
+ },
+ "restore_cost": {
+  "diff": {},
+  "engine_cvars": {},
+  "status": "nd] [sun softness 5.0\u00b0] [forward lobe 0.50 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': layer 0.138-0.238 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.21 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)]"
+ }
+}
