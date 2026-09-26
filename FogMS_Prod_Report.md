@@ -1195,7 +1195,50 @@ RENDER THREAD (движок, без правок)
 не будет при любой галке. Солнце: `Cast Cloud Shadows` выкл., 150 км, ×1; высота солнца ≈ 3,8° (длинные тени). Скрипт на
 время проверки поднимает Box на 10 м и возвращает точно.
 
-**Проверка** (заполняется после прогона).
+**Сборка и установка.** Коммит `9d05cbf`; сборка 47 — BUILD PASS: UnrealEditor + UnrealGame Development/Shipping, только
+9 известных C4701 (две неудачные попытки отложены как `Source47_failedElse/_failedTxn`: `if (…) UE_LOG(…); else …` не
+компилируется с макросом UE_LOG 5.8; `UEngine::BeginTransaction` есть только `WITH_EDITOR` — вызов обёрнут). Установка:
+`quit.sh` (карта не сохранялась; грязных пакетов не было), `PackageRestoreData.json` → `.bak_20260926_r47`, `cycle.sh 47
+Main47`. Время редактора на проверку: ~3 мин прогона `d47_shadow.py all` + ~2 мин запуска.
+
+**Проверка** (`d47_shadow.py all`, 21:11–21:14; снимок `measure/owner_pre47.json` снят после запуска и стартового пресета,
+камера перед снимком возвращена на вид владельца из его сессии Main46):
+
+| # | Критерий W47 | Результат | Вердикт |
+|---|---|---|---|
+| 1 | Солнце с галкой: Box `Active`, «not bound» нет | Box `Active …` (хост рисует, Box поднят на 10 м); «not bound» нет ни в статусе, ни в логе всего прогона | да |
+| 2 | Строка статуса; подсказка без галки; после `SetupShadows` тексель ≤ 10 м и строка лога | без галки: `[cloud shadow: off: the sun 'DirectionalLight' has Cast Cloud Shadows off; … run FogMS.CloudHost.SetupShadows …]`; с галкой при 150 км / ×1: `[cloud shadow: extent 150 km, res 512, texel 585.9 m, filter 2; WARNING texel 586 m > Box 300 m …]`, cvar: фильтр 1 → 2, snap 20 (= min(20, 150/4)), пиксельная сетка 1; команда: одна строка `FogMS.CloudHost.SetupShadows: sun 'DirectionalLight': Cast Cloud Shadows on -> on, Cloud Shadow Extent 150 -> 5 km, Cloud Shadow Map Resolution Scale 1 -> 2 (map 512 -> 1024 texels, texel 585.9 -> 9.8 m). … (Ctrl+Z undoes it)`, статус `[cloud shadow: extent 5 km, res 1024, texel 9.8 m, filter 2]`, snap 20 → 1,25 км (строка лога) | да |
+| 3 | `Lumen Bounce` Off, небо заморожено (`r.SkyLight.RealTimeReflectionCapture 0`), плотность заморожена (t = 100 с): поле с галкой и без — в пределах шума | `FogMS.DumpSpatial` резидентного атласа (сессия `-BindlessAll`), off → on → off, 16 итераций, maxres 1e-3: пол (off/off) rel L2 **2,9e-5**, яркость ×1,000004; on/off_a **2,7e-5**, on/off_b **2,4e-6** (×0,9999994). Замечания: SkyLight сцены — Specified Cubemap без кубмапы, при RTC 0 неба нет вовсе (у движка тоже), статус `[sky: none (no visible sky light)]` во всех трёх дампах — сравнение путей солнца без неба; в FourPanes первый дамп удался с 9-й попытки (орто-панели сбрасывают флаг последней сборки) | да |
+| 4 | Земля под Box темнее, лучи в тумане (владелец) | пара кадров Lit `results/diag47/ground_pair.png` (off / on) с бокового вида: **тени на ней не видно** — вне платформы земли нет (луч от Box по солнцу ничего не пересёк), солнце на высоте 3,8°: тень облака на высоте 6–66 м ложится в 90–1000 м по ходу солнца, за край платформы; объёмный туман с лучами — только в пределах дальности Volumetric Fog от камеры. Отличия кадров — лишь внутри облака (живая анимация за 8 с между кадрами). Облик — за владельцем, на его виде | не показано |
+| 5 | Без хоста cvar карты теней возвращаются (строка лога) | хост скрыт в редакторе (актёр владельца не удалялся): `FogMS cloud host settings restored (no Box renders through a host): … r.VolumetricCloud.ShadowMap.SpatialFiltering 1; r.VolumetricCloud.ShadowMap.SnapLength 20; r.VolumetricCloud.ShadowMap.SnapToPixelGrid 1;` — значения = до хоста; хост показан снова — всё поставлено заново | да |
+| 5b | Чужое облако — предупреждение, не отказ | со скрытым хостом рисует облако неба `VolumetricCloud`: Box `Active`, статус `[sky: Sky View LUT, 5-tap sector average [sun cloud shadows: Volumetric Cloud 'm_SimpleVolumetricCloud_Inst' is not a FogMS cloud host: its shadow darkens the ground and the fog, not this Box's solver field]]`, одна строка `LogFogMSWorldSources: Warning` | да |
+| 6 | **Цифра**: проход теней облака ≤ 0,3 мс (ProfileGPU, вид владельца) | `VolumetricCloudShadow` **0,140 мс** (медиана 3: 0,138 / 0,140 / 0,140) = `CloudShadow` 0,117 + `CloudDataSpatialFilter` ×2 0,020; карта 1024², 5 км, фильтр 2, sky AO нет | да |
+
+Ошибок LogPython, ensure и `LogMultiLobeSpec: Error` за прогон нет. Возврат снимка — без расхождений (солнце: галка выкл.,
+150 км, ×1; Box на прежнем месте, `Lumen Bounce` Auto, анимация живая, фаза `AnimationTimeOffset` та же; хост видим; камера,
+троттлинг, `ShowFlag.OverrideDiffuseAndSpecular 2` = Lit; `r.SkyLight.RealTimeReflectionCapture 1`); Game View включён, как
+был у владельца в Main46.
+
+**Цена хоста в этом положении (не W47, для сведения).** В тех же профилях трасса облака `VolumetricCloud` — **6,9 мс**
+(6,6–7,4), кадр 16,6 мс: камера владельца на 15 м выше слоя поднятого Box (облако 300 × 300 м под камерой почти во весь
+экран), `Mode 3` в полном разрешении. В раунде 46 (Box на высоте ~170 м, другая камера) было 2,9 мс.
+
+**Во время прогона в редакторе кто-то работал.** В логе `Main47.log` команды из консоли редактора (не через мост):
+`r.FogMS.Transport.SolveInterval 4` (21:11:19), `… 2` (21:13:16), `r.FogMS.Transport.AsyncCompute 1` (21:13:40),
+`SolveInterval 4` (21:13:50), `SolveInterval 2` (21:15:04). Поле критерия 3 снималось при `SolveInterval` 4, затем 2 —
+решатель сходится с допуском 1e-6, разница в пределах пола. Эти значения — владельца, скрипт их не трогал и не возвращал;
+после 21:14 редактор больше не трогался.
+
+**Что нужно владельцу, чтобы увидеть мягкую тень.** В сохранённой карте тени не будет при любой галке: Box стоит у земли,
+его полоса плотности уходит на 4 м ниже земли SkyAtmosphere — хост его не рисует (Box во фрокселях, а объёмный туман землю
+не затеняет). Два действия: (1) поднять `FogMS - Live Box` на ≥ 5 м (проверено +10 м: статус `[render: cloud host]`);
+(2) консоль `FogMS.CloudHost.SetupShadows` (галка солнца + 5 км + ×2); сохранить уровень, если нравится. При солнце 3,8° тень
+длинная и падает в основном за платформу; при солнце выше 20–30° она ляжет на платформу под облаком.
+
+**Открыто:** проверка облика на виде с землёй в тени (владелец); хост не рисует Box, полоса которого задевает землю (вместо
+отката можно резать полосу по земле — отдельный срез); приватный заголовок `VolumetricCloudRendering.h` добавлен к P11
+(только чтобы отличить хост от чужого облака); второй Box у занятого хоста видит предупреждение только в статусе хоста
+(«busy»), а Box с `Froxel Fog` при хосте, рисующем другой Box, — не видит; цена хоста 6,9 мс, когда камера у самого облака.
 
 ## Что не сделано / открыто
 

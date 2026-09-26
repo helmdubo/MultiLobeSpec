@@ -1,0 +1,384 @@
+{
+ "check": {
+  "started": "2026-09-26 21:11:09",
+  "precondition": {
+   "rendered": true,
+   "status": "orward lobe 0.50 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': layer 0.002-0.102 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.02 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)] [cloud shadow: off: the sun 'DirectionalLight' has Cast Cloud Shadows off; for this Box's soft shadow on the ground and in the fog run FogMS.CloudHost.SetupShadows (ticks it, extent 5 km, resolution x2) or tick it on the sun]",
+   "host": {
+    "label": "FogMS Cloud Host",
+    "layer_km": [
+     0.002328811911866069,
+     0.10000000149011612
+    ],
+    "density": 1.0
+   }
+  },
+  "A_hint_flag_off": {
+   "ok": true,
+   "cloud_shadow": {
+    "text": "[cloud shadow: off: the sun 'DirectionalLight' has Cast Cloud Shadows off; for this Box's soft shadow on the ground and in the fog run FogMS.CloudHost.SetupShadows (ticks it, extent 5 km, resolution x2) or tick it on the sun]"
+   },
+   "shadow_cvars": {
+    "r.VolumetricCloud.ShadowMap.SpatialFiltering": 1.0,
+    "r.VolumetricCloud.ShadowMap.SnapLength": 20.0,
+    "r.VolumetricCloud.ShadowMap.SnapToPixelGrid": 1.0
+   }
+  },
+  "B_flag_on": {
+   "active": true,
+   "not_bound_in_status": false,
+   "cloud_shadow": {
+    "extent_km": 150.0,
+    "res": 512,
+    "texel_m": 585.9,
+    "filter": 2,
+    "rest": "; WARNING texel 586 m > Box 300 m: its shadow is one blurred blot, run FogMS.CloudHost.SetupShadows (extent 5 km, resolution x2: texel 9.8 m)",
+    "warning": true
+   },
+   "texel_expected_m": 585.94,
+   "box_min_side_m": 300.0,
+   "shadow_cvars": {
+    "r.VolumetricCloud.ShadowMap.SpatialFiltering": 2.0,
+    "r.VolumetricCloud.ShadowMap.SnapLength": 20.0,
+    "r.VolumetricCloud.ShadowMap.SnapToPixelGrid": 1.0
+   },
+   "want": {
+    "filter": 2,
+    "snap_km": 20.0,
+    "snap_to_pixel": 1
+   },
+   "log": [
+    "[2026.09.26-17.11.14:286][399]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' (Box 'FogMS - Live Box'): [cloud shadow: extent 150 km, res 512, texel 585.9 m, filter 1; WARNING texel 586 m > Box 300 m: its shadow is one blurred blot, run FogMS.CloudHost.SetupShadows (extent 5 km, resolution x2: texel 9.8 m)]",
+    "[2026.09.26-17.11.14:287][399]LogMultiLobeSpec: Display: FogMS cloud host settings (SetByGameSetting while a Box renders through a host; near): r.VolumetricCloud.ShadowMap.SpatialFiltering 1 -> 2;",
+    "[2026.09.26-17.11.14:287][399]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' (Box 'FogMS - Live Box'): [cloud shadow: extent 150 km, res 512, texel 585.9 m, filter 2; WARNING texel 586 m > Box 300 m: its shadow is one blurred blot, run FogMS.CloudHost.SetupShadows (extent 5 km, resolution x2: texel 9.8 m)]"
+   ],
+   "status": "see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~42, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.50 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': layer 0.002-0.102 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.02 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)] [cloud shadow: extent 150 km, res 512, texel 585.9 m, filter 2; WARNING texel 586 m > Box 300 m: its shadow is one blurred blot, run FogMS.CloudHost.SetupShadows (extent 5 km, resolution x2: texel 9.8 m)]",
+   "ok": true
+  },
+  "C_setup": {
+   "log": [
+    "[2026.09.26-17.11.21:269][574]LogMultiLobeSpec: Display: FogMS.CloudHost.SetupShadows: sun 'DirectionalLight': Cast Cloud Shadows on -> on, Cloud Shadow Extent 150 -> 5 km, Cloud Shadow Map Resolution Scale 1 -> 2 (map 512 -> 1024 texels, texel 585.9 -> 9.8 m). Nothing saved: save the level to keep it (Ctrl+Z undoes it)."
+   ],
+   "sun": {
+    "cast_cloud_shadows": true,
+    "cloud_shadow_extent": 5.0,
+    "cloud_shadow_map_resolution_scale": 2.0,
+    "cloud_shadow_strength": 1.0,
+    "cloud_shadow_on_surface_strength": 1.0,
+    "cloud_shadow_on_atmosphere_strength": 1.0,
+    "cloud_shadow_ray_sample_count_scale": 1.0
+   },
+   "cloud_shadow": {
+    "extent_km": 5.0,
+    "res": 1024,
+    "texel_m": 9.8,
+    "filter": 2,
+    "rest": "",
+    "warning": false
+   },
+   "shadow_cvars": {
+    "r.VolumetricCloud.ShadowMap.SpatialFiltering": 2.0,
+    "r.VolumetricCloud.ShadowMap.SnapLength": 1.25,
+    "r.VolumetricCloud.ShadowMap.SnapToPixelGrid": 1.0
+   },
+   "settings_lines": [
+    "[2026.09.26-17.11.21:270][575]LogMultiLobeSpec: Display: FogMS cloud host settings (SetByGameSetting while a Box renders through a host; near): r.VolumetricCloud.ShadowMap.SnapLength 20 -> 1.25;"
+   ],
+   "ok": true
+  },
+  "D_no_host": {
+   "restored_line": [
+    "[2026.09.26-17.11.28:282][778]LogMultiLobeSpec: Display: FogMS cloud host settings restored (no Box renders through a host): r.VolumetricCloud.DistanceToSampleMaxCount 15; r.VolumetricCloud.SampleMinCount 2; r.VolumetricRenderTarget.Mode 0; r.VolumetricRenderTarget.UpsamplingMode 4; r.VolumetricRenderTarget.ReprojectionBoxConstraint 0; r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection 0; r.VolumetricCloud.ShadowMap.SpatialFiltering 1; r.VolumetricCloud.ShadowMap.SnapLength 20; r.VolumetricCloud.ShadowMap.SnapToPixelGrid 1;"
+   ],
+   "shadow_cvars": {
+    "r.VolumetricCloud.ShadowMap.SpatialFiltering": 1.0,
+    "r.VolumetricCloud.ShadowMap.SnapLength": 20.0,
+    "r.VolumetricCloud.ShadowMap.SnapToPixelGrid": 1.0
+   },
+   "active": true,
+   "foreign_warning": true,
+   "not_bound": false,
+   "others_visible": [
+    "VolumetricCloud"
+   ],
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 3/4; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average [sun cloud shadows: Volumetric Cloud 'm_SimpleVolumetricCloud_Inst' is not a FogMS cloud host: its shadow darkens the ground and the fog, not this Box's solver field]] [tau core ~42, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.50 g 0.60] [sun detail 1.00] [cloud host: 'FogMS Cloud Host' exists but does not render (hidden or not visible): show it to render this Box per pixel, froxel fallback]",
+   "worldsources_log": [
+    "[2026.09.26-17.11.28:344][780]LogFogMSWorldSources: Warning: FogMS: the sun 'DirectionalLight' casts cloud shadows of Volumetric Cloud material 'm_SimpleVolumetricCloud_Inst', which is not a FogMS cloud host: the FogMS solver does not see those shadows (its sun is shadowed by the Box's own medium only). The Box keeps working.",
+    "[2026.09.26-17.11.34:374][954]LogPython: D47STATE {\"camera\": [[13319.06722844661, -6284.587395744193, 8138.418350624174], [-17.999902725219727, 144.1385498046875, 0.0]], \"throttle\": false, \"game_view\": false, \"box\": {\"location\": [2630.731857798746, 7434.179783698892, 3570.076222972337], \"extent\": [15000.0, 15000.0, 15000.0], \"render_path\": \"<FogMSRenderPath.CLOUD_HOST: 1>\", \"props\": {\"lumen_bounce"
+   ],
+   "ok": true,
+   "foreign_ok": true
+  },
+  "E_host_back": {
+   "rendered": true,
+   "shadow_cvars": {
+    "r.VolumetricCloud.ShadowMap.SpatialFiltering": 2.0,
+    "r.VolumetricCloud.ShadowMap.SnapLength": 1.25,
+    "r.VolumetricCloud.ShadowMap.SnapToPixelGrid": 1.0
+   },
+   "settings_lines": [
+    "[2026.09.26-17.11.35:276][981]LogMultiLobeSpec: Display: FogMS cloud host settings (SetByGameSetting while a Box renders through a host; near): r.VolumetricCloud.DistanceToSampleMaxCount 15 -> 2; r.VolumetricCloud.SampleMinCount 2 -> 32; r.VolumetricRenderTarget.Mode 0 -> 3; r.VolumetricRenderTarget.UpsamplingMode 4 -> 2; r.VolumetricRenderTarget.ReprojectionBoxConstraint 0 -> 1; r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection 0 -> 4; r.VolumetricCloud.ShadowMap.SpatialFiltering 1"
+   ],
+   "ok": true
+  },
+  "F_log": {
+   "not_bound": [],
+   "python_errors": 0,
+   "ensures": [],
+   "multilobespec_errors": [],
+   "shadow_note_lines": [
+    "[2026.09.26-17.11.10:841][301]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' (Box 'FogMS - Live Box'): [cloud shadow: off: the sun 'DirectionalLight' has Cast Cloud Shadows off; for this Box's soft shadow on the ground and in the fog run FogMS.CloudHost.SetupShadows (ticks it, extent 5 km, resolution x2) or tick it on the sun]",
+    "[2026.09.26-17.11.14:286][399]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' (Box 'FogMS - Live Box'): [cloud shadow: extent 150 km, res 512, texel 585.9 m, filter 1; WARNING texel 586 m > Box 300 m: its shadow is one blurred blot, run FogMS.CloudHost.SetupShadows (extent 5 km, resolution x2: texel 9.8 m)]",
+    "[2026.09.26-17.11.14:287][399]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' (Box 'FogMS - Live Box'): [cloud shadow: extent 150 km, res 512, texel 585.9 m, filter 2; WARNING texel 586 m > Box 300 m: its shadow is one blurred blot, run FogMS.CloudHost.SetupShadows (extent 5 km, resolution x2: texel 9.8 m)]",
+    "[2026.09.26-17.11.21:270][575]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' (Box 'FogMS - Live Box'): [cloud shadow: extent 5 km, res 1024, texel 9.8 m, filter 2]",
+    "[2026.09.26-17.11.35:276][981]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' (Box 'FogMS - Live Box'): [cloud shadow: extent 5 km, res 1024, texel 9.8 m, filter 1]",
+    "[2026.09.26-17.11.35:277][981]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' (Box 'FogMS - Live Box'): [cloud shadow: extent 5 km, res 1024, texel 9.8 m, filter 2]"
+   ],
+   "ok": true
+  }
+ },
+ "look": {
+  "started": "2026-09-26 21:11:42",
+  "camera": {
+   "trace": {
+    "box": [
+     2630.731857798746,
+     7434.179783698892,
+     3570.076222972337
+    ],
+    "fwd": [
+     0.984046319881356,
+     -0.1654157942605621,
+     -0.0655015674400786
+    ],
+    "ground_hit": false,
+    "g": [
+     56264.873851815806,
+     -1581.589106625057,
+     0.0
+    ]
+   },
+   "shadow_len_m": 545.0,
+   "cam": [
+    [
+     39386.492303883075,
+     62050.823443761816,
+     22768.953452164627
+    ],
+    [
+     -19.290046219188735,
+     -99.54207252019347,
+     0.0
+    ]
+   ]
+  },
+  "on": {
+   "frames": 4,
+   "status": " layer 0.002-0.102 km (fitted to the Box), step ~2.6 m, trace 2.0 km, view samples x8, rt mode 3, min samples 32, near settings (camera 0.48 km, near within 1 km); displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)] [cloud shadow: extent 5 km, res 1024, texel 9.8 m, filter 2]"
+  },
+  "off": {
+   "frames": 4,
+   "status": "isplaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)] [cloud shadow: off: the sun 'DirectionalLight' has Cast Cloud Shadows off; for this Box's soft shadow on the ground and in the fog run FogMS.CloudHost.SetupShadows (ticks it, extent 5 km, resolution x2) or tick it on the sun]"
+  },
+  "sheet": "results/diag47/ground_pair.png",
+  "game_view_set": "GAMEVIEW True"
+ },
+ "cost": {
+  "started": "2026-09-26 21:12:09",
+  "median": {
+   "shadow_scope": 0.14,
+   "cloud_shadow": 0.117,
+   "spatial_filter": 0.02,
+   "temporal_filter": 0,
+   "sky_ao": 0,
+   "cloud_trace": 6.911,
+   "frame_ms": 16.61
+  },
+  "runs": [
+   {
+    "frame_ms": 17.31,
+    "shadow_scope": 0.138,
+    "cloud_shadow": 0.117,
+    "spatial_filter": 0.019,
+    "temporal_filter": 0,
+    "sky_ao": 0,
+    "cloud_trace": 7.429,
+    "events": 380,
+    "shadow_rows": [
+     [
+      0.138,
+      "VolumetricCloudShadow"
+     ],
+     [
+      0.117,
+      "CloudShadow"
+     ],
+     [
+      0.007,
+      "CloudDataSpatialFilter"
+     ],
+     [
+      0.012,
+      "CloudDataSpatialFilter"
+     ]
+    ]
+   },
+   {
+    "frame_ms": 16.61,
+    "shadow_scope": 0.14,
+    "cloud_shadow": 0.118,
+    "spatial_filter": 0.02,
+    "temporal_filter": 0,
+    "sky_ao": 0,
+    "cloud_trace": 6.911,
+    "events": 373,
+    "shadow_rows": [
+     [
+      0.14,
+      "VolumetricCloudShadow"
+     ],
+     [
+      0.118,
+      "CloudShadow"
+     ],
+     [
+      0.007,
+      "CloudDataSpatialFilter"
+     ],
+     [
+      0.013,
+      "CloudDataSpatialFilter"
+     ]
+    ]
+   },
+   {
+    "frame_ms": 16.2,
+    "shadow_scope": 0.14,
+    "cloud_shadow": 0.117,
+    "spatial_filter": 0.02,
+    "temporal_filter": 0,
+    "sky_ao": 0,
+    "cloud_trace": 6.583,
+    "events": 373,
+    "shadow_rows": [
+     [
+      0.14,
+      "VolumetricCloudShadow"
+     ],
+     [
+      0.117,
+      "CloudShadow"
+     ],
+     [
+      0.007,
+      "CloudDataSpatialFilter"
+     ],
+     [
+      0.013,
+      "CloudDataSpatialFilter"
+     ]
+    ]
+   }
+  ],
+  "cloud_shadow_status": {
+   "extent_km": 5.0,
+   "res": 1024,
+   "texel_m": 9.8,
+   "filter": 2,
+   "rest": "",
+   "warning": false
+  },
+  "sun": {
+   "cast_cloud_shadows": true,
+   "cloud_shadow_extent": 5.0,
+   "cloud_shadow_map_resolution_scale": 2.0,
+   "cloud_shadow_strength": 1.0,
+   "cloud_shadow_on_surface_strength": 1.0,
+   "cloud_shadow_on_atmosphere_strength": 1.0,
+   "cloud_shadow_ray_sample_count_scale": 1.0
+  },
+  "shadow_cvars": {
+   "r.VolumetricCloud.ShadowMap.SpatialFiltering": 2.0,
+   "r.VolumetricCloud.ShadowMap.SnapLength": 1.25,
+   "r.VolumetricCloud.ShadowMap.SnapToPixelGrid": 1.0
+  },
+  "camera": "owner",
+  "ok": true
+ },
+ "field": {
+  "started": "2026-09-26 21:12:40",
+  "off_a": {
+   "flag": false,
+   "active": true,
+   "not_bound": false,
+   "rendered_by_host": true,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 3/4; bounce: fallback (Lumen Bounce Off); see convergence diagnostics) [sky: none (no visible sky light)] [tau core ~42, upper b",
+   "sky": "none (no visible sky light)]",
+   "dump": {
+    "success": true,
+    "reason": null,
+    "iterations": 16,
+    "maxRelativeCellResidual": 0.000973038783,
+    "revision": 6,
+    "renderFrame": 3703,
+    "try": 8
+   }
+  },
+  "on": {
+   "flag": true,
+   "active": true,
+   "not_bound": false,
+   "rendered_by_host": true,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: fallback (Lumen Bounce Off); see convergence diagnostics) [sky: none (no visible sky light)] [tau core ~42, upper b",
+   "sky": "none (no visible sky light)]",
+   "dump": {
+    "success": true,
+    "reason": null,
+    "iterations": 16,
+    "maxRelativeCellResidual": 9.52035116e-05,
+    "revision": 6,
+    "renderFrame": 3947,
+    "try": 0
+   }
+  },
+  "off_b": {
+   "flag": false,
+   "active": true,
+   "not_bound": false,
+   "rendered_by_host": true,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: fallback (Lumen Bounce Off); see convergence diagnostics) [sky: none (no visible sky light)] [tau core ",
+   "sky": "none (no visible sky light)]",
+   "dump": {
+    "success": true,
+    "reason": null,
+    "iterations": 16,
+    "maxRelativeCellResidual": 0,
+    "revision": 6,
+    "renderFrame": 4214,
+    "try": 0
+   }
+  },
+  "floor_off_b_vs_off_a": {
+   "rel_l2": 2.8796760779671906e-05,
+   "lum_ratio": 1.0000041504192199,
+   "bright_rel": 6.5001009615885196e-06
+  },
+  "on_vs_off_a": {
+   "rel_l2": 2.6568500216244088e-05,
+   "lum_ratio": 1.000003569715742,
+   "bright_rel": 5.996847793679076e-06
+  },
+  "on_vs_off_b": {
+   "rel_l2": 2.4218310906297785e-06,
+   "lum_ratio": 0.9999994192989322,
+   "bright_rel": 5.397703496316043e-07
+  },
+  "limit_rel_l2": 0.0001287967607796719,
+  "ok": true
+ },
+ "restore": {
+  "diff": {},
+  "engine_cvars": {},
+  "status": "terial; hybrid: native single scattering; one frame late; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~42, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.50 g 0.60] [sun detail 1.00] [cloud host: 'FogMS Cloud Host': the Box's density band -0.004-0.056 km reaches below the ground of the cloud layer (altitude 0 of the SkyAtmosphere planet), where no cloud layer can start: move the Box up or use Render Path Froxel Fog, froxel fallback]"
+ }
+}
