@@ -131,12 +131,13 @@ struct FFogMSCloudHostBinding
  *     Box's) gets the M_FogMS_Cloud v3 weather parameters every tick; the material adds the weather density to the extinction and the
  *     conservative density ONLY in the cloud shadow pass (Shadow Pass Switch; SHADOW_DEPTH_SHADER 1 only in FVolumetricCloudShadowPS), so
  *     the engine's cloud shadow map (and sky AO) carries hero Boxes + weather and the visible pass the hero Boxes only.
- *     Extended layer (default): the host layer = the Box's band +-10 m UNION the weather envelope (FitLayer); while a Box renders through
- *     that extended host, r.VolumetricCloud.StepSizeOnZeroConservativeDensity = r.FogMS.Weather.SkipSteps (8; empty view steps are
- *     skipped 8 at a time) and FogMS_CloudSkipMargin = that value x the host step widens the Box's conservative region by as much (a skip
- *     never jumps over the Box's entry; the sample grid is unchanged). Thin layer (decision 2 fallback): the layer stays at the Box's band
- *     (without a Box: a 0.1 km band right under the weather base) and the shadow pass spreads the weather column's optical depth along
- *     the sun (RT_FogMS_WeatherSun) over it: the ground below gets exp(-OD), the air above the band gets no weather shadow.
+ *     Extended layer: the host layer = the Box's band +-10 m UNION the weather envelope (FitLayer); while a Box renders through that
+ *     extended host, r.VolumetricCloud.StepSizeOnZeroConservativeDensity = r.FogMS.Weather.SkipSteps (8; empty view steps are skipped 8
+ *     at a time) and FogMS_CloudSkipMargin = that value x the host step widens the Box's conservative region by as much (a skip never
+ *     jumps over the Box's entry; the sample grid is unchanged). Round 48 measured +1.04 ms in the visible pass at the owner camera
+ *     (gate 0.3 ms), so the actor's default is the Thin layer (decision 2): the layer stays at the Box's band (without a Box: a 0.1 km
+ *     band right under the weather base) and the shadow pass spreads the weather column's optical depth along the sun
+ *     (RT_FogMS_WeatherSun) over it: the ground below gets exp(-OD), the air above the band gets no weather shadow.
  *     No Box renders through the weather's host: 'shadows only': FogMS_Density 0 (no hero), the layer fitted to the weather (thin: the
  *     band under its base), Tracing Start Distance = Tracing Max Distance (the view trace is empty: minimal visible cost; a Box binding
  *     puts 0 back), and of the managed cvars only the W47 cloud-shadow-map ones (while the sun casts cloud shadows). A host the weather

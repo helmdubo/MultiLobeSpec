@@ -60,6 +60,10 @@ v3 (W48, FogMS_Weather_Design.md 3.2, 3.5, 4.1): the FogMS Weather in the cloud 
   FogMS_CloudSkipMargin. Defaults: weather off, margin 0: the v2 image exactly (hero + 0.0 in the shadow pass; the conservative mask
   unchanged). The weather textures (/MultiLobeSpec/FogMS/Weather/T_FogMS_*) come from matedit_weather.py: run it first.
   A v2 asset fails the v3 check (marker, missing nodes) and is rebuilt in place.
+v4 (W48 phase 2, the round-48 cost measurement): the Hero input of FogMS_CloudShadowSum is FogMS_CloudShadowHero = the same extinction
+  (EXTINCTION_CODE_V3 verbatim as a method, the same inputs, checked pin by pin against FogMS_Extinction_v3) with its three FogMS_Noise
+  fetches (a FogMS_Noise texture object: the same parameter) only where FogMS_CloudConservative > 0. v3 ran the hero's fetches and math
+  at every weather sample of the shadow pass (thin layer at the owner's low sun: 16 ms). View pass unchanged. v3 -> v4 rebuild in place.
 Output: MATERIAL_OK saved=<bool> ... | ALREADY_PATCHED ... | TRACE <traceback>."""
 import ast
 import glob
@@ -77,7 +81,7 @@ MATERIAL_NAME = 'M_FogMS_Cloud'
 INSTANCE_NAME = 'MI_FogMS_Cloud'
 MATERIAL_PATH = ASSET_DIR + '/' + MATERIAL_NAME
 INSTANCE_PATH = ASSET_DIR + '/' + INSTANCE_NAME
-MARKER = 'FogMS_Cloud v3'
+MARKER = 'FogMS_Cloud v4'
 DEFAULT_VOLUME = '/MultiLobeSpec/FogMS/T_FogMS_DefaultVolume'
 DENSITY_MATERIAL = '/MultiLobeSpec/FogMS/M_FogMS_Density'
 GROUP = 'FogMS Cloud'
@@ -244,8 +248,37 @@ float4 m = Map.SampleLevel(MapSampler, (Offset.xy - Wind.xy) * Domain.x, 0.0f);
 return ((In0 && m.r > 0.0f) || (In1 && m.a > 0.0f)) ? 1.0f : 0.0f;
 """
 
-SHADOW_SUM_CODE = """// FogMS_CloudShadowSum v1 (W48): extinction of the cloud shadow pass = the hero Box (FogMS_Extinction_v3) + the weather.
+SHADOW_SUM_CODE = """// FogMS_CloudShadowSum v1 (W48): extinction of the cloud shadow pass = the hero Box (FogMS_CloudShadowHero) + the weather.
 return Hero + Weather;"""
+
+# v4 (W48 phase 2): the round-48 measurement (results/diag48) showed the shadow pass evaluating the hero Box's three noise fetches +
+# extinction at EVERY weather sample (the material evaluates the whole graph wherever the combined conservative density is > 0): 16 ms
+# with the thin layer at the owner's low sun. FogMS_CloudShadowHero is the same extinction (EXTINCTION_CODE_V3 verbatim as a method,
+# the same inputs), but its three FogMS_Noise fetches and the math run only where the Box's own conservative mask is > 0 - exactly
+# where v3's shadow pass could see hero density at all. The view pass keeps FogMS_Extinction_v3 (Default input of the switch).
+SHADOW_HERO_PINS = ('Mask', 'NoiseTex', 'UVW0', 'UVW1', 'UVW2', 'ChannelMask', 'DetailStrength', 'SecondOctave', 'LocalPosition',
+                    'WorldExtent', 'Threshold', 'Softness', 'Density', 'Feather', 'ErosionStrength', 'ErosionDepth', 'HeightProfile',
+                    'HeightBottom', 'HeightTop', 'BottomSoftness', 'TopSoftness', 'AnvilStrength', 'ErosionMask', 'Footprint', 'Wavelengths')
+
+
+def shadow_hero_code(extinction_code):
+    return ("// FogMS_CloudShadowHero v1 (W48 v4, matedit_cloud.py): the hero Box's sigma_t [1/m] for the CLOUD SHADOW PASS (Shadow input of\n"
+            "// the extinction switch through FogMS_CloudShadowSum): FogMS_Extinction_v3 (EXTINCTION_CODE_V3 of matedit_density.py, verbatim\n"
+            "// below as FogMSShadowHero.Eval, same inputs), evaluated with its three FogMS_Noise fetches only where the Box's conservative\n"
+            "// mask (FogMS_CloudConservative) is > 0; elsewhere 0, which the v3 material also gave there (its shadow pass never saw hero\n"
+            "// density outside that mask). Saves the hero's work at every weather-only shadow sample.\n"
+            "struct FogMSShadowHero\n{\n"
+            "float Eval(float4 Noise, float4 Detail0, float4 Detail1, float4 ChannelMask, float DetailStrength, float SecondOctave,\n"
+            "           float3 LocalPosition, float3 WorldExtent, float Threshold, float Softness, float Density, float Feather,\n"
+            "           float ErosionStrength, float ErosionDepth, float HeightProfile, float HeightBottom, float HeightTop,\n"
+            "           float BottomSoftness, float TopSoftness, float AnvilStrength, float4 ErosionMask, float2 Footprint, float4 Wavelengths)\n"
+            "{\n" + extinction_code.strip() + "\n}\n};\n"
+            "if (Mask.x <= 0.0f) return 0.0f;\n"
+            "FogMSShadowHero H;\n"
+            "return H.Eval(NoiseTex.SampleLevel(NoiseTexSampler, UVW0, 0.0f), NoiseTex.SampleLevel(NoiseTexSampler, UVW1, 0.0f),\n"
+            "              NoiseTex.SampleLevel(NoiseTexSampler, UVW2, 0.0f), ChannelMask, DetailStrength, SecondOctave, LocalPosition,\n"
+            "              WorldExtent, Threshold, Softness, Density, Feather, ErosionStrength, ErosionDepth, HeightProfile, HeightBottom,\n"
+            "              HeightTop, BottomSoftness, TopSoftness, AnvilStrength, ErosionMask, Footprint, Wavelengths);\n")
 
 SHADOW_CONSERVATIVE_CODE = """// FogMS_CloudShadowConservative v1 (W48): conservative density of the cloud shadow pass = the hero Box's region or the weather's.
 return float3(max(Hero.x, Weather), 0.0f, 0.0f);"""
@@ -624,8 +657,24 @@ def build(material, extinction_code, lobe_code):
                 g.link(P[name], out, node, pin)
             else:
                 g.link(tex[WEATHER_TEXTURE_PINS[pin]], '', node, pin)
+    # v4: the hero's shadow-pass extinction gated by its own conservative mask (FogMS_CloudShadowHero); FogMS_Noise as a texture object
+    # (the same parameter name as the three sample nodes: one parameter, the Box writes it once).
+    noise_obj = g.node(unreal.MaterialExpressionTextureObjectParameter, -1300, 2300)
+    noise_obj.set_editor_property('parameter_name', 'FogMS_Noise'); noise_obj.set_editor_property('group', GROUP)
+    noise_obj.set_editor_property('texture', volume)
+    noise_obj.set_editor_property('sampler_type', unreal.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+    hero = g.custom('FogMS_CloudShadowHero', shadow_hero_code(extinction_code), unreal.CustomMaterialOutputType.CMOT_FLOAT1, SHADOW_HERO_PINS, -600, 2300)
+    for pin in SHADOW_HERO_PINS:
+        if pin == 'Mask':
+            g.link(cons, '', hero, pin)
+        elif pin == 'NoiseTex':
+            g.link(noise_obj, '', hero, pin)
+        elif pin in ('UVW0', 'UVW1', 'UVW2'):
+            g.link(uvw[int(pin[-1])], '', hero, pin)
+        else:
+            g.link(sources[pin][0], sources[pin][1], hero, pin)
     ssum = g.custom('FogMS_CloudShadowSum', SHADOW_SUM_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT1, SHADOW_PINS, -250, 1500)
-    g.link(ext, '', ssum, 'Hero'); g.link(wext, '', ssum, 'Weather')
+    g.link(hero, '', ssum, 'Hero'); g.link(wext, '', ssum, 'Weather')
     scons = g.custom('FogMS_CloudShadowConservative', SHADOW_CONSERVATIVE_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT3, SHADOW_PINS, -250, 1900)
     g.link(cons, '', scons, 'Hero'); g.link(wcons, '', scons, 'Weather')
     sw_ext = g.node(unreal.MaterialExpressionShadowReplace, 50, 1500)
@@ -710,8 +759,25 @@ def verify_weather(material, nodes, P):
                 want(node, pin, P[name], wanted_out)
             else:
                 want(node, pin, P[WEATHER_TEXTURE_PINS[pin]], '')
-    want(nodes['FogMS_CloudShadowSum'], 'Hero', nodes['FogMS_Extinction_v3'], '')
+    want(nodes['FogMS_CloudShadowSum'], 'Hero', nodes['FogMS_CloudShadowHero'], '')
     want(nodes['FogMS_CloudShadowSum'], 'Weather', nodes['FogMS_WeatherExtinction'], '')
+    # v4: the gated hero reads exactly the extinction node's inputs (same sources and outputs), its mask, the three noise UVWs and
+    # FogMS_Noise as a texture object.
+    hl = custom_links(material, nodes['FogMS_CloudShadowHero'])
+    require(sorted(hl) == sorted(SHADOW_HERO_PINS), 'FogMS_CloudShadowHero pins %s, wanted %s' % (sorted(hl), sorted(SHADOW_HERO_PINS)))
+    el = custom_links(material, nodes['FogMS_Extinction_v3'])
+    for pin in SHADOW_HERO_PINS:
+        src, out = hl[pin]
+        if pin == 'Mask':
+            require(src == nodes['FogMS_CloudConservative'], 'FogMS_CloudShadowHero.Mask is fed by %s' % nm(src))
+        elif pin == 'NoiseTex':
+            require(isinstance(src, unreal.MaterialExpressionTextureObjectParameter) and str(src.get_editor_property('parameter_name')) == 'FogMS_Noise',
+                    'FogMS_CloudShadowHero.NoiseTex is fed by %s, wanted the FogMS_Noise texture object' % nm(src))
+        elif pin in ('UVW0', 'UVW1', 'UVW2'):
+            require(src == nodes['FogMS_CloudNoiseUVW' + pin[-1]], 'FogMS_CloudShadowHero.%s is fed by %s' % (pin, nm(src)))
+        else:
+            require((src, out) == el[pin], 'FogMS_CloudShadowHero.%s is %s.%s, FogMS_Extinction_v3.%s is %s.%s' % (
+                pin, nm(src), out, pin, nm(el[pin][0]), el[pin][1]))
     want(nodes['FogMS_CloudShadowConservative'], 'Hero', nodes['FogMS_CloudConservative'], '')
     want(nodes['FogMS_CloudShadowConservative'], 'Weather', nodes['FogMS_WeatherConservative'], '')
     cl = custom_links(material, nodes['FogMS_CloudConservative'])
@@ -753,7 +819,8 @@ def verify(material, extinction_code, lobe_code, g=None):
                  'FogMS_EmissiveInjection': EMISSIVE_CODE, 'FogMS_ForwardLobe': lobe_code, 'FogMS_CloudAlbedo': ALBEDO_CODE,
                  'FogMS_CloudSkyAO': SKY_AO_CODE, 'FogMS_CloudConservative': CONSERVATIVE_CODE, 'FogMS_CloudFootprint': FOOTPRINT_CODE,
                  'FogMS_WeatherExtinction': WEATHER_EXTINCTION_CODE, 'FogMS_WeatherConservative': WEATHER_CONSERVATIVE_CODE,
-                 'FogMS_CloudShadowSum': SHADOW_SUM_CODE, 'FogMS_CloudShadowConservative': SHADOW_CONSERVATIVE_CODE}
+                 'FogMS_CloudShadowSum': SHADOW_SUM_CODE, 'FogMS_CloudShadowConservative': SHADOW_CONSERVATIVE_CODE,
+                 'FogMS_CloudShadowHero': shadow_hero_code(extinction_code)}
         nodes = {}
         for desc, code in codes.items():
             node = by_description(material, desc)

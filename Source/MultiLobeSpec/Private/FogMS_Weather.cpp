@@ -35,9 +35,15 @@ namespace
 	const double FogMS_SunRedrawCos = FMath::Cos(FMath::DegreesToRadians(0.05));
 	/** Calibration draw of the RGBA write check (M_FogMS_WeatherCompose, P1.y = 1): the expected texel. */
 	const FLinearColor FogMS_CalibrationTexel(0.25f, 0.5f, 0.75f, 0.125f);
-	/** W48 FogMS.Weather.SetupShadows / the button: resolution x2 (1024 texels) and 4x shadow ray samples (16 x 4 = 64 through the layer). */
+	/** W48 FogMS.Weather.SetupShadows / the button: resolution x2 (1024 texels); shadow ray samples x1 for the Thin layer (the engine's 16
+	 * samples through the hero band are enough) and x4 for the Extended layer (16 x 4 = 64 through a layer up to the weather top). The
+	 * shadow pass costs in proportion to texels x samples (round 48: Extended at x4 under a 4 deg sun, 128 samples with the engine's
+	 * horizon boost: 10 ms with Overcast). */
 	constexpr float FogMS_WeatherShadowResolutionScale = 2.0f;
-	constexpr float FogMS_WeatherShadowRaySampleScale = 4.0f;
+	float FogMS_WeatherShadowRaySampleScale(const AFogMSWeather* Weather)
+	{
+		return Weather && Weather->ShadowLayer == EFogMSWeatherShadowLayer::Extended ? 4.0f : 1.0f;
+	}
 
 	template <typename T>
 	T* FogMS_LoadWeatherAsset(const TCHAR* Name)
@@ -132,16 +138,16 @@ namespace
 		}));
 
 	FAutoConsoleCommandWithWorldAndArgs FogMS_WeatherSetupShadowsCommand(TEXT("FogMS.Weather.SetupShadows"),
-		TEXT("FogMS.Weather.SetupShadows [ExtentKm, default: the actor's Shadow Extent Km (10)] [ResolutionScale, default 2] [RaySampleScale, default 4]: ")
-		TEXT("the atmosphere sun of this world gets Cast Cloud Shadows on, Cloud Shadow Extent, Cloud Shadow Map Resolution Scale and Cloud Shadow Ray ")
-		TEXT("Sample Count Scale for the FogMS Weather shadows (W48; 10 km x2 = 1024 texels of 19.5 m, 64 samples per shadow ray through the ")
-		TEXT("tall layer). One log line with the previous values, one undo step in the editor. Nothing is saved."),
+		TEXT("FogMS.Weather.SetupShadows [ExtentKm, default: the actor's Shadow Extent Km (10)] [ResolutionScale, default 2] [RaySampleScale, default ")
+		TEXT("1 with the actor's Thin layer, 4 with Extended]: the atmosphere sun of this world gets Cast Cloud Shadows on, Cloud Shadow Extent, Cloud ")
+		TEXT("Shadow Map Resolution Scale and Cloud Shadow Ray Sample Count Scale for the FogMS Weather shadows (W48; 10 km x2 = 1024 texels of ")
+		TEXT("19.5 m). One log line with the previous values, one undo step in the editor. Nothing is saved."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			const AFogMSWeather* Weather = FogMS_FindWeatherActor(World);
 			const float ExtentKm = Args.Num() > 0 ? FCString::Atof(*Args[0]) : (Weather ? Weather->ShadowExtentKm : 10.0f);
 			const float Scale = Args.Num() > 1 ? FCString::Atof(*Args[1]) : FogMS_WeatherShadowResolutionScale;
-			const float RayScale = Args.Num() > 2 ? FCString::Atof(*Args[2]) : FogMS_WeatherShadowRaySampleScale;
+			const float RayScale = Args.Num() > 2 ? FCString::Atof(*Args[2]) : FogMS_WeatherShadowRaySampleScale(Weather);
 			if (!(FMath::IsFinite(ExtentKm) && ExtentKm >= 1.0f && ExtentKm <= 10000.0f) || !(FMath::IsFinite(Scale) && Scale >= 0.25f && Scale <= 16.0f)
 				|| !(FMath::IsFinite(RayScale) && RayScale >= 0.25f && RayScale <= 16.0f))
 			{
@@ -297,7 +303,7 @@ void AFogMSWeather::SetupSunShadows()
 {
 	FString Message;
 	const bool bOk = UFogMSCloudHostSubsystem::SetupSunShadows(GetWorld(), FMath::Clamp(ShadowExtentKm, 1.0f, 200.0f), FogMS_WeatherShadowResolutionScale, Message,
-		FogMS_WeatherShadowRaySampleScale);
+		FogMS_WeatherShadowRaySampleScale(this));
 	if (bOk) UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather '%s' Setup Sun Shadows: %s"), *GetActorNameOrLabel(), *Message);
 	if (!bOk) UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS Weather '%s' Setup Sun Shadows: %s"), *GetActorNameOrLabel(), *Message);
 }

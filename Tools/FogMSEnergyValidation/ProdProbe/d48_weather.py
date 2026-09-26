@@ -531,17 +531,25 @@ def cost(owner):
                                "skip": s["cvars"]["r.VolumetricCloud.StepSizeOnZeroConservativeDensity"]}
         K["extended"] = profile3("extended")
         step(res, "cost", K)
+        # A larger empty-step skip for the extended layer (the plugin cvar; the Box's conservative margin follows it): does it pass the gate?
+        d.cmd("r.FogMS.Weather.SkipSteps 32"); time.sleep(SETTLE * 2)
+        s = state()
+        K["extended32_state"] = {"skip": s["cvars"]["r.VolumetricCloud.StepSizeOnZeroConservativeDensity"], "margin": (s.get("host") or {}).get("skip_margin")}
+        K["extended32"] = profile3("extended32")
+        d.cmd("r.FogMS.Weather.SkipSteps 8"); time.sleep(SETTLE)
+        step(res, "cost", K)
         set_layer("THIN"); time.sleep(SETTLE * 3)
         s = state()
         K["thin_state"] = {"host": s.get("host"), "status": (s.get("test") or {}).get("status", "")[:500],
                            "skip": s["cvars"]["r.VolumetricCloud.StepSizeOnZeroConservativeDensity"]}
         K["thin"] = profile3("thin")
-        n, e, t = K["none"]["median"], K["extended"]["median"], K["thin"]["median"]
+        n, e, t, e32 = K["none"]["median"], K["extended"]["median"], K["thin"]["median"], K["extended32"]["median"]
         K["delta_visible_extended_ms"] = round(e["cloud_trace"] - n["cloud_trace"], 3)
+        K["delta_visible_extended32_ms"] = round(e32["cloud_trace"] - n["cloud_trace"], 3)
         K["delta_visible_thin_ms"] = round(t["cloud_trace"] - n["cloud_trace"], 3)
-        K["shadow_ms"] = {"none": n["shadow"], "extended": e["shadow"], "thin": t["shadow"]}
+        K["shadow_ms"] = {"none": n["shadow"], "extended": e["shadow"], "extended32": e32["shadow"], "thin": t["shadow"]}
         K["gate_ms"] = GATE_MS
-        K["decision2"] = "extended" if K["delta_visible_extended_ms"] <= GATE_MS else "thin"
+        K["decision2"] = "extended" if min(K["delta_visible_extended_ms"], K["delta_visible_extended32_ms"]) <= GATE_MS else "thin"
         step(res, "cost", K)
     finally:
         delete_weather()
@@ -605,8 +613,9 @@ def summary():
     if "mae_clear_vs_none_a" in A:
         print("clear pair: MAE %.3f / %.3f, floor %.3f" % (A["mae_clear_vs_none_a"], A["mae_clear_vs_none_b"], A["floor_none_a_vs_b"]), flush=True)
     if "delta_visible_extended_ms" in K:
-        print("cost (owner camera, median of 3): visible trace none %.3f / extended %.3f / thin %.3f ms; shadow pass %s; decision 2 -> %s" % (
-            K["none"]["median"]["cloud_trace"], K["extended"]["median"]["cloud_trace"], K["thin"]["median"]["cloud_trace"],
+        print("cost (owner camera, median of 3): visible trace none %.3f / extended %.3f / extended skip 32 %s / thin %.3f ms; shadow pass %s; decision 2 -> %s" % (
+            K["none"]["median"]["cloud_trace"], K["extended"]["median"]["cloud_trace"],
+            (K.get("extended32") or {}).get("median", {}).get("cloud_trace"), K["thin"]["median"]["cloud_trace"],
             json.dumps(K["shadow_ms"]), K["decision2"]), flush=True)
 
 

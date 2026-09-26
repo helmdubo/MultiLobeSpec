@@ -22,12 +22,14 @@ enum class EFogMSWeatherPreset : uint8
 	Overcast = 4 UMETA(DisplayName="Overcast (OVC)", ToolTip="Stratus / stratocumulus sheet, coverage 1.0 (8 oktas), base 0.5 km, top 1.2 km, extinction 0.07 1/m; altostratus deck 0.80 at 2.0-3.5 km; wind 10 m/s. No direct sun on the ground.")
 };
 
-/** W48 decision 2 (FogMS_Weather_Design.md 7): how the weather reaches the engine's cloud shadow map through the cloud host. */
+/** W48 decision 2 (FogMS_Weather_Design.md 7): how the weather reaches the engine's cloud shadow map through the cloud host. Picked by the
+ * phase-2 gate (round 48, owner camera, Overcast): Extended cost +1.04 ms in the visible pass (gate 0.3 ms), Thin +0.14 ms -> Thin is the
+ * class default. */
 UENUM(BlueprintType)
 enum class EFogMSWeatherShadowLayer : uint8
 {
-	Extended = 0 UMETA(DisplayName="Extended Host Layer", ToolTip="Default. The cloud host's layer grows up to the weather top; the weather density is evaluated in the shadow pass at its true altitude: the ground, the fog, Lumen and the atmosphere (light shafts in the air under the clouds) all get the weather shadow. The visible pass still draws only the hero Boxes but traces a taller layer (empty steps skipped r.FogMS.Weather.SkipSteps at a time); gate: at most +0.3 ms."),
-	Thin = 1 UMETA(DisplayName="Thin Layer (fallback)", ToolTip="Fallback when the extended layer costs too much in the visible pass. The host layer stays at the hero Box band (without a Box: a 0.1 km band under the weather base); the whole weather column along the sun (RT_FogMS_WeatherSun) is spread over that band in the shadow pass. The ground below gets the right shadow; the air above the band (light shafts, fog higher up) and terrain above the band get none.")
+	Extended = 0 UMETA(DisplayName="Extended Host Layer", ToolTip="The cloud host's layer grows up to the weather top; the weather density is evaluated in the shadow pass at its true altitude: the ground, the fog, Lumen and the atmosphere (light shafts in the air under the clouds) all get the weather shadow. The visible pass still draws only the hero Boxes but traces a taller layer (empty steps skipped r.FogMS.Weather.SkipSteps at a time): round 48 measured +1.04 ms at the owner camera (gate 0.3 ms), so it is not the default."),
+	Thin = 1 UMETA(DisplayName="Thin Layer", ToolTip="Default since round 48 (the visible-pass gate). The host layer stays at the hero Box band (without a Box: a 0.1 km band under the weather base); the whole weather column along the sun (RT_FogMS_WeatherSun) is spread over that band in the shadow pass. The ground below gets the right shadow; the air above the band (light shafts, fog higher up) and terrain above the band get none. No visible-pass cost.")
 };
 
 /** The numbers of one weather state (physical scale; AFogMSWeather::WeatherScale scales them for a 'diorama'). */
@@ -154,8 +156,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather", meta=(ClampMin="0.0", UIMin="0.0", UIMax="120.0", Units="s", ToolTip="Transition time when Weather State is changed in the Details panel (0 = immediate)."))
 	float EditorTransitionSeconds = 0.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather", meta=(DisplayName="Shadow Layer", ToolTip="Owner decision 2: Extended Host Layer (default; the weather at its true altitude, all consumers incl. light shafts in the air) or Thin Layer (fallback when the extended layer costs more than 0.3 ms in the visible pass: the column is spread over the hero band)."))
-	EFogMSWeatherShadowLayer ShadowLayer = EFogMSWeatherShadowLayer::Extended;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather", meta=(DisplayName="Shadow Layer", ToolTip="Owner decision 2, picked by the round-48 gate: Thin Layer (default: no visible-pass cost; the weather column is spread over the hero band, the ground gets the right shadow, the air above the band none) or Extended Host Layer (the weather at its true altitude, all consumers incl. light shafts in the air; +1.04 ms in the visible pass at the owner camera, round 48)."))
+	EFogMSWeatherShadowLayer ShadowLayer = EFogMSWeatherShadowLayer::Thin;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather", meta=(ClampMin="0.01", ClampMax="10.0", UIMin="0.05", UIMax="2.0", ToolTip="Owner decision 4 (pending): 1 = physical scale (bases 0.5-2.5 km, extinction 0.02-0.1 1/m, domain 20 km). A 'diorama' value below 1 multiplies every length (altitudes, domain, detail tile, wind speed) by it and divides the extinction by it, so optical depths and shadow darkness stay the same (0.1: clouds at 100-250 m, a 2 km domain)."))
 	float WeatherScale = 1.0f;
@@ -178,9 +180,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather", meta=(ClampMin="1.0", ClampMax="200.0", Units="km", ToolTip="Cloud Shadow Extent the button / FogMS.Weather.SetupShadows gives the sun (the map's radius around the camera); the status warns when the sun's extent is smaller."))
 	float ShadowExtentKm = 10.0f;
 
-	/** Button: the sun's Cast Cloud Shadows on, Cloud Shadow Extent = Shadow Extent Km, resolution x2 (1024), 4x shadow ray samples; one
-	 * log line with the previous values, one undo step (UFogMSCloudHostSubsystem::SetupSunShadows). */
-	UFUNCTION(BlueprintCallable, CallInEditor, Category="FogMS Weather", meta=(DisplayName="Setup Sun Shadows", ToolTip="Sets the atmosphere sun up for the weather shadows: Cast Cloud Shadows on, Cloud Shadow Extent = Shadow Extent Km (10), Cloud Shadow Map Resolution Scale 2 (1024 texels: 19.5 m at 10 km), Cloud Shadow Ray Sample Count Scale 4 (64 samples through the tall layer). One log line with the previous values; Ctrl+Z undoes it. Nothing is saved."))
+	/** Button: the sun's Cast Cloud Shadows on, Cloud Shadow Extent = Shadow Extent Km, resolution x2 (1024), shadow ray samples x1 (Thin)
+	 * or x4 (Extended); one log line with the previous values, one undo step (UFogMSCloudHostSubsystem::SetupSunShadows). */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category="FogMS Weather", meta=(DisplayName="Setup Sun Shadows", ToolTip="Sets the atmosphere sun up for the weather shadows: Cast Cloud Shadows on, Cloud Shadow Extent = Shadow Extent Km (10), Cloud Shadow Map Resolution Scale 2 (1024 texels: 19.5 m at 10 km), Cloud Shadow Ray Sample Count Scale 1 with the Thin layer (the engine's 16 samples through the hero band) or 4 with the Extended layer (64 through the tall layer; the shadow pass costs in proportion). One log line with the previous values; Ctrl+Z undoes it. Nothing is saved."))
 	void SetupSunShadows();
 
 	/** Switches to NewState over Seconds (<= 0: immediate). One log line 'weather: A -> B (N s)'. */
