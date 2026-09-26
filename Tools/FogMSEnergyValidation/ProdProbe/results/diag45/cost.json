@@ -1,0 +1,94 @@
+{
+ "froxel_0": {
+  "frame_ms": 10.86,
+  "trace": 0.077,
+  "reconstruct": 0.028,
+  "compose": 0.034,
+  "cloud_shadow": 0,
+  "cloudview": 0.076,
+  "fog": 4.632,
+  "fogms": 1.01,
+  "events": 425,
+  "cloud_ms": 0.139
+ },
+ "froxel_1": {
+  "frame_ms": 10.75,
+  "trace": 0.073,
+  "reconstruct": 0.028,
+  "compose": 0.034,
+  "cloud_shadow": 0,
+  "cloudview": 0.073,
+  "fog": 4.596,
+  "fogms": 0.991,
+  "events": 421,
+  "cloud_ms": 0.135
+ },
+ "froxel_2": {
+  "frame_ms": 10.77,
+  "trace": 0.075,
+  "reconstruct": 0.029,
+  "compose": 0.034,
+  "cloud_shadow": 0,
+  "cloudview": 0.075,
+  "fog": 4.596,
+  "fogms": 1.006,
+  "events": 425,
+  "cloud_ms": 0.138
+ },
+ "host_0": {
+  "frame_ms": 10.47,
+  "trace": 0.3,
+  "reconstruct": 0.029,
+  "compose": 0.057,
+  "cloud_shadow": 0,
+  "cloudview": 0.3,
+  "fog": 4.598,
+  "fogms": 0.431,
+  "events": 417,
+  "cloud_ms": 0.386
+ },
+ "host_1": {
+  "frame_ms": 10.49,
+  "trace": 0.297,
+  "reconstruct": 0.028,
+  "compose": 0.056,
+  "cloud_shadow": 0,
+  "cloudview": 0.297,
+  "fog": 4.596,
+  "fogms": 0.43,
+  "events": 417,
+  "cloud_ms": 0.381
+ },
+ "host_2": {
+  "frame_ms": 10.51,
+  "trace": 0.297,
+  "reconstruct": 0.028,
+  "compose": 0.057,
+  "cloud_shadow": 0,
+  "cloudview": 0.296,
+  "fog": 4.604,
+  "fogms": 0.438,
+  "events": 417,
+  "cloud_ms": 0.382
+ },
+ "median": {
+  "froxel": {
+   "cloud_ms": 0.138,
+   "trace": 0.075,
+   "reconstruct": 0.028,
+   "compose": 0.034,
+   "fog": 4.596,
+   "fogms": 1.006,
+   "frame_ms": 10.77
+  },
+  "host": {
+   "cloud_ms": 0.382,
+   "trace": 0.297,
+   "reconstruct": 0.028,
+   "compose": 0.057,
+   "fog": 4.598,
+   "fogms": 0.431,
+   "frame_ms": 10.49
+  }
+ }
+}

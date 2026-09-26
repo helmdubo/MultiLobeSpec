@@ -1,0 +1,56 @@
+{
+ "note": "-game smoke (editor binaries, GIsEditor false, -d3d12 -sm6, no -BindlessAll), map /Game/FogMS_Test/FogMS_Box from disk; -ExecCmds EnableCheats, BugItGo <camera>, FogMS.CloudHost.Create. 45b owner camera; 45c camera 'base' (40 m under the cloud base) and ProfileGPU on frame 1; 45d = 45c + r.VolumetricCloud 0 (no cloud rendering at all: with the froxel copy off the Box disappears, so the cloud seen in 45c is the host). The game frames are overexposed (the editor viewport's exposure is not the game's).",
+ "runs": {
+  "Game45b": {
+   "lines": [
+    "LogCsvProfiler: Display: Metadata set : commandline=\"\" \"D:/PersonalProjects/UE5/MimirHead_portfolio 5.7 5.8 - 3/MimirHead_portfolio.uproject\" /Game/FogMS_Test/FogMS_Box -game -d3d12 -sm6 -windowed -ResX=1600 -ResY=900 -log -ExecCmds=\"EnableCheats,BugItGo -17704 -11948 965 12 44 0,FogMS.CloudHost.Create\" -abslog=E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_Prod_20260922\\Game45b.log\"\"",
+    "LogInit: Command Line: /Game/FogMS_Test/FogMS_Box -game -d3d12 -sm6 -windowed -ResX=1600 -ResY=900 -log -ExecCmds=\"EnableCheats,BugItGo -17704 -11948 965 12 44 0,FogMS.CloudHost.Create\" -abslog=E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_Prod_20260922\\Game45b.log",
+    "[2026.09.26-10.08.28:910][  0]LogMultiLobeSpec: Non-editor run: engine-shader overlay and MLS/FogMS console tools inactive; the FogMS Box injection-only runtime starts from the actor.",
+    "[2026.09.26-10.08.29:723][  0]LogMultiLobeSpec: Display: FogMS FogMSBoxVolume_0: Apply Required Render Settings (game BeginPlay, SetByGameSetting): r.RayTracing.Culling 3 -> 0 (previous SetByConstructor); r.Lumen.AsyncCompute 1 -> 0 (previous SetByConstructor);",
+    "[2026.09.26-10.08.29:724][  0]LogMultiLobeSpec: Display: FogMS Box: injection-only runtime (no BindlessAll): Transport + Emissive Injection via the Box Volume material; overlay features (A1d/A1e, shadow cache, ViewIntegration, SSFS sky disk, debug views) off.",
+    "[2026.09.26-10.08.30:688][  0]LogCheatManager: BugItGo to: X=-17704.000 Y=-11948.000 Z=965.000 P=12.000000 Y=44.000000 R=0.000000",
+    "[2026.09.26-10.08.30:693][  0]LogMultiLobeSpec: Warning: FogMS FogMS - Live Box: created cloud host 'FogMS Cloud Host' (MI_FogMS_Cloud; layer 0.075-0.175 km above the ground, trace 2.0 km from the camera, view samples x8, sun march 0.25 km). Only one Volumetric Cloud renders per scene: while this host is visible it displaces the sky cloud 'VolumetricCloud'. Nothing was saved: save the level to kee",
+    "[2026.09.26-10.08.30:694][  0]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host': material MI_FogMS_Cloud wrapped in MID_FogMS_CloudHost_0 for Box 'FogMS - Live Box'.",
+    "[2026.09.26-10.08.30:694][  0]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' renders Box 'FogMS - Live Box' (Render Path = Cloud Host); the Box's froxel copy is off (FogMS_FroxelWeight 0).",
+    "[2026.09.26-10.08.30:702][  1]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' takes the render over 1 other Volumetric Cloud(s), e.g. 'VolumetricCloud' (one cloud renders per scene).",
+    "[2026.09.26-10.08.30:702][  1]LogMultiLobeSpec: Display: FogMS cloud host step settings (SetByGameSetting, while a Box renders through a host): r.VolumetricCloud.DistanceToSampleMaxCount 15 -> 2; r.VolumetricCloud.SampleMinCount 2 -> 8."
+   ],
+   "ensures": 0,
+   "fatal": []
+  },
+  "Game45c": {
+   "lines": [
+    "LogCsvProfiler: Display: Metadata set : commandline=\"\" \"D:/PersonalProjects/UE5/MimirHead_portfolio 5.7 5.8 - 3/MimirHead_portfolio.uproject\" /Game/FogMS_Test/FogMS_Box -game -d3d12 -sm6 -windowed -ResX=1600 -ResY=900 -log -ExecCmds=\"EnableCheats,BugItGo -3000 2906 6000 35 0 0,FogMS.CloudHost.Create,r.ProfileGPU.ShowUI 0,ProfileGPU\" -abslog=E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_Prod_20260922\\",
+    "LogInit: Command Line: /Game/FogMS_Test/FogMS_Box -game -d3d12 -sm6 -windowed -ResX=1600 -ResY=900 -log -ExecCmds=\"EnableCheats,BugItGo -3000 2906 6000 35 0 0,FogMS.CloudHost.Create,r.ProfileGPU.ShowUI 0,ProfileGPU\" -abslog=E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_Prod_20260922\\Game45c.log",
+    "[2026.09.26-10.10.31:174][  0]LogMultiLobeSpec: Non-editor run: engine-shader overlay and MLS/FogMS console tools inactive; the FogMS Box injection-only runtime starts from the actor.",
+    "[2026.09.26-10.10.31:944][  0]LogMultiLobeSpec: Display: FogMS FogMSBoxVolume_0: Apply Required Render Settings (game BeginPlay, SetByGameSetting): r.RayTracing.Culling 3 -> 0 (previous SetByConstructor); r.Lumen.AsyncCompute 1 -> 0 (previous SetByConstructor);",
+    "[2026.09.26-10.10.31:944][  0]LogMultiLobeSpec: Display: FogMS Box: injection-only runtime (no BindlessAll): Transport + Emissive Injection via the Box Volume material; overlay features (A1d/A1e, shadow cache, ViewIntegration, SSFS sky disk, debug views) off.",
+    "[2026.09.26-10.10.32:870][  0]LogCheatManager: BugItGo to: X=-3000.000 Y=2906.000 Z=6000.000 P=35.000000 Y=0.000000 R=0.000000",
+    "[2026.09.26-10.10.32:875][  0]LogMultiLobeSpec: Warning: FogMS FogMS - Live Box: created cloud host 'FogMS Cloud Host' (MI_FogMS_Cloud; layer 0.075-0.175 km above the ground, trace 2.0 km from the camera, view samples x8, sun march 0.25 km). Only one Volumetric Cloud renders per scene: while this host is visible it displaces the sky cloud 'VolumetricCloud'. Nothing was saved: save the level to kee",
+    "[2026.09.26-10.10.32:875][  0]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host': material MI_FogMS_Cloud wrapped in MID_FogMS_CloudHost_0 for Box 'FogMS - Live Box'.",
+    "[2026.09.26-10.10.32:875][  0]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' renders Box 'FogMS - Live Box' (Render Path = Cloud Host); the Box's froxel copy is off (FogMS_FroxelWeight 0).",
+    "[2026.09.26-10.10.32:882][  1]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' takes the render over 1 other Volumetric Cloud(s), e.g. 'VolumetricCloud' (one cloud renders per scene).",
+    "[2026.09.26-10.10.32:882][  1]LogMultiLobeSpec: Display: FogMS cloud host step settings (SetByGameSetting, while a Box renders through a host): r.VolumetricCloud.DistanceToSampleMaxCount 15 -> 2; r.VolumetricCloud.SampleMinCount 2 -> 8."
+   ],
+   "ensures": 0,
+   "fatal": []
+  },
+  "Game45d": {
+   "lines": [
+    "LogCsvProfiler: Display: Metadata set : commandline=\"\" \"D:/PersonalProjects/UE5/MimirHead_portfolio 5.7 5.8 - 3/MimirHead_portfolio.uproject\" /Game/FogMS_Test/FogMS_Box -game -d3d12 -sm6 -windowed -ResX=1600 -ResY=900 -log -ExecCmds=\"EnableCheats,BugItGo -3000 2906 6000 35 0 0,FogMS.CloudHost.Create,r.VolumetricCloud 0\" -abslog=E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_Prod_20260922\\Game45d.log\"\"",
+    "LogInit: Command Line: /Game/FogMS_Test/FogMS_Box -game -d3d12 -sm6 -windowed -ResX=1600 -ResY=900 -log -ExecCmds=\"EnableCheats,BugItGo -3000 2906 6000 35 0 0,FogMS.CloudHost.Create,r.VolumetricCloud 0\" -abslog=E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_Prod_20260922\\Game45d.log",
+    "[2026.09.26-10.13.01:005][  0]LogMultiLobeSpec: Non-editor run: engine-shader overlay and MLS/FogMS console tools inactive; the FogMS Box injection-only runtime starts from the actor.",
+    "[2026.09.26-10.13.01:794][  0]LogMultiLobeSpec: Display: FogMS FogMSBoxVolume_0: Apply Required Render Settings (game BeginPlay, SetByGameSetting): r.RayTracing.Culling 3 -> 0 (previous SetByConstructor); r.Lumen.AsyncCompute 1 -> 0 (previous SetByConstructor);",
+    "[2026.09.26-10.13.01:794][  0]LogMultiLobeSpec: Display: FogMS Box: injection-only runtime (no BindlessAll): Transport + Emissive Injection via the Box Volume material; overlay features (A1d/A1e, shadow cache, ViewIntegration, SSFS sky disk, debug views) off.",
+    "[2026.09.26-10.13.02:714][  0]LogCheatManager: BugItGo to: X=-3000.000 Y=2906.000 Z=6000.000 P=35.000000 Y=0.000000 R=0.000000",
+    "[2026.09.26-10.13.02:721][  0]LogMultiLobeSpec: Warning: FogMS FogMS - Live Box: created cloud host 'FogMS Cloud Host' (MI_FogMS_Cloud; layer 0.075-0.175 km above the ground, trace 2.0 km from the camera, view samples x8, sun march 0.25 km). Only one Volumetric Cloud renders per scene: while this host is visible it displaces the sky cloud 'VolumetricCloud'. Nothing was saved: save the level to kee",
+    "[2026.09.26-10.13.02:721][  0]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host': material MI_FogMS_Cloud wrapped in MID_FogMS_CloudHost_0 for Box 'FogMS - Live Box'.",
+    "[2026.09.26-10.13.02:721][  0]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' renders Box 'FogMS - Live Box' (Render Path = Cloud Host); the Box's froxel copy is off (FogMS_FroxelWeight 0).",
+    "[2026.09.26-10.13.02:730][  1]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' takes the render over 1 other Volumetric Cloud(s), e.g. 'VolumetricCloud' (one cloud renders per scene).",
+    "[2026.09.26-10.13.02:730][  1]LogMultiLobeSpec: Display: FogMS cloud host step settings (SetByGameSetting, while a Box renders through a host): r.VolumetricCloud.DistanceToSampleMaxCount 15 -> 2; r.VolumetricCloud.SampleMinCount 2 -> 8."
+   ],
+   "ensures": 0,
+   "fatal": []
+  }
+ }
+}

@@ -1,0 +1,288 @@
+{
+ "views": {
+  "owner": [
+   [
+    -17704.739109482714,
+    -11948.428268045525,
+    964.9063843147574
+   ],
+   [
+    11.999996975063766,
+    44.13854925998053,
+    5.255333192341445e-07
+   ]
+  ],
+  "against": [
+   [
+    -17903.911966524316,
+    1048.5995868021967,
+    3000.0
+   ],
+   [
+    4.0,
+    5.922832031547829,
+    0.0
+   ]
+  ],
+  "front": [
+   [
+    17903.911966524316,
+    4763.400413197801,
+    3500.0
+   ],
+   [
+    -2.0,
+    -174.0771679684522,
+    0.0
+   ]
+  ]
+ },
+ "sun": [
+  175.92283203154784,
+  38.823374005690674
+ ],
+ "cap": {
+  "boxoff|owner": {
+   "flicker": 0.242,
+   "status": "Off (Box hidden)"
+  },
+  "froxel|owner": {
+   "flicker": 0.26,
+   "status": "injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]"
+  },
+  "froxel_dl|owner": {
+   "flicker": 0.265,
+   "status": "6; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]"
+  },
+  "host|owner": {
+   "flicker": 0.249,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "host_rep|owner": {
+   "flicker": 0.246,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "host_dl|owner": {
+   "flicker": 0.254,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "host_black|owner": {
+   "flicker": 0.196,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "boxoff|against": {
+   "flicker": 0.241,
+   "status": "Off (Box hidden)"
+  },
+  "froxel|against": {
+   "flicker": 0.229,
+   "status": "injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]"
+  },
+  "froxel_dl|against": {
+   "flicker": 0.248,
+   "status": "injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]"
+  },
+  "host|against": {
+   "flicker": 0.227,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "host_rep|against": {
+   "flicker": 0.226,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "host_dl|against": {
+   "flicker": 0.244,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "host_black|against": {
+   "flicker": 0.189,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "boxoff|front": {
+   "flicker": 0.236,
+   "status": "Off (Box hidden)"
+  },
+  "froxel|front": {
+   "flicker": 0.242,
+   "status": "injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]"
+  },
+  "froxel_dl|front": {
+   "flicker": 0.274,
+   "status": "6; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]"
+  },
+  "host|front": {
+   "flicker": 0.256,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "host_rep|front": {
+   "flicker": 0.257,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "host_dl|front": {
+   "flicker": 0.268,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  },
+  "host_black|front": {
+   "flicker": 0.218,
+   "status": "cs) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.4, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km]"
+  }
+ },
+ "metrics": {
+  "owner": {
+   "roi_frac": 0.421,
+   "iou_roi": 0.976,
+   "mean_froxel": 167.32,
+   "mean_host": 173.33,
+   "mean_froxel_dl": 183.9,
+   "mean_host_dl": 174.13,
+   "ratio_lit": 1.036,
+   "ratio_dl": 0.947,
+   "rim_core": {
+    "froxel": {
+     "lit": 0.862,
+     "own": 0.404,
+     "px": [
+      61672,
+      142794
+     ]
+    },
+    "host": {
+     "lit": 0.898,
+     "own": 0.448,
+     "px": [
+      61672,
+      142794
+     ]
+    },
+    "froxel_dl": {
+     "lit": 0.791,
+     "own": 0.392,
+     "px": [
+      61672,
+      142794
+     ]
+    },
+    "host_dl": {
+     "lit": 0.867,
+     "own": 0.428,
+     "px": [
+      61672,
+      142794
+     ]
+    }
+   },
+   "flicker": {
+    "froxel": 0.26,
+    "host": 0.249,
+    "host_rep": 0.246,
+    "host_dl": 0.254,
+    "froxel_dl": 0.265
+   },
+   "host_floor_roi_mae": 0.248
+  },
+  "against": {
+   "roi_frac": 0.498,
+   "iou_roi": 0.969,
+   "mean_froxel": 118.69,
+   "mean_host": 124.84,
+   "mean_froxel_dl": 148.94,
+   "mean_host_dl": 144.17,
+   "ratio_lit": 1.052,
+   "ratio_dl": 0.968,
+   "rim_core": {
+    "froxel": {
+     "lit": 0.774,
+     "own": 0.266,
+     "px": [
+      62351,
+      135583
+     ]
+    },
+    "host": {
+     "lit": 0.83,
+     "own": 0.335,
+     "px": [
+      62351,
+      135583
+     ]
+    },
+    "froxel_dl": {
+     "lit": 0.811,
+     "own": 0.375,
+     "px": [
+      62351,
+      135583
+     ]
+    },
+    "host_dl": {
+     "lit": 0.907,
+     "own": 0.431,
+     "px": [
+      62351,
+      135583
+     ]
+    }
+   },
+   "flicker": {
+    "froxel": 0.229,
+    "host": 0.227,
+    "host_rep": 0.226,
+    "host_dl": 0.244,
+    "froxel_dl": 0.248
+   },
+   "host_floor_roi_mae": 0.219
+  },
+  "front": {
+   "roi_frac": 0.255,
+   "iou_roi": 0.94,
+   "mean_froxel": 150.45,
+   "mean_host": 143.01,
+   "mean_froxel_dl": 183.3,
+   "mean_host_dl": 167.87,
+   "ratio_lit": 0.951,
+   "ratio_dl": 0.916,
+   "rim_core": {
+    "froxel": {
+     "lit": 0.712,
+     "own": 0.198,
+     "px": [
+      38455,
+      101186
+     ]
+    },
+    "host": {
+     "lit": 0.684,
+     "own": 0.15,
+     "px": [
+      38455,
+      101186
+     ]
+    },
+    "froxel_dl": {
+     "lit": 0.843,
+     "own": 0.395,
+     "px": [
+      38455,
+      101186
+     ]
+    },
+    "host_dl": {
+     "lit": 0.901,
+     "own": 0.399,
+     "px": [
+      38455,
+      101186
+     ]
+    }
+   },
+   "flicker": {
+    "froxel": 0.242,
+    "host": 0.256,
+    "host_rep": 0.257,
+    "host_dl": 0.268,
+    "froxel_dl": 0.274
+   },
+   "host_floor_roi_mae": 0.181
+  }
+ }
+}
