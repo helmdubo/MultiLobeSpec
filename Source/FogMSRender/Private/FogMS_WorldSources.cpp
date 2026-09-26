@@ -4,6 +4,8 @@
 #include "HAL/IConsoleManager.h"
 #include "LightSceneInfo.h"
 #include "LightSceneProxy.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialInterface.h"
 #include "PooledRenderTarget.h"
 #include "ReadOnlyCVARCache.h"
 #include "RenderGraphBuilder.h"
@@ -14,11 +16,15 @@
 #include "SceneManagement.h"
 // Renderer/Private, P11 light list only (the sky sources are public): ScenePrivate.h for FScene (the static_cast of
 // View.Family->Scene, FScene::Lights, FScene::AtmosphereLights, FScene::VolumetricCloud); LightSceneInfo.h (above) for
-// FLightSceneInfoCompact::LightSceneInfo and FLightSceneInfo::bVisible / ::Proxy.
+// FLightSceneInfoCompact::LightSceneInfo and FLightSceneInfo::bVisible / ::Proxy. W47: VolumetricCloudRendering.h for
+// FVolumetricCloudRenderSceneInfo::GetVolumetricCloudSceneProxy() (inline; the proxy class itself is public Engine,
+// VolumetricCloudProxy.h), only to tell a FogMS cloud host from a foreign cloud for the status note below.
 #include "ScenePrivate.h"
 #include "SceneView.h"
 #include "SystemTextures.h"
 #include "TextureResource.h"
+#include "VolumetricCloudProxy.h"
+#include "VolumetricCloudRendering.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogFogMSWorldSources, Log, All);
 
@@ -57,6 +63,21 @@ namespace
 	bool Nonnegative(const FVector3f& Value)
 	{
 		return Finite(Value) && Value.X >= 0 && Value.Y >= 0 && Value.Z >= 0;
+	}
+
+	// W47: the scene's rendering Volumetric Cloud (FScene renders only FScene::VolumetricCloud, the last one added) is a FogMS
+	// cloud host when its material's base material is /MultiLobeSpec/FogMS/M_FogMS_Cloud: the rule of the game-thread host scan
+	// (UFogMSCloudHostSubsystem::Scan, FogMS_CloudHost.cpp). Render thread: the proxy keeps the component's material pointer
+	// (the component keeps the object alive); GetMaterial_Concurrent is the engine's any-thread parent walk. OutMaterial = the
+	// cloud material's name for the status note.
+	bool CloudIsFogMSHost(const FScene& Scene, FString& OutMaterial)
+	{
+		const FVolumetricCloudRenderSceneInfo* const Cloud = Scene.VolumetricCloud;
+		const UMaterialInterface* const Material = Cloud ? Cloud->GetVolumetricCloudSceneProxy().GetCloudVolumeMaterial() : nullptr;
+		const UMaterial* const Base = Material ? Material->GetMaterial_Concurrent() : nullptr;
+		OutMaterial = Material ? Material->GetName() : FString(TEXT("none"));
+		static const FName HostMaterialName(TEXT("M_FogMS_Cloud"));
+		return Base && Base->GetFName() == HostMaterialName;
 	}
 
 	// Sky parameters of "no sky": black cube dummy, zero intensity, source none; cone/LUT/SH state inert.
@@ -270,6 +291,7 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	const FLightSceneInfo* const AtmosphereSun = Scene.AtmosphereLights[0];
 	FVector3f SunDirection = FVector3f::ZeroVector;
 	bool bSunIsAtmosphereLight = false;
+	FString CloudShadowNote; // W47: status note for a foreign cloud's shadows (appended to OutSkySource below)
 	for (const FLightSceneInfoCompact& Compact : Scene.Lights)
 	{
 		const FLightSceneInfo* Info = Compact.LightSceneInfo;
@@ -320,8 +342,42 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FSceneView& View,
 		if (Proxy.HasStaticLighting()) return Reject(TEXT("baked-static source requires a separate lightmap provider"));
 		if (Proxy.GetIESTexture()) return Reject(TEXT("IES profile is not supported"));
 		if (Show.LightFunctions && Proxy.GetLightFunctionMaterial()) return Reject(TEXT("light function is not supported"));
-		if (bDirectional && Scene.VolumetricCloud && Show.Atmosphere && Show.Cloud && Proxy.GetCastCloudShadows())
-			return Reject(TEXT("native volumetric-cloud shadow visibility is not bound"));
+		// W47 (P4 part 1; FogMS_Weather_Design.md 3.10, 4.1): a sun with Cast Cloud Shadows is accepted; it used to fail the whole
+		// Box. Each transmittance is applied once per light path, so nothing is counted twice:
+		//  - this light's colour (above) is GetSunIlluminanceOnGroundPostTransmittance() = outer-space illuminance x the atmosphere's
+		//    transmittance at ground level, a CPU value per light (PrepareSunLightProxy, SkyAtmosphereRendering.cpp:584-594); the
+		//    engine's cloud shadow map (Beer shadow map, BSM) is never part of it. The BSM is applied per pixel only by its consumers
+		//    (deferred lights, DeferredLightPixelShaders.usf:187-204; Volumetric Fog, VolumetricFog.usf:969-974; Lumen scene lighting,
+		//    translucency, SkyAtmosphere). The solver binds no BSM;
+		//  - transport pass 2 attenuates this sun per cell by T_sun = RT visibility (the TLAS: opaque geometry only, a Volumetric
+		//    Cloud is not in it) x the transmittance of the Box's OWN medium. For a Box the FogMS cloud host renders, the host's BSM
+		//    holds exactly that medium: the solver applies it once (T_sun) to the Box's cells, the engine applies the BSM to the other
+		//    receivers (ground, height fog and froxel media, Lumen scene, atmosphere) and not to the host itself (M_FogMS_Cloud
+		//    ray-marches its own sun shadow per step, bRayMarchVolumeShadow: VolumetricCloud.usf:1069 reads the BSM only without it);
+		//  - light paths that now see the Box's shadow are separate paths and correct: with Lumen Bounce Auto the ground under the
+		//    Box is darker in the Lumen surface cache (less bounce into the field); with Cloud Shadow On Atmosphere > 0 the Sky View
+		//    LUT (the sky source with Real Time Capture) holds the shadowed air (SkyAtmosphere.usf:739-742; tiny for a Box). Lumen
+		//    Bounce Off shades the ground with the Box medium itself (r.FogMS.World.FallbackMedium), no BSM: the field is the same
+		//    with and without the flag (round 47 check, frozen sky).
+		// A cloud that is not a FogMS host (the engine's sky clouds) casts shadows this solver does not see: the Box keeps working and
+		// the status says so. A host that renders another Box (one Box per host) is reported by that host status ('busy').
+		if (bDirectional && Proxy.IsUsedAsAtmosphereSunLight() && Proxy.GetCastCloudShadows() && Proxy.GetCloudShadowStrength() > 0
+			&& Scene.VolumetricCloud && Show.Atmosphere && Show.Cloud && CloudShadowNote.IsEmpty())
+		{
+			FString CloudMaterial;
+			if (!CloudIsFogMSHost(Scene, CloudMaterial))
+			{
+				CloudShadowNote = FString::Printf(TEXT(" [sun cloud shadows: Volumetric Cloud '%s' is not a FogMS cloud host: its shadow darkens the ground and the fog, not this Box's solver field]"),
+					*CloudMaterial);
+				static FString LoggedMaterial; // render thread only: one line per foreign cloud material
+				if (LoggedMaterial != CloudMaterial)
+				{
+					LoggedMaterial = CloudMaterial;
+					UE_LOG(LogFogMSWorldSources, Warning, TEXT("FogMS: the sun '%s' casts cloud shadows of Volumetric Cloud material '%s', which is not a FogMS cloud host: the FogMS solver does not see those shadows (its sun is shadowed by the Box's own medium only). The Box keeps working."),
+						*Proxy.GetOwnerNameOrLabel(), *CloudMaterial);
+				}
+			}
+		}
 		if (OutParameters.FogMSWorldNumLights >= MaxWorldLights)
 			return Reject(TEXT("more than 256 relevant lights; source is not truncated"));
 
@@ -348,6 +404,8 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	}
 	if (Rows.IsEmpty()) Rows.Add(FVector4f(0, 0, 0, 0));
 	OutParameters.FogMSWorldLights = GraphBuilder.CreateSRV(CreateStructuredBuffer(GraphBuilder, TEXT("FogMS.WorldLights"), Rows));
+	// The Box status shows OutSkySource as ' [sky: ...]'; the foreign-cloud note rides along (like the sky-light count note).
+	OutSkySource += CloudShadowNote;
 
 	OutParameters.FogMSWorldSunDirection = SunDirection;
 	OutParameters.FogMSWorldSunExcludeCos = 2.0f;

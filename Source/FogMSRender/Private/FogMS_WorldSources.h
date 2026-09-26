@@ -61,11 +61,13 @@ END_SHADER_PARAMETER_STRUCT()
 // Apply it only to escaped sky rays, not surface GI.
 // Caller owns all geometry and medium visibility. Shadows use one central ray:
 // source-radius / source-angle penumbrae are not reproduced by this interface.
-// Rect / IES / light-function / baked-static / native cloud-shadow sources
-// intersecting this Box fail explicitly. Camera MaxDrawDistance fading and
-// screen-froxel LightSoftFading are intentionally not applied to this world grid.
+// Rect / IES / light-function / baked-static sources intersecting this Box fail explicitly. A sun with Cast Cloud
+// Shadows is accepted since W47: the engine's cloud shadow map is not bound (the solver shadows the sun with the Box's
+// own medium, which is what a FogMS cloud host puts into that map); a foreign cloud only adds a status note.
+// Camera MaxDrawDistance fading and screen-froxel LightSoftFading are intentionally not applied to this world grid.
 // View: FSceneView of the PostTLASBuild callback; the caller's shader must bind that view's View uniform buffer.
-// Sky: game-thread snapshot (FFogMSWorldRequest::Sky) for the public sky sources; OutSkySource names the bound one.
+// Sky: game-thread snapshot (FFogMSWorldRequest::Sky) for the public sky sources; OutSkySource names the bound one
+// (plus status notes: several sky lights, W47 shadows of a foreign Volumetric Cloud).
 bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FSceneView& View,
 	FVector BoxCenterWS, FVector3f BoxExtent, const FFogMSWorldSky& Sky,
 	FFogMSWorldSourcesParameters& OutParameters, FString& OutSkySource, FString& Error);

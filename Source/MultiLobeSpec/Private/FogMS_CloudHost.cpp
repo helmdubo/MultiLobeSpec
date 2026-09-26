@@ -2,8 +2,10 @@
 #include "FogMS_BoxVolume.h"
 
 #include "Components/ActorComponent.h"
+#include "Components/DirectionalLightComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/VolumetricCloudComponent.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
@@ -73,6 +75,17 @@ namespace
 		TEXT("r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection while a Box renders through a cloud host: clouds nearer than this ")
 		TEXT("(km) use no history. Default 4 (the host draws within 2 km: no history). Acts only in modes 0 and 2. Negative = leave it alone."),
 		ECVF_Default);
+	// W47 cloud shadow map (FogMS_CloudHost.h class comment; FogMS_Weather_Design.md 4.1).
+	TAutoConsoleVariable<int32> CVarCloudHostShadowFilter(TEXT("r.FogMS.CloudHost.ShadowSpatialFiltering"), 2,
+		TEXT("W47: r.VolumetricCloud.ShadowMap.SpatialFiltering (blur iterations of the engine's cloud shadow map, at most 4; engine default 1) ")
+		TEXT("while a Box renders through a cloud host and the atmosphere sun casts cloud shadows: the soft edge of the Box's shadow on the ground ")
+		TEXT("and in the fog. Default 2. Negative = leave the engine cvar alone."), ECVF_Default);
+	TAutoConsoleVariable<float> CVarCloudHostShadowSnapFraction(TEXT("r.FogMS.CloudHost.ShadowSnapFraction"), 0.25f,
+		TEXT("W47: while a Box renders through a cloud host and the atmosphere sun casts cloud shadows, r.VolumetricCloud.ShadowMap.SnapLength = ")
+		TEXT("this x the sun's Cloud Shadow Extent (km, at most the engine's 20 km) and r.VolumetricCloud.ShadowMap.SnapToPixelGrid 1 (no shimmer ")
+		TEXT("with a small snap). The engine centres the shadow map on the camera in steps of the snap length: with its 20 km and a 5 km extent the ")
+		TEXT("camera could be off the map (no shadow near it). Default 0.25 (5 km -> 1.25 km, a whole number of texels at 512 / 1024 / 2048). ")
+		TEXT("0 or negative = leave both engine cvars alone."), ECVF_Default);
 
 	// P1 host settings (round 39, FogMS_Prod_Report.md 'Раунд 39'): trace 2 km from the camera, view samples x8 (768), sun march 0.25 km
 	// with 32 samples, stop at transmittance 0.005, layer = the Box's density band +-10 m (at least 0.1 km).
@@ -90,11 +103,22 @@ namespace
 	constexpr double FogMS_LayerToleranceCm = 50.0;
 	/** The engine's r.VolumetricCloud.ViewRaySampleMaxCount default (VolumetricCloudRendering.cpp). */
 	constexpr float FogMS_EngineViewRaySampleMaxCount = 768.0f;
+	/** W47: the engine's r.VolumetricCloud.ShadowMap.SnapLength default [km] (VolumetricCloudRendering.cpp), the cap of the plugin's
+	 * snap; the base cloud shadow map resolution (512 x the sun's Cloud Shadow Map Resolution Scale) and the default of
+	 * r.VolumetricCloud.ShadowMap.MaxResolution (GetVolumetricCloudShadowMapResolution). */
+	constexpr float FogMS_EngineShadowSnapKm = 20.0f;
+	constexpr float FogMS_ShadowMapBaseResolution = 512.0f;
+	constexpr int32 FogMS_EngineShadowMapMaxResolution = 2048;
+	/** W47 FogMS.CloudHost.SetupShadows defaults: a 10 km map (radius 5 km) of 1024 texels = 9.8 m per texel, enough for a Box of a
+	 * few hundred metres within the host's 2 km trace (FogMS_Weather_Design.md 6, W47). */
+	constexpr float FogMS_SetupShadowExtentKm = 5.0f;
+	constexpr float FogMS_SetupShadowResolutionScale = 2.0f;
 
-	/** W46: the engine cvars ApplyHostSettings manages, in UFogMSCloudHostSubsystem::Managed order. */
+	/** W46: the engine cvars ApplyHostSettings manages, in UFogMSCloudHostSubsystem::Managed order (W47: + the cloud shadow map). */
 	enum EFogMSManagedCVar : int32
 	{
-		FogMS_MDistance, FogMS_MSampleMin, FogMS_MSampleMax, FogMS_MMode, FogMS_MUpsampling, FogMS_MBoxConstraint, FogMS_MMinKm, FogMS_MCount
+		FogMS_MDistance, FogMS_MSampleMin, FogMS_MSampleMax, FogMS_MMode, FogMS_MUpsampling, FogMS_MBoxConstraint, FogMS_MMinKm,
+		FogMS_MShadowFilter, FogMS_MShadowSnap, FogMS_MShadowSnapToPixel, FogMS_MCount
 	};
 	static_assert(FogMS_MCount == UFogMSCloudHostSubsystem::ManagedCount, "FogMS_ManagedCVarNames and UFogMSCloudHostSubsystem::ManagedCount differ");
 	const TCHAR* const FogMS_ManagedCVarNames[FogMS_MCount] =
@@ -106,6 +130,9 @@ namespace
 		TEXT("r.VolumetricRenderTarget.UpsamplingMode"),
 		TEXT("r.VolumetricRenderTarget.ReprojectionBoxConstraint"),
 		TEXT("r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection"),
+		TEXT("r.VolumetricCloud.ShadowMap.SpatialFiltering"),
+		TEXT("r.VolumetricCloud.ShadowMap.SnapLength"),
+		TEXT("r.VolumetricCloud.ShadowMap.SnapToPixelGrid"),
 	};
 
 	/** Cached lookups (FindConsoleObject warns about frequent calls; these engine cvars exist from the renderer's start on). */
@@ -233,7 +260,65 @@ namespace
 		const float DistanceKm = Distance ? FMath::Max(Distance->GetFloat(), 0.01f) : 15.0f;
 		return FMath::Max(DistanceKm, Host.TracingMaxDistance) * 1.0e5f / Samples;
 	}
+
+	/** W47: the engine's cloud shadow map resolution for a sun (GetVolumetricCloudShadowMapResolution, VolumetricCloudRendering.cpp):
+	 * 512 x Cloud Shadow Map Resolution Scale, at most r.VolumetricCloud.ShadowMap.MaxResolution. */
+	int32 FogMS_ShadowMapResolution(float ResolutionScale)
+	{
+		static IConsoleVariable* const MaxResolution = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricCloud.ShadowMap.MaxResolution"), false);
+		const int32 Cap = MaxResolution ? MaxResolution->GetInt() : FogMS_EngineShadowMapMaxResolution;
+		return FMath::Max(1, FMath::Min(static_cast<int32>(FogMS_ShadowMapBaseResolution * ResolutionScale), Cap));
+	}
+
+	/** W47: one cloud shadow map texel [m]. The map is an orthographic projection of 2 x Cloud Shadow Extent (the extent is a radius
+	 * in km) around the camera over its resolution (VolumetricCloudRendering.cpp, SphereDiameter). */
+	double FogMS_ShadowTexelM(float ExtentKm, int32 Resolution)
+	{
+		return 2.0 * static_cast<double>(ExtentKm) * 1000.0 / static_cast<double>(FMath::Max(Resolution, 1));
+	}
+
+	FString FogMS_LightLabel(const UDirectionalLightComponent* Light)
+	{
+		if (!Light) return FString(TEXT("?"));
+		return Light->GetOwner() ? Light->GetOwner()->GetActorNameOrLabel() : Light->GetName();
+	}
+
+	/** W47: the sun builds a cloud shadow map (VolumetricCloudRendering.cpp ShouldRenderCloudShadowmap; r.VolumetricCloud.ShadowMap is
+	 * checked by the status only). */
+	bool FogMS_SunCastsCloudShadows(const UDirectionalLightComponent* Sun)
+	{
+		return Sun && Sun->bCastCloudShadows && Sun->CloudShadowStrength > 0.0f;
+	}
 }
+
+// W47: FogMS.CloudHost.SetupShadows (FogMS_CloudHost.h class comment).
+static FAutoConsoleCommandWithWorldAndArgs GFogMSCloudHostSetupShadowsCommand(TEXT("FogMS.CloudHost.SetupShadows"),
+	TEXT("FogMS.CloudHost.SetupShadows [ExtentKm, default 5] [ResolutionScale, default 2]: sets the atmosphere sun of this world up for the soft ")
+	TEXT("ground shadow of the Boxes a cloud host renders (W47): Cast Cloud Shadows on, Cloud Shadow Extent = ExtentKm (the radius of the cloud ")
+	TEXT("shadow map around the camera), Cloud Shadow Map Resolution Scale = ResolutionScale (512 x scale texels, at most ")
+	TEXT("r.VolumetricCloud.ShadowMap.MaxResolution); texel = 2 x extent / resolution (5 km, x2: 9.8 m). One log line with the previous ")
+	TEXT("values; one undo step in the editor. Nothing is saved: save the level to keep it."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+	{
+		const float ExtentKm = Args.Num() > 0 ? FCString::Atof(*Args[0]) : FogMS_SetupShadowExtentKm;
+		const float Scale = Args.Num() > 1 ? FCString::Atof(*Args[1]) : FogMS_SetupShadowResolutionScale;
+		// The Details ranges of the two sun properties (ClampMin 1 km / 0.25), with generous upper bounds.
+		if (!(FMath::IsFinite(ExtentKm) && ExtentKm >= 1.0f && ExtentKm <= 10000.0f) || !(FMath::IsFinite(Scale) && Scale >= 0.25f && Scale <= 16.0f))
+		{
+			UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS.CloudHost.SetupShadows: extent %g km / resolution scale %g out of range (extent 1..10000 km, scale 0.25..16): nothing changed."),
+				ExtentKm, Scale);
+			return;
+		}
+		FString Message;
+		if (UFogMSCloudHostSubsystem::SetupSunShadows(World, ExtentKm, Scale, Message))
+		{
+			UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS.CloudHost.SetupShadows: %s"), *Message);
+		}
+		else
+		{
+			UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS.CloudHost.SetupShadows: %s"), *Message);
+		}
+	}));
 
 UMaterial* UFogMSCloudHostSubsystem::GetCloudHostMaterial()
 {
@@ -306,6 +391,105 @@ void UFogMSCloudHostSubsystem::Scan()
 	};
 	ScanHosts.Sort(ByPath);
 	ScanOthers.Sort(ByPath);
+	ScanSun = FindAtmosphereSun(World);
+}
+
+UDirectionalLightComponent* UFogMSCloudHostSubsystem::FindAtmosphereSun(const UWorld* World, int32* OutCount)
+{
+	// The renderer's rule (FScene::AddLightSceneInfo_RenderThread): among the lights used as atmosphere sun 0, the brightest.
+	UDirectionalLightComponent* Best = nullptr;
+	float BestLuminance = 0.0f;
+	int32 Count = 0;
+	if (World)
+	{
+		ForEachObjectOfClass(UDirectionalLightComponent::StaticClass(), [&Best, &BestLuminance, &Count, World](UObject* Object)
+		{
+			UDirectionalLightComponent* Light = static_cast<UDirectionalLightComponent*>(Object);
+			if (Light->GetWorld() != World || !Light->IsRegistered() || !Light->IsVisible() || !Light->bAffectsWorld
+				|| !Light->IsUsedAsAtmosphereSunLight() || Light->GetAtmosphereSunLightIndex() != 0) return;
+			++Count;
+			const float Luminance = Light->GetColoredLightBrightness().GetLuminance();
+			if (!Best || Luminance > BestLuminance)
+			{
+				Best = Light;
+				BestLuminance = Luminance;
+			}
+		}, true, RF_ClassDefaultObject | RF_ArchetypeObject, EInternalObjectFlags::Garbage);
+	}
+	if (OutCount) *OutCount = Count;
+	return Best;
+}
+
+FString UFogMSCloudHostSubsystem::CloudShadowNote(const FFogMSCloudBoxGeometry& Geometry) const
+{
+	const UDirectionalLightComponent* Sun = ScanSun.Get();
+	if (!Sun)
+		return TEXT(" [cloud shadow: none: no atmosphere sun (a visible Directional Light with Atmosphere Sun Light, index 0)]");
+	const FString SunLabel = FogMS_LightLabel(Sun);
+	if (!Sun->bCastCloudShadows)
+		return FString::Printf(TEXT(" [cloud shadow: off: the sun '%s' has Cast Cloud Shadows off; for this Box's soft shadow on the ground and in the fog run FogMS.CloudHost.SetupShadows (ticks it, extent 5 km, resolution x2) or tick it on the sun]"),
+			*SunLabel);
+	static IConsoleVariable* const ShadowMap = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricCloud.ShadowMap"), false);
+	if (ShadowMap && ShadowMap->GetInt() <= 0)
+		return TEXT(" [cloud shadow: off: r.VolumetricCloud.ShadowMap is 0]");
+	if (!(Sun->CloudShadowStrength > 0.0f))
+		return FString::Printf(TEXT(" [cloud shadow: off: Cloud Shadow Strength of the sun '%s' is 0]"), *SunLabel);
+	const int32 Resolution = FogMS_ShadowMapResolution(Sun->CloudShadowMapResolutionScale);
+	const double TexelM = FogMS_ShadowTexelM(Sun->CloudShadowExtent, Resolution);
+	const IConsoleVariable* Filter = FogMS_ManagedCVar(FogMS_MShadowFilter);
+	FString Note = FString::Printf(TEXT(" [cloud shadow: extent %g km, res %d, texel %.1f m, filter %d"), Sun->CloudShadowExtent, Resolution, TexelM,
+		Filter ? Filter->GetInt() : -1);
+	if (!(Sun->CloudShadowOnSurfaceStrength > 0.0f)) Note += TEXT("; Cloud Shadow On Surface Strength 0: no shadow on the ground");
+	// The density cube is -50..50 local units scaled to the Box: a side is 100 x scale cm = scale m. Horizontal = the cube's X/Y.
+	const FVector Scale = Geometry.CubeToWorld.GetScale3D().GetAbs();
+	const double BoxM = FMath::Min(Scale.X, Scale.Y);
+	if (TexelM > BoxM)
+		Note += FString::Printf(TEXT("; WARNING texel %.0f m > Box %.0f m: its shadow is one blurred blot, run FogMS.CloudHost.SetupShadows (extent 5 km, resolution x2: texel 9.8 m)"),
+			TexelM, BoxM);
+	return Note + TEXT("]");
+}
+
+bool UFogMSCloudHostSubsystem::SetupSunShadows(UWorld* World, float ExtentKm, float ResolutionScale, FString& OutMessage)
+{
+	int32 Count = 0;
+	UDirectionalLightComponent* Sun = FindAtmosphereSun(World, &Count);
+	if (!Sun)
+	{
+		OutMessage = TEXT("no atmosphere sun in this world (a visible Directional Light with Atmosphere Sun Light, index 0): nothing changed.");
+		return false;
+	}
+	const bool bWasCasting = Sun->bCastCloudShadows != 0;
+	const float OldExtent = Sun->CloudShadowExtent;
+	const float OldScale = Sun->CloudShadowMapResolutionScale;
+	const int32 OldResolution = FogMS_ShadowMapResolution(OldScale);
+	const int32 NewResolution = FogMS_ShadowMapResolution(ResolutionScale);
+	const FString Values = FString::Printf(TEXT("Cast Cloud Shadows %s -> on, Cloud Shadow Extent %g -> %g km, Cloud Shadow Map Resolution Scale %g -> %g (map %d -> %d texels, texel %.1f -> %.1f m)"),
+		bWasCasting ? TEXT("on") : TEXT("off"), OldExtent, ExtentKm, OldScale, ResolutionScale, OldResolution, NewResolution,
+		FogMS_ShadowTexelM(OldExtent, OldResolution), FogMS_ShadowTexelM(ExtentKm, NewResolution));
+	const FString Several = Count > 1
+		? FString::Printf(TEXT(" (%d atmosphere suns with index 0: the brightest one, which the renderer uses)"), Count) : FString();
+	if (bWasCasting && OldExtent == ExtentKm && OldScale == ResolutionScale)
+	{
+		OutMessage = FString::Printf(TEXT("sun '%s'%s is already set (%s): nothing changed."), *FogMS_LightLabel(Sun), *Several, *Values);
+		return true;
+	}
+	// The owner's actor changes only here, on request: one undo step in the editor (UEngine::BeginTransaction exists only WITH_EDITOR;
+	// the editor engine implements it), a new light proxy with the new values at the end of the frame.
+	int32 Transaction = INDEX_NONE;
+#if WITH_EDITOR
+	if (GEngine) Transaction = GEngine->BeginTransaction(TEXT("FogMS"), NSLOCTEXT("FogMS", "SetupCloudShadows", "FogMS: Setup Cloud Shadows"), Sun);
+#endif
+	Sun->Modify();
+	Sun->bCastCloudShadows = true;
+	Sun->CloudShadowExtent = ExtentKm;
+	Sun->CloudShadowMapResolutionScale = ResolutionScale;
+	Sun->MarkRenderStateDirty();
+#if WITH_EDITOR
+	if (Transaction != INDEX_NONE && GEngine) GEngine->EndTransaction();
+#endif
+	OutMessage = FString::Printf(TEXT("sun '%s'%s: %s. Nothing saved: save the level to keep it%s."), *FogMS_LightLabel(Sun), *Several, *Values,
+		Transaction != INDEX_NONE ? TEXT(" (Ctrl+Z undoes it)") : TEXT(""));
+	return true;
 }
 
 UFogMSCloudHostSubsystem::FHost* UFogMSCloudHostSubsystem::FindBinding(const UVolumetricCloudComponent* Component)
@@ -420,8 +604,13 @@ FFogMSCloudHostBinding UFogMSCloudHostSubsystem::AcquireHost(const AFogMSBoxVolu
 		else if (!Busy) Busy = Owner;
 	}
 	if (!Chosen)
-		return Fallback(Busy ? FString::Printf(TEXT("busy with Box '%s' (one Box per host in this version)"), *Busy->GetActorNameOrLabel())
+	{
+		// W47: the busy host's cloud shadow holds the other Box, which this Box's solver does not see (its froxel single scattering does).
+		const FString ShadowNote = Busy && FogMS_SunCastsCloudShadows(ScanSun.Get())
+			? FString::Printf(TEXT("; its cloud shadow (Box '%s') is not in this Box's solver field"), *Busy->GetActorNameOrLabel()) : FString();
+		return Fallback(Busy ? FString::Printf(TEXT("busy with Box '%s' (one Box per host in this version)%s"), *Busy->GetActorNameOrLabel(), *ShadowNote)
 			: FString(TEXT("none")));
+	}
 	const FString MaterialProblem = ValidateHostMaterial(*Chosen);
 	if (!MaterialProblem.IsEmpty()) return Fallback(FString::Printf(TEXT("'%s': %s"), *FogMS_Label(Chosen), *MaterialProblem));
 
@@ -486,9 +675,18 @@ FFogMSCloudHostBinding UFogMSCloudHostSubsystem::AcquireHost(const AFogMSBoxVolu
 	FString Displaced;
 	for (const TWeakObjectPtr<UVolumetricCloudComponent>& Other : ScanOthers)
 		if (Other.IsValid()) Displaced += (Displaced.IsEmpty() ? TEXT("'") : TEXT(", '")) + FogMS_Label(Other.Get()) + TEXT("'");
-	Result.Status = FString::Printf(TEXT(" [render: cloud host] [cloud host '%s': %s, step ~%.1f m, trace %.1f km, view samples x%g%s%s]"),
+	// W47: the Box's shadow through the engine's cloud shadow map (FogMS_CloudHost.h): settings, hint or warning; one log line whenever
+	// that part changes (the sun's flag, extent or resolution, the filter the subsystem sets on its tick).
+	const FString ShadowNote = CloudShadowNote(Geometry);
+	if (ShadowNote != Host->LastShadowNote)
+	{
+		Host->LastShadowNote = ShadowNote;
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s' (Box '%s'):%s"), *FogMS_Label(Chosen), *Box.GetActorNameOrLabel(), *ShadowNote);
+	}
+	Result.Status = FString::Printf(TEXT(" [render: cloud host] [cloud host '%s': %s, step ~%.1f m, trace %.1f km, view samples x%g%s%s]%s"),
 		*FogMS_Label(Chosen), *LayerNote, StepCm * 0.01f, Chosen->TracingMaxDistance, Chosen->ViewSampleCountScale, *SettingsNote,
-		Displaced.IsEmpty() ? TEXT("") : *FString::Printf(TEXT("; displaces Volumetric Cloud %s (one cloud renders per scene)"), *Displaced));
+		Displaced.IsEmpty() ? TEXT("") : *FString::Printf(TEXT("; displaces Volumetric Cloud %s (one cloud renders per scene)"), *Displaced),
+		*ShadowNote);
 	return Result;
 }
 
@@ -504,6 +702,7 @@ void UFogMSCloudHostSubsystem::EmptyHost(FHost& Host, const TCHAR* Reason)
 		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s' is empty: %s."), *FogMS_Label(Host.Component.Get()), Reason);
 	Host.Owner.Reset();
 	Host.bBound = false;
+	Host.LastShadowNote.Reset();
 }
 
 void UFogMSCloudHostSubsystem::ReleaseBox(const AFogMSBoxVolume& Box)
@@ -608,6 +807,21 @@ void UFogMSCloudHostSubsystem::ApplyHostSettings(const UVolumetricCloudComponent
 	const float MinKm = CVarCloudHostReprojectionMinKm.GetValueOnGameThread();
 	bWant[FogMS_MMinKm] = FMath::IsFinite(MinKm) && MinKm >= 0.0f;
 	Want[FogMS_MMinKm] = MinKm;
+	// W47 cloud shadow map: only while the atmosphere sun casts cloud shadows (the engine builds the map only then); otherwise, and when
+	// the sun stops casting them, the previous values come back.
+	const UDirectionalLightComponent* Sun = ScanSun.Get();
+	const bool bShadowMap = FogMS_SunCastsCloudShadows(Sun);
+	const int32 ShadowFilter = CVarCloudHostShadowFilter.GetValueOnGameThread();
+	bWant[FogMS_MShadowFilter] = bShadowMap && ShadowFilter >= 0;
+	Want[FogMS_MShadowFilter] = static_cast<float>(FMath::Min(ShadowFilter, 4));
+	const float SnapFraction = CVarCloudHostShadowSnapFraction.GetValueOnGameThread();
+	const bool bSnap = bShadowMap && FMath::IsFinite(SnapFraction) && SnapFraction > 0.0f && FMath::IsFinite(Sun->CloudShadowExtent);
+	bWant[FogMS_MShadowSnap] = bSnap;
+	// Whole metres, so the value survives the text round trip of IConsoleVariable::Set exactly.
+	Want[FogMS_MShadowSnap] = bSnap
+		? FMath::Clamp(FMath::RoundToFloat(SnapFraction * Sun->CloudShadowExtent * 1000.0f) / 1000.0f, 0.01f, FogMS_EngineShadowSnapKm) : 0.0f;
+	bWant[FogMS_MShadowSnapToPixel] = bSnap;
+	Want[FogMS_MShadowSnapToPixel] = 1.0f;
 
 	FString Changes, Kept;
 	for (int32 Index = 0; Index < ManagedCount; ++Index)
@@ -633,8 +847,10 @@ void UFogMSCloudHostSubsystem::ApplyHostSettings(const UVolumetricCloudComponent
 		if (Setting.Wanted != Want[Index])
 		{
 			Setting.Wanted = Want[Index];
-			Changes += FString::Printf(TEXT(" %s %g -> %g%s;"), FogMS_ManagedCVarNames[Index], Before, Variable->GetFloat(),
-				bSet ? TEXT("") : *FString::Printf(TEXT(" (kept: %s)"), *FogMS_SetByName(Variable)));
+			// W47: a value that already was the wanted one (e.g. SnapToPixelGrid 1, the engine default) is not a change.
+			if (!bSet || Before != Variable->GetFloat())
+				Changes += FString::Printf(TEXT(" %s %g -> %g%s;"), FogMS_ManagedCVarNames[Index], Before, Variable->GetFloat(),
+					bSet ? TEXT("") : *FString::Printf(TEXT(" (kept: %s)"), *FogMS_SetByName(Variable)));
 		}
 		if (!bSet) Kept += FString::Printf(TEXT(", %s %g kept (%s)"), FogMS_ManagedCVarNames[Index], Variable->GetFloat(), *FogMS_SetByName(Variable));
 	}
@@ -654,6 +870,12 @@ void UFogMSCloudHostSubsystem::RestoreSetting(int32 Index, IConsoleVariable* Var
 	FManagedSetting& Setting = Managed[Index];
 	Setting.bApplied = false;
 	if (!Variable) return;
+	// W47: nothing to put back when the value is the previous one (it was already the wanted value, e.g. SnapToPixelGrid 1).
+	if (Variable->GetFloat() == Setting.Previous)
+	{
+		InOutChanges += FString::Printf(TEXT(" %s %g;"), FogMS_ManagedCVarNames[Index], Variable->GetFloat());
+		return;
+	}
 	// Only a value still at game-setting priority is ours to put back; an explicit value set meanwhile stays.
 	if (static_cast<EConsoleVariableFlags>(Variable->GetFlags() & ECVF_SetByMask) == ECVF_SetByGameSetting)
 	{

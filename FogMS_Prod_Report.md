@@ -1147,6 +1147,56 @@ render over»); в сессии, где облачные cvar однажды с�
 **Открыто:** выбор `NearDistanceKm` владельцем по виду и цене; несколько Box на одном хосте (первый держит хост, остальные —
 фроксели со статусом «busy», P3); префильтр хоста не трогает мип базового шума; сглаживание быстрого Edge Flow.
 
+## Раунд 47 (W47, P4 часть 1): тень героического облака на земле через карту теней облака хоста
+
+Срез W47 из `FogMS_Weather_Design.md` (разделы 3.10, 4.1, 6): хост — штатный Volumetric Cloud, значит движок сам строит по его
+материалу карту теней облака (Beer shadow map, BSM), как только у солнца включена галка `Cast Cloud Shadows`. Раньше это
+было невозможно: решатель отказывал такому солнцу целиком («native volumetric-cloud shadow visibility is not bound», Box
+уходил на штатное освещение). Проверка — облегчённая (статусы и лог + одна цифра), скрипт `ProdProbe/d47_shadow.py`, числа —
+`results/diag47/d47.json`, кадры — `measure/diag47` (связка на `D:\FogMS_ProbeFrames\diag47`).
+
+**Путь данных за кадр (Box рисуется хостом, у солнца `Cast Cloud Shadows`):**
+
+```text
+GAME THREAD
+  подсистема хоста (тик): солнце атмосферы = самый яркий видимый Directional Light с Atmosphere Sun Light, индекс 0 (правило
+    движка FScene::AtmosphereLights[0]); пока Box рисуется хостом И солнце бросает тени облаков (галка, Strength > 0):
+    r.VolumetricCloud.ShadowMap.SpatialFiltering = r.FogMS.CloudHost.ShadowSpatialFiltering (2),
+    r.VolumetricCloud.ShadowMap.SnapLength = r.FogMS.CloudHost.ShadowSnapFraction (0,25) × Cloud Shadow Extent (≤ 20 км),
+    r.VolumetricCloud.ShadowMap.SnapToPixelGrid = 1 — приоритет game setting, явное значение сильнее ('kept'), без хоста или
+    без галки прежние значения возвращаются (механизм W46)
+  AcquireHost → статус Box '... [render: cloud host] [cloud host ...] [cloud shadow: extent E km, res R, texel T m, filter F]'
+    (R = min(512 × Resolution Scale, r.VolumetricCloud.ShadowMap.MaxResolution), T = 2E/R; без галки — подсказка; T > Box —
+    WARNING); изменение этой части — строка лога
+  консоль FogMS.CloudHost.SetupShadows [км 5] [масштаб 2] → солнце: галка вкл., Extent, Resolution Scale; одна строка лога с
+    прежними значениями; в редакторе — транзакция (Ctrl+Z); плагин сам солнце не меняет никогда
+RENDER THREAD (движок, без правок)
+  CloudShadow: луч к солнцу из текселя карты через материал хоста (плотность Box) → фильтр → поверхности, Volumetric Fog,
+    Lumen scene, атмосфера, полупрозрачность
+  решатель FogMS: солнце принято (FogMS_WorldSources.cpp), BSM не читает:
+    цвет солнца = внеатмосферная освещённость × пропускание атмосферы у земли (CPU, SkyAtmosphereRendering.cpp:584-594) —
+    облака в нём нет; проход 2: T_sun = видимость RT (TLAS: только геометрия) × пропускание СВОЕЙ среды Box
+  облако сцены не хост FogMS → статус '[sky: … [sun cloud shadows: Volumetric Cloud '<материал>' is not a FogMS cloud host: …]]'
+    + одна строка Warning в логе (вместо отказа)
+```
+
+**Почему нет двойного счёта.** Каждое пропускание применяется на каждом пути света один раз. «Солнце → ячейка облака»:
+плотность Box гасит солнце в решателе (T_sun) и в хосте (его марш к солнцу, `bRayMarchVolumeShadow`: карта к самому облаку
+не применяется, `VolumetricCloud.usf:1069`); карту не читает ни тот, ни другой. «Солнце → земля / туман / Lumen / воздух»:
+плотность Box гасит солнце только через карту; решатель в этом не участвует. Отдельные пути, которые теперь видят тень Box, —
+это физика, а не повтор: при `Lumen Bounce` Auto земля под Box темнее в кэше Lumen → меньше отражённого света в поле; при
+`Cloud Shadow On Atmosphere` > 0 тень есть в Sky View LUT (источник неба при Real Time Capture; для Box размером в сотни
+метров — ничтожно). При `Lumen Bounce` Off (откат считает землю средой самого Box) поле обязано совпасть с галкой и без неё —
+это критерий 3 ниже.
+
+**Состояние владельца на входе.** Карта сохранена в 19:49 (не 17:09): Box `FogMS - Live Box` стоит у земли (центр z = 25,7 м),
+`Render Path = Cloud Host`, но его полоса плотности уходит на 4 м ниже земли SkyAtmosphere, поэтому хост его не рисует
+(`[cloud host: … reaches below the ground of the cloud layer …, froxel fallback]`) — в таком положении тени на земле от Box
+не будет при любой галке. Солнце: `Cast Cloud Shadows` выкл., 150 км, ×1; высота солнца ≈ 3,8° (длинные тени). Скрипт на
+время проверки поднимает Box на 10 м и возвращает точно.
+
+**Проверка** (заполняется после прогона).
+
 ## Что не сделано / открыто
 
 - Квадратура, ориентированная на солнце: работает после исключения диска и префильтрации неба, включена по умолчанию.

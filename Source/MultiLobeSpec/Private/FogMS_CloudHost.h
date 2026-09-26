@@ -9,9 +9,11 @@ class AActor;
 class AFogMSBoxVolume;
 class IConsoleVariable;
 class UActorComponent;
+class UDirectionalLightComponent;
 class UMaterial;
 class UMaterialInstanceDynamic;
 class UVolumetricCloudComponent;
+class UWorld;
 struct FPropertyChangedEvent;
 
 /** P2 Render Path = Cloud Host: where a Box's density can be (FogMS_PerPixelClouds_Design.md 3.9, layer check / fit). The density
@@ -72,6 +74,21 @@ struct FFogMSCloudHostBinding
  *       (the reprojection pair only acts in modes 0/2, which reconstruct over frames).
  *     The camera = the world's view locations rendered last frame (UWorld::ViewLocationsRenderedLastFrame: every perspective
  *     editor viewport / game view), distance to the Box's density band box.
+ *   W47 cloud shadow map (P4 part 1, FogMS_Weather_Design.md 4.1): the host is a Volumetric Cloud, so with the atmosphere sun's
+ *     Cast Cloud Shadows on the engine builds its Beer shadow map from the host's material = the Box's density, and the ground,
+ *     the height fog / froxel media, Lumen and the atmosphere get the Box's shadow (the FogMS solver keeps shadowing its sun with the
+ *     Box's own medium only: FogMS_WorldSources.cpp explains why nothing is counted twice). While a Box renders through a host AND
+ *     that sun casts cloud shadows (Cast Cloud Shadows, Cloud Shadow Strength > 0), ApplyHostSettings also keeps
+ *       r.VolumetricCloud.ShadowMap.SpatialFiltering = r.FogMS.CloudHost.ShadowSpatialFiltering (2: blur iterations, the soft edge),
+ *       r.VolumetricCloud.ShadowMap.SnapLength = r.FogMS.CloudHost.ShadowSnapFraction (0.25) x the sun's Cloud Shadow Extent (km,
+ *         at most the engine's 20 km: the map is centred on the camera in steps of this length, so with a small extent the camera
+ *         must never be more than a quarter of it off centre) and r.VolumetricCloud.ShadowMap.SnapToPixelGrid 1 (no shimmer with
+ *         the small snap),
+ *     same priority and restore rules as above. The host status gets ' [cloud shadow: extent E km, res R, texel T m, filter F]'
+ *     (texel = 2 x extent / resolution, resolution = 512 x Cloud Shadow Map Resolution Scale up to
+ *     r.VolumetricCloud.ShadowMap.MaxResolution), a hint when the sun's Cast Cloud Shadows is off and a warning when the texel is
+ *     larger than the Box. Console FogMS.CloudHost.SetupShadows [ExtentKm 5] [ResolutionScale 2] (SetupSunShadows) sets the sun up
+ *     on request, one log line with the previous values (an undo step in the editor); the plugin never edits the sun on its own.
  */
 UCLASS()
 class UFogMSCloudHostSubsystem : public UTickableWorldSubsystem
@@ -79,8 +96,9 @@ class UFogMSCloudHostSubsystem : public UTickableWorldSubsystem
 	GENERATED_BODY()
 
 public:
-	/** W46: number of engine cvars ApplyHostSettings manages (FogMS_CloudHost.cpp FogMS_ManagedCVarNames). */
-	static constexpr int32 ManagedCount = 7;
+	/** W46: number of engine cvars ApplyHostSettings manages (FogMS_CloudHost.cpp FogMS_ManagedCVarNames); W47 adds the three
+	 * cloud-shadow-map cvars. */
+	static constexpr int32 ManagedCount = 10;
 
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
@@ -101,6 +119,14 @@ public:
 	static AActor* SpawnHost(UWorld* World, const AFogMSBoxVolume* Box, FString& OutMessage);
 	/** /MultiLobeSpec/FogMS/M_FogMS_Cloud (null when the asset is missing). */
 	static UMaterial* GetCloudHostMaterial();
+	/** W47 console FogMS.CloudHost.SetupShadows: the atmosphere sun of World (the engine's choice: the brightest visible directional
+	 * light with Atmosphere Sun Light, index 0) gets Cast Cloud Shadows on, Cloud Shadow Extent = ExtentKm (the map's radius around
+	 * the camera) and Cloud Shadow Map Resolution Scale = ResolutionScale, as one undo step in the editor. OutMessage = the one log
+	 * line: sun, previous -> new values, map resolution and texel size. False when there is no such sun (nothing changed). */
+	static bool SetupSunShadows(UWorld* World, float ExtentKm, float ResolutionScale, FString& OutMessage);
+	/** W47: the world's atmosphere sun as the renderer picks it (FScene::AtmosphereLights[0]: the brightest visible, world-affecting
+	 * directional light with Atmosphere Sun Light and index 0); OutCount = how many qualify. Null when none. */
+	static UDirectionalLightComponent* FindAtmosphereSun(const UWorld* World, int32* OutCount = nullptr);
 
 private:
 	struct FHost
@@ -116,6 +142,8 @@ private:
 		int32 RefitsSinceLog = 0;
 		/** W46: the bound Box's density band box of its last AcquireHost (camera distance for the near/far settings). */
 		FFogMSCloudBoxGeometry Geometry;
+		/** W47: the cloud-shadow part of the last status (logged once whenever it changes). */
+		FString LastShadowNote;
 	};
 
 	/** W46: one managed engine cvar (ApplyHostSettings): its value before the first write, the value last asked for. */
@@ -135,6 +163,9 @@ private:
 	FString FitLayer(UVolumetricCloudComponent& Component, const FFogMSCloudBoxGeometry& Geometry, const AFogMSBoxVolume& Box, FHost& Host,
 		bool& bInOutDirty, FString& OutNote);
 	FHost* FindBinding(const UVolumetricCloudComponent* Component);
+	/** W47: ' [cloud shadow: ...]' for the host status of a bound Box (Geometry: the Box's size for the texel warning), from ScanSun
+	 * and the engine's cloud-shadow-map cvars; empty when there is nothing to say. */
+	FString CloudShadowNote(const FFogMSCloudBoxGeometry& Geometry) const;
 	void EmptyHost(FHost& Host, const TCHAR* Reason);
 	/** W46: the managed engine cvars (class comment) for the host a Box renders through; one log line when a value changes. */
 	void ApplyHostSettings(const UVolumetricCloudComponent& Host);
@@ -151,6 +182,8 @@ private:
 	TArray<TWeakObjectPtr<UVolumetricCloudComponent>> ScanHosts;
 	TArray<TWeakObjectPtr<UVolumetricCloudComponent>> ScanIdle;
 	TArray<TWeakObjectPtr<UVolumetricCloudComponent>> ScanOthers;
+	/** W47: this frame's atmosphere sun (FindAtmosphereSun, refreshed by Scan) for the cloud-shadow settings and status. */
+	TWeakObjectPtr<UDirectionalLightComponent> ScanSun;
 	/** Other rendering clouds when the last claim ran; a different set (or a dirty event) re-claims the render. */
 	TArray<TWeakObjectPtr<UVolumetricCloudComponent>> ClaimedOver;
 	std::atomic<bool> bOthersDirty{ false };
