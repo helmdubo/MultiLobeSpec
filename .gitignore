@@ -20,3 +20,8 @@ Tools/**/generated*/
 
 # Offline search candidates are reproducible; only canonical LUTs are versioned.
 Resources/Generated/Candidates/
+
+# Unreal assets (materials, textures, data assets) stay local in the project: the repository holds the plugin code only.
+# They are (re)built in the editor by Tools/FogMSEnergyValidation/ProdProbe/matedit_*.py (see FogMS_UserGuide.md).
+Content/**/*.uasset
+Content/**/*.umap
