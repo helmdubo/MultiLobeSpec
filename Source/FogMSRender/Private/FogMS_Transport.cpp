@@ -63,6 +63,9 @@ namespace
         TEXT("tetrahedron of the 8 half-cell-lattice corners, alternating with the complementary tetrahedron on every solve (half the sun ")
         TEXT("shadow rays). 8: all corners. Point and spot lights always use all 8 points: alternating them made a spot beam narrower than ")
         TEXT("a cell flicker as a square wave with period 2*SolveInterval frames (about +-20 % of its glow, overlay delivery; round 34). ")
+        TEXT("A Box with Sun Softness > 0 always uses all 8 points and all 8 cone directions on every solve (W46): with 4 the two ")
+        TEXT("tetrahedra got different halves of the sun cone and the field alternated between solves (cloud-host flicker without temporal ")
+        TEXT("reconstruction); cost about +0.2 ms per solve per Box (round 25: pass 2 0.107 -> 0.313 ms). ")
         TEXT("Caveat of 4: where the two sun tetrahedra disagree (sharp sun-shadow edges inside the cloud) the direct term still ")
         TEXT("alternates between solves (round 25: 1 % of the field between two solves); set 8 if that flickers. Other values: 8."),
         ECVF_RenderThreadSafe);
@@ -390,7 +393,14 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FSceneView
     Common.TestTau = FMath::Clamp(TestTau.GetValueOnRenderThread(), 0.0f, 128.0f);
     Common.TestAlbedo = FMath::Clamp(TestAlbedo.GetValueOnRenderThread(), -1.0f, 1.0f);
     Common.DirectSkipEmpty = CVarDirectSkipEmpty.GetValueOnRenderThread() != 0;
-    Common.DirectSamples = CVarDirectSamples.GetValueOnRenderThread() == 4 ? 4 : 8;
+    // W46: Sun Softness (packet row 29.x = tan(theta) > 0, FogMS_BoxRuntime.cpp) needs all eight subcell points and all eight Vogel
+    // cone directions on every solve. With 4 the even/odd tetrahedra trace different halves of the cone (FogMSSunConeIndex), so a
+    // soft-sun field alternated between two states every solve: the interior of a cloud-host Box flickered without temporal
+    // reconstruction (r.VolumetricRenderTarget.Mode 1), strongly from ~5 deg. Pass 2 then takes its DirectSamples-8 branch unchanged
+    // (weight 1/8 for the sun's Direct, Direct_sun and T_sun alike, so the hybrid's subtracted sun term stays consistent). Sun
+    // Softness 0 keeps the cvar's choice (4: the cheaper alternation, round 25).
+    const bool bSunCone = Common.BoxRows[29].X > 0.0f;
+    Common.DirectSamples = CVarDirectSamples.GetValueOnRenderThread() == 4 && !bSunCone ? 4 : 8;
     // Per-solve counter (render thread): this function runs once per solve, a SolveInterval hold does not call it.
     // Process-wide, not per Box/view: an even number of solves per frame would give each of them a fixed parity.
     static uint32 SolveCounter = 0;
@@ -459,10 +469,17 @@ FRDGTextureRef FogMS_RenderTransport(FRDGBuilder& GraphBuilder, const FSceneView
         FRDGTextureRef SunTransmittance = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(FIntVector(TransportGridSize), PF_FloatRGBA,
             FClearValueBinding::None, Flags), TEXT("FogMS.Transport.SunTransmittance"));
         auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct); P.OutSunTransmittance = GraphBuilder.CreateUAV(SunTransmittance);
-        Dispatch(2, TEXT("FogMS B2 direct cell average + sun transmittance (hybrid)"), P, Cells, true);
+        // The event name carries the sun's point count (W46: ProfileGPU shows whether Sun Softness took the 8-point path).
+        Dispatch(2, Common.DirectSamples == 4 ? TEXT("FogMS B2 direct cell average + sun transmittance (hybrid) [sun 4 points, alternating]")
+            : TEXT("FogMS B2 direct cell average + sun transmittance (hybrid) [sun 8 points]"), P, Cells, true);
         *OutSunTransmittance = SunTransmittance;
     }
-    else { auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct); Dispatch(2, TEXT("FogMS B2 direct cell average"), P, Cells); }
+    else
+    {
+        auto P = Common; P.OutDirect = GraphBuilder.CreateUAV(Direct);
+        Dispatch(2, Common.DirectSamples == 4 ? TEXT("FogMS B2 direct cell average [sun 4 points, alternating]")
+            : TEXT("FogMS B2 direct cell average [sun 8 points]"), P, Cells);
+    }
     FRDGBufferRef U = Buffer(TEXT("FogMS.B2.U")), R = Buffer(TEXT("FogMS.B2.R")), Pcg = Buffer(TEXT("FogMS.B2.P"));
     FRDGBufferRef Primary = Buffer(TEXT("FogMS.B2.Primary"));
     // One scratch buffer reused by ordered RDG passes; angular quality does not

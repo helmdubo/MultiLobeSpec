@@ -86,8 +86,8 @@ enum class EFogMSLumenBounce : uint8
 UENUM(BlueprintType)
 enum class EFogMSRenderPath : uint8
 {
-	FroxelFog = 0 UMETA(DisplayName="Froxel Fog", ToolTip="The native Volumetric Fog voxelizes this Box's Volume material (one density sample per froxel, fog history), as before. For haze, valley fog and rivers."),
-	CloudHost = 1 UMETA(DisplayName="Cloud Host", ToolTip="The engine's Volumetric Cloud renders this Box per pixel (a ray march with its own sun shadow and phase) through a cloud host: a Volumetric Cloud actor whose material is MI_FogMS_Cloud (Create Cloud Host). The solver's field lights it through Emissive. Without a usable host the Box stays in the froxels and the status says why. For dense clouds.")
+	FroxelFog = 0 UMETA(DisplayName="Froxel Fog", ToolTip="The native Volumetric Fog voxelizes this Box's Volume material (one density sample per froxel, fog history), as before round 46. For haze, low ground fog, valley fog and rivers; also the automatic fallback of Cloud Host."),
+	CloudHost = 1 UMETA(DisplayName="Cloud Host", ToolTip="Default since round 46. The engine's Volumetric Cloud renders this Box per pixel (a ray march with its own sun shadow and phase) through a cloud host: a Volumetric Cloud actor whose material is MI_FogMS_Cloud (button Create Cloud Host). The solver's field lights it through Emissive. Without a usable host the Box stays in the froxels and the status says why. For dense clouds.")
 };
 
 UENUM(BlueprintType)
@@ -164,15 +164,27 @@ public:
 
 	/** P2 Render Path (FogMS_CloudHost.h, UFogMSCloudHostSubsystem). Cloud Host with a usable host: the froxel copy is off (MID
 	 * FogMS_FroxelWeight 0), the solver publishes the hybrid field (the cloud marches the sun itself; Field Only (Debug) keeps the
-	 * full field), Sun Detail Shadow is not built, and every UpdateDensity writes this Box's material parameters into the host's MID.
-	 * Needs Transport + Emissive Injection. Status suffix: [render: cloud host], [cloud host: none, froxel fallback] or
-	 * [cloud host: <problem>, froxel fallback]. Default Froxel Fog: packet, MID and image as before (MID FogMS_FroxelWeight 1). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(DisplayName="Render Path", ToolTip="Which renderer draws this Box. Froxel Fog (default): the native Volumetric Fog, as before; best for haze, valley fog and rivers. Cloud Host: the engine's Volumetric Cloud renders the Box per pixel (its own sharp sun shadow and silver lining on every ray step, no froxel shimmer on still clouds); the solver's field still brings sky, bounce, lamps and multiple scattering. Needs Transport with Emissive Injection and a cloud host in the level: a Volumetric Cloud actor with MI_FogMS_Cloud (button Create Cloud Host). Only ONE Volumetric Cloud renders per scene, so the host displaces the sky clouds while it is visible. Without a usable host the Box stays in the froxels and the status says why ('[cloud host: none, froxel fallback]'). Cost: about 0.3-0.4 ms for the host in the probe window (round 39), the solver as before. Changes apply live."))
-	EFogMSRenderPath RenderPath = EFogMSRenderPath::FroxelFog;
+	 * full field), Sun Detail Shadow is not built, and every UpdateDensity writes this Box's material parameters into the host's MID
+	 * (so the host follows moves, scales and edits; the subsystem refits the host layer to the density band). Needs Transport +
+	 * Emissive Injection. Status suffix: [render: cloud host], [cloud host: none: click 'Create Cloud Host' ..., froxel fallback] or
+	 * [cloud host: <problem>, froxel fallback]. Froxel Fog: packet, MID and image as before round 46 (MID FogMS_FroxelWeight 1).
+	 * W46: class default Cloud Host (was Froxel Fog). UE saves only differences from the class default, so Boxes saved while Froxel
+	 * Fog was the default, without touching it, load as Cloud Host; with no host in the level they stay in the froxels (fallback)
+	 * and the status asks for Create Cloud Host. The plugin never creates a host itself (it would displace the sky clouds). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(DisplayName="Render Path", ToolTip="Which renderer draws this Box. Cloud Host (default since round 46): the engine's Volumetric Cloud renders the Box per pixel (sharp sun self-shadow and silver lining on every ray step, no froxel shimmer); the solver's field still brings sky, bounce, lamps and multiple scattering. Needs Transport with Emissive Injection and a cloud host in the level (button Create Cloud Host, once per level; the plugin never creates it itself). The host's layer follows the Box when you move or scale it. Only ONE Volumetric Cloud renders per scene: the host displaces the sky clouds while visible. Without a usable host the Box renders in the froxels and the status says why and what to do. Froxel Fog: the native Volumetric Fog as before round 46, for haze, low ground fog, valleys and rivers. Boxes saved earlier without touching this property load as Cloud Host. Cost: user guide (r.FogMS.CloudHost.*). Changes apply live."))
+	EFogMSRenderPath RenderPath = EFogMSRenderPath::CloudHost;
+
+	/** W46 cloud-host anti-dither (Nubis-style pixel-footprint prefilter): host MID FogMS_CloudPrefilter (M_FogMS_Cloud v2 node
+	 * FogMS_CloudFootprint, matedit_cloud.py): prefilter width w = Host Prefilter * max(host ray-march step, traced pixel width at
+	 * the sample distance), fed to FogMS_Extinction v3 (detail octaves and erosion fade by 1 - w / lambda_i, the threshold band
+	 * widens by the removed variance; lambda_i = FogMS_PrefilterWavelengths). Material only: the solver's density is unfiltered, no
+	 * density revision. 0 = the round-45 host exactly. Not used by the froxel path (that is Depth Prefilter). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(DisplayName="Host Prefilter", EditCondition="RenderPath == EFogMSRenderPath::CloudHost", ClampMin="0.0", ClampMax="4.0", UIMin="0.0", UIMax="4.0", ToolTip="Cloud Host only: anti-dither strength (Nubis-style). The cloud ray-marches in steps of a few metres and traces one ray per pixel; density detail finer than a step or a pixel turns into grainy noise. This band-limits the Box density to the step / pixel size at each sample: the fine detail and edge erosion fade and the Threshold band softens, so edges get smoother and grain less visible. 1 (default) = filter at the step size; 2-3 = softer, less grain; 0 = off (round-45 look). Material only: the solver's lighting is unchanged, no re-solve. Needs M_FogMS_Cloud v2 (matedit_cloud.py). Changes apply live."))
+	float HostPrefilter = 1.0f;
 
 	/** P2 editor convenience (also console FogMS.CloudHost.Create): spawns the host with the P1 settings and switches this Box to
 	 * Render Path = Cloud Host. Warns in the log that only one Volumetric Cloud renders per scene. Nothing is saved. */
-	UFUNCTION(BlueprintCallable, CallInEditor, Category="FogMS", meta=(DisplayName="Create Cloud Host", ToolTip="Spawns a Volumetric Cloud actor 'FogMS Cloud Host' with MI_FogMS_Cloud and the tested settings (layer fitted to this Box's density band +-10 m, trace 2 km from the camera, step about 2.6 m, sun march 0.25 km) and sets this Box's Render Path to Cloud Host. If a host exists already, nothing is spawned. WARNING: only one Volumetric Cloud renders per scene; while the host is visible, the level's sky clouds are displaced (not rendered). Nothing is saved: save the level to keep the host, delete the host actor to get the sky clouds back."))
+	UFUNCTION(BlueprintCallable, CallInEditor, Category="FogMS", meta=(DisplayName="Create Cloud Host", ToolTip="Spawns a Volumetric Cloud actor 'FogMS Cloud Host' with MI_FogMS_Cloud and the tested settings (layer fitted to this Box's density band +-10 m and kept fitted when the Box moves or scales, trace 2 km from the camera, step about 2.6 m, sun march 0.25 km) and sets this Box's Render Path to Cloud Host. If a host exists already, nothing is spawned. WARNING: only one Volumetric Cloud renders per scene; while the host is visible, the level's sky clouds are displaced (not rendered). Nothing is saved: save the level to keep the host, delete the host actor to get the sky clouds back."))
 	void CreateCloudHost();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ClampMin="0.0", UIMin="0.0", Units="cm", ToolTip="Feather distance in world centimetres. Changes apply live after Enable Live Box has compiled the shaders."))
@@ -616,6 +628,8 @@ private:
 		float SunDetailValue = 0.0f;
 		/** P2: MID FogMS_FroxelWeight (material only): 1 = the Box renders in the froxels, 0 = a cloud host renders it. */
 		float FroxelWeightValue = 1.0f;
+		/** W46: host MID FogMS_CloudPrefilter (the sanitized Host Prefilter; written to the host's MID only, every update). */
+		float HostPrefilterValue = 0.0f;
 		FLinearColor SunMapRowU = FLinearColor(0, 0, 0, 0);
 		FLinearColor SunMapRowV = FLinearColor(0, 0, 0, 0);
 		FLinearColor SunMapRowW = FLinearColor(0, 0, 0, 0);
@@ -691,8 +705,9 @@ private:
 	FString RenderPathStatus;
 	bool bCloudHostBound = false;
 	/** Writes the density/look parameters of State into MID: the Box's own M_FogMS_Density MID, or (bCloudHost) a cloud host's
-	 * M_FogMS_Cloud MID: then the true density without the froxel-only prefilter / sun-map / froxel-weight parameters, plus the
-	 * density cube's placement (FogMS_CloudBoxCenter, FogMS_CloudWorldToLocal0..2). */
+	 * M_FogMS_Cloud MID: then the true density without the froxel-only depth prefilter / sun-map / froxel-weight parameters, plus the
+	 * density cube's placement (FogMS_CloudBoxCenter, FogMS_CloudWorldToLocal0..2) and the W46 host prefilter (FogMS_CloudPrefilter,
+	 * FogMS_PrefilterWavelengths). */
 	void WriteDensityParameters(UMaterialInstanceDynamic& MID, const FDensityState& State, bool bCloudHost) const;
 
 	bool GetDensityMotionVelocities(FVector& Out0, FVector& Out1, FVector& Out2) const;

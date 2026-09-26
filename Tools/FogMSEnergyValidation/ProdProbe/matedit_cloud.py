@@ -15,8 +15,10 @@ Data flow per ray-march step of the engine Volumetric Cloud (VolumetricCloud.usf
     - FogMS_CloudBoxCenter [cm] -> FogMS_CloudBoxLocal (rows FogMS_CloudWorldToLocal0..2 = world axis i of the density cube divided by
       its world scale, offset in w) = LocalPosition in cube space -50..50 (M_FogMS_Density: TransformPosition World -> Local)
     -> three noise UVW nodes (M_FogMS_Density's UVW Custom nodes, verbatim) -> FogMS_Noise at mip 0, three times
-    -> FogMS_Extinction_v3 (EXTINCTION_CODE_V3 of matedit_density.py, Footprint 0 = w 0: the solver's formula) = sigma_t [1/m]
-    -> SubsurfaceColor (the cloud's extinction)
+    -> FogMS_Extinction_v3 (EXTINCTION_CODE_V3 of matedit_density.py) = sigma_t [1/m] -> SubsurfaceColor (the cloud's extinction)
+       Footprint <- FogMS_CloudFootprint (v2, W46 anti-dither, Nubis-style): w = FogMS_CloudPrefilter * max(FogMS_CloudStep, traced
+       pixel width at |WorldPosition - CameraPositionWS|); Wavelengths <- FogMS_PrefilterWavelengths (the Box's noise feature sizes).
+       FogMS_CloudPrefilter 0 (material default) = w 0: the solver's formula, the v1 material exactly.
   FogMS_CloudAlbedo: FogMS_Albedo, 0 in mode 3 (Field Only debug: the solver's full field alone) -> BaseColor: the cloud scatters
     Albedo * sigma_t of the sun itself, with a march toward the sun on every step (Volumetric Advanced Output, ray-marched volume
     shadow) and the host phase HG(Phase G = FogMS_ForwardG, FogMS_CloudPhaseG2, FogMS_CloudPhaseBlend).
@@ -38,6 +40,10 @@ whose links and settings verify, prints ALREADY_PATCHED and changes nothing (the
 is rebuilt in place and recompiled; the editor log is scanned for 'Failed to compile Material ... M_FogMS_Cloud'. On any error
 nothing is saved: an asset with a file on disk is reloaded from it (rollback), a never-saved one is emptied in memory (the next run
 rebuilds it). Expressions are deleted one by one (delete_all_material_expressions left some behind in the first round-45 run).
+Versions: v1 (round 45) = Footprint and Wavelengths were constants 0; v2 (W46) adds FogMS_CloudFootprint, FogMS_CloudPrefilter,
+FogMS_CloudStep and FogMS_PrefilterWavelengths. A v1 asset fails the v2 check (marker, missing node) and is rebuilt in place (upgrade);
+a v2 run on a v2 asset prints ALREADY_PATCHED. The Box / subsystem write the new parameters only from round 46 on; a v2 material with
+an older plugin keeps FogMS_CloudPrefilter 0 = the v1 image.
 Output: MATERIAL_OK saved=<bool> ... | ALREADY_PATCHED ... | TRACE <traceback>."""
 import ast
 import glob
@@ -55,7 +61,7 @@ MATERIAL_NAME = 'M_FogMS_Cloud'
 INSTANCE_NAME = 'MI_FogMS_Cloud'
 MATERIAL_PATH = ASSET_DIR + '/' + MATERIAL_NAME
 INSTANCE_PATH = ASSET_DIR + '/' + INSTANCE_NAME
-MARKER = 'FogMS_Cloud v1'
+MARKER = 'FogMS_Cloud v2'
 DEFAULT_VOLUME = '/MultiLobeSpec/FogMS/T_FogMS_DefaultVolume'
 DENSITY_MATERIAL = '/MultiLobeSpec/FogMS/M_FogMS_Density'
 GROUP = 'FogMS Cloud'
@@ -69,7 +75,9 @@ SCALARS = (('FogMS_WorldAligned', 0.0), ('FogMS_DetailScale', 4.0), ('FogMS_Thre
            ('FogMS_HeightTopSoftness', 0.1), ('FogMS_HeightAnvilStrength', 0.0), ('FogMS_ForwardStrength', 0.0),
            ('FogMS_ForwardG', 0.6), ('FogMS_ForwardDepth', 0.5), ('FogMS_ForwardFloor', 0.25), ('FogMS_ForwardEcc', 0.5),
            # host look not driven by the Box (edit them on MI_FogMS_Cloud or a child instance); a debug gain on the field
-           ('FogMS_CloudPhaseG2', 0.0), ('FogMS_CloudPhaseBlend', 0.0), ('FogMS_CloudFieldGain', 1.0))
+           ('FogMS_CloudPhaseG2', 0.0), ('FogMS_CloudPhaseBlend', 0.0), ('FogMS_CloudFieldGain', 1.0),
+           # v2 (W46 anti-dither): the Box's Host Prefilter (0 = off, the v1 material) and the host's ray-march step [cm] (subsystem)
+           ('FogMS_CloudPrefilter', 0.0), ('FogMS_CloudStep', 0.0))
 VECTORS = (('FogMS_TileScale', (1.0, 1.0, 1.0, 0.0)), ('FogMS_WorldFrequencies', (0.0005, 0.002, 0.004, 0.0)),
            ('FogMS_WorldPhase0', (0.0, 0.0, 0.0, 0.0)), ('FogMS_WorldPhase1', (0.0, 0.0, 0.0, 0.0)),
            ('FogMS_WorldPhase2', (0.0, 0.0, 0.0, 0.0)), ('FogMS_ChannelMask', (1.0, 0.0, 0.0, 0.0)),
@@ -77,7 +85,9 @@ VECTORS = (('FogMS_TileScale', (1.0, 1.0, 1.0, 0.0)), ('FogMS_WorldFrequencies',
            ('FogMS_ErosionMask', (0.0, 1.0, 0.0, 0.0)), ('FogMS_CloudBoxCenter', (0.0, 0.0, 0.0, 0.0)),
            # a 2000-cm cube at the origin: local = world * 50 / 1000
            ('FogMS_CloudWorldToLocal0', (0.05, 0.0, 0.0, 0.0)), ('FogMS_CloudWorldToLocal1', (0.0, 0.05, 0.0, 0.0)),
-           ('FogMS_CloudWorldToLocal2', (0.0, 0.0, 0.05, 0.0)))
+           ('FogMS_CloudWorldToLocal2', (0.0, 0.0, 0.05, 0.0)),
+           # v2: world feature size [cm] of the base / detail 0 / detail 1 noise (the Box MID value; 0 = unknown: band unfiltered)
+           ('FogMS_PrefilterWavelengths', (0.0, 0.0, 0.0, 0.0)))
 
 LOCAL_CODE = """// %s (cloud host, matedit_cloud.py). Box density-cube space of this ray-march sample, -50..50 per axis: the LocalPosition
 // M_FogMS_Density gets from TransformPosition(World -> Local) of its cube. Row_i.xyz = world axis i of the cube divided by the cube's
@@ -115,9 +125,34 @@ float h = LocalPosition.z * 0.01f + 0.5f;
 bool Band = HeightProfile < 0.5f || DetailStrength >= Threshold - 0.5f * Softness || (h >= HeightBottom && h <= HeightTop);
 return float3((Inside && Band) ? 1.0f : 0.0f, 0.0f, 0.0f);"""
 
+FOOTPRINT_CODE = r"""// FogMS_CloudFootprint v1 (W46 cloud-host anti-dither, matedit_cloud.py). Nubis-style prefilter width w [cm] of FogMS_Extinction v3 at
+// this ray-march sample: the density is band-limited to the sampling rate, so detail finer than a ray-march step or a traced pixel does
+// not turn into per-pixel grain as the ray start jitters from pixel to pixel and frame to frame.
+//   w = Prefilter * max(StepCm, Pixel),  Pixel = 2 * D * View.ViewSizeAndInvSize.z / View.ViewToClip[0][0]
+// Prefilter <- FogMS_CloudPrefilter <- the Box's Host Prefilter. StepCm <- FogMS_CloudStep <- UFogMSCloudHostSubsystem: the host's nominal
+// step = max(r.VolumetricCloud.DistanceToSampleMaxCount, Tracing Max Distance) / min(96 * View Sample Count Scale,
+// r.VolumetricCloud.ViewRaySampleMaxCount) (short rays below r.VolumetricCloud.SampleMinCount steps march finer). D = |sample - camera|
+// [cm] (CameraOffset = WorldPosition - CameraPositionWS). Pixel = the width of one TRACED pixel at D: the cloud's tracing pass binds the
+// volumetric render target's view uniform buffer, whose ViewSize is the tracing resolution (VolumetricRenderTarget.cpp: full in mode 3,
+// half in mode 1, quarter in mode 0); an orthographic view (ViewToClip[3][3] = 1) uses the step only.
+// Extinction v3 then fades the detail octaves and the erosion pattern by 1 - w / lambda_i (lambda = FogMS_PrefilterWavelengths) and
+// widens the threshold band by the removed variance (expected mask); the base noise keeps mip 0 (only its share widens the band).
+// Prefilter 0 (material default): float2(0, 0), the v1 material exactly (w = 0 makes every v3 factor an exact identity). The .y
+// component (the froxel material's base-noise mip bias) is unused by the cloud host: 0.
+float W = 0.0f;
+if (Prefilter > 0.0f)
+{
+    float D = length(CameraOffset);
+    float Pixel = View.ViewToClip[3][3] < 1.0f ? 2.0f * D * View.ViewSizeAndInvSize.z / max(View.ViewToClip[0][0], 1e-6f) : 0.0f;
+    W = Prefilter * max(max(StepCm, 0.0f), Pixel);
+}
+return float2(W, 0.0f);
+"""
+
 EXTINCTION_PINS = ('Noise', 'Detail0', 'Detail1', 'ChannelMask', 'DetailStrength', 'SecondOctave', 'LocalPosition', 'WorldExtent',
                    'Threshold', 'Softness', 'Density', 'Feather', 'ErosionStrength', 'ErosionDepth', 'HeightProfile', 'HeightBottom',
                    'HeightTop', 'BottomSoftness', 'TopSoftness', 'AnvilStrength', 'ErosionMask', 'Footprint', 'Wavelengths')
+FOOTPRINT_PINS = ('CameraOffset', 'Prefilter', 'StepCm')
 FORWARD_PINS = ('Emissive', 'FieldA', 'Mode', 'Strength', 'G', 'Depth', 'BackFloor', 'CameraVector', 'Ecc')
 CONSERVATIVE_PINS = ('LocalPosition', 'HeightProfile', 'HeightBottom', 'HeightTop', 'Threshold', 'Softness', 'DetailStrength', 'Density')
 
@@ -371,8 +406,15 @@ def build(material, extinction_code, lobe_code):
         s.set_editor_property('mip_value_mode', unreal.TextureMipValueMode.TMVM_MIP_LEVEL)
         g.link(uvw[i], '', s, 'UVs'); g.link(mip0, '', s, 'Level')
         samples.append(s)
-    footprint = g.node(unreal.MaterialExpressionConstant2Vector, -800, 700, r=0.0, g=0.0)
-    wavelengths = g.node(unreal.MaterialExpressionConstant4Vector, -800, 800, constant=unreal.LinearColor(0.0, 0.0, 0.0, 0.0))
+    # v2 (W46): the prefilter width from the camera distance, the host step and the Box's strength (v1: constants 0).
+    camera = g.node(unreal.MaterialExpressionCameraPositionWS, -1200, 800)
+    camoff = g.node(unreal.MaterialExpressionSubtract, -1000, 800)
+    require(mel.connect_material_expressions(wp, 'XYZ', camoff, 'A'), 'Cannot wire WorldPosition.XYZ -> camera Subtract.A')
+    require(mel.connect_material_expressions(camera, '', camoff, 'B'), 'Cannot wire CameraPositionWS -> camera Subtract.B')
+    footprint = g.custom('FogMS_CloudFootprint', FOOTPRINT_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT2, FOOTPRINT_PINS, -800, 700)
+    g.link(camoff, '', footprint, 'CameraOffset'); g.link(P['FogMS_CloudPrefilter'], '', footprint, 'Prefilter')
+    g.link(P['FogMS_CloudStep'], '', footprint, 'StepCm')
+    wavelengths = P['FogMS_PrefilterWavelengths']
     ext = g.custom('FogMS_Extinction_v3', extinction_code, unreal.CustomMaterialOutputType.CMOT_FLOAT1, EXTINCTION_PINS, -600, 0)
     sources = {'Noise': (samples[0], 'RGBA'), 'Detail0': (samples[1], 'RGBA'), 'Detail1': (samples[2], 'RGBA'),
                'ChannelMask': (P['FogMS_ChannelMask'], 'RGBA'), 'DetailStrength': (P['FogMS_DetailStrength'], ''),
@@ -383,7 +425,7 @@ def build(material, extinction_code, lobe_code):
                'HeightBottom': (P['FogMS_HeightBottom'], ''), 'HeightTop': (P['FogMS_HeightTop'], ''),
                'BottomSoftness': (P['FogMS_HeightBottomSoftness'], ''), 'TopSoftness': (P['FogMS_HeightTopSoftness'], ''),
                'AnvilStrength': (P['FogMS_HeightAnvilStrength'], ''), 'ErosionMask': (P['FogMS_ErosionMask'], 'RGBA'),
-               'Footprint': (footprint, ''), 'Wavelengths': (wavelengths, '')}
+               'Footprint': (footprint, ''), 'Wavelengths': (wavelengths, 'RGBA')}
     for pin in EXTINCTION_PINS:
         g.link(sources[pin][0], sources[pin][1], ext, pin)
     fuvw = g.custom('FogMS_TransportUVW', FIELD_UVW_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT3, ('LocalPosition',), -600, 1000)
@@ -439,6 +481,28 @@ def vao_wanted(vao, P, cons):
     return out
 
 
+def verify_prefilter(material, nodes, P):
+    """v2 (W46) links, checked on every run (just built or existing asset) from the T3D readback: FogMS_Extinction_v3.Footprint <-
+    FogMS_CloudFootprint, .Wavelengths <- FogMS_PrefilterWavelengths.RGBA; FogMS_CloudFootprint.Prefilter / .StepCm <- FogMS_CloudPrefilter /
+    FogMS_CloudStep, .CameraOffset <- a Subtract of (WorldPosition, CameraPositionWS) (multi-output WorldPosition: checked by class, as
+    the WorldPosition -> FogMS_CloudBoxCenter subtract)."""
+    def nm(e):
+        return e.get_name() if e else None
+    ext, foot = nodes['FogMS_Extinction_v3'], nodes['FogMS_CloudFootprint']
+    links = custom_links(material, ext)
+    require(links['Footprint'][0] == foot, 'FogMS_Extinction_v3.Footprint is fed by %s, wanted FogMS_CloudFootprint' % nm(links['Footprint'][0]))
+    require(links['Wavelengths'][0] == P['FogMS_PrefilterWavelengths'] and links['Wavelengths'][1] == 'RGBA',
+            'FogMS_Extinction_v3.Wavelengths is %s.%s, wanted FogMS_PrefilterWavelengths.RGBA' % (nm(links['Wavelengths'][0]), links['Wavelengths'][1]))
+    fl = custom_links(material, foot)
+    require(fl['Prefilter'][0] == P['FogMS_CloudPrefilter'], 'FogMS_CloudFootprint.Prefilter is fed by %s' % nm(fl['Prefilter'][0]))
+    require(fl['StepCm'][0] == P['FogMS_CloudStep'], 'FogMS_CloudFootprint.StepCm is fed by %s' % nm(fl['StepCm'][0]))
+    sub = fl['CameraOffset'][0]
+    require(isinstance(sub, unreal.MaterialExpressionSubtract), 'FogMS_CloudFootprint.CameraOffset is fed by %s, wanted a Subtract' % nm(sub))
+    ins = dict(input_sources(material, sub))
+    require(isinstance(ins.get('A'), unreal.MaterialExpressionWorldPosition) and isinstance(ins.get('B'), unreal.MaterialExpressionCameraPositionWS),
+            'camera Subtract inputs are A=%s B=%s, wanted WorldPosition - CameraPositionWS' % (nm(ins.get('A')), nm(ins.get('B'))))
+
+
 def find_param(material, name):
     for e in mel.get_material_expressions(material):
         try:
@@ -461,7 +525,7 @@ def verify(material, extinction_code, lobe_code, g=None):
         codes = {'FogMS_CloudBoxLocal': LOCAL_CODE, 'FogMS_CloudNoiseUVW0': UVW0_CODE, 'FogMS_CloudNoiseUVW1': UVW1_CODE,
                  'FogMS_CloudNoiseUVW2': UVW2_CODE, 'FogMS_Extinction_v3': extinction_code, 'FogMS_TransportUVW': FIELD_UVW_CODE,
                  'FogMS_EmissiveInjection': EMISSIVE_CODE, 'FogMS_ForwardLobe': lobe_code, 'FogMS_CloudAlbedo': ALBEDO_CODE,
-                 'FogMS_CloudSkyAO': SKY_AO_CODE, 'FogMS_CloudConservative': CONSERVATIVE_CODE}
+                 'FogMS_CloudSkyAO': SKY_AO_CODE, 'FogMS_CloudConservative': CONSERVATIVE_CODE, 'FogMS_CloudFootprint': FOOTPRINT_CODE}
         nodes = {}
         for desc, code in codes.items():
             node = by_description(material, desc)
@@ -493,6 +557,7 @@ def verify(material, extinction_code, lobe_code, g=None):
                            ('MP_EMISSIVE_COLOR', 'FogMS_ForwardLobe'), ('MP_AMBIENT_OCCLUSION', 'FogMS_CloudSkyAO')):
             src = mel.get_material_property_input_node(material, getattr(unreal.MaterialProperty, prop))
             require(src == nodes[desc], '%s is fed by %s, wanted %s' % (prop, src.get_name() if src else None, desc))
+        verify_prefilter(material, nodes, P)
         if g is not None:
             for node, wanted in g.links.items():
                 verify_custom(material, node, wanted)

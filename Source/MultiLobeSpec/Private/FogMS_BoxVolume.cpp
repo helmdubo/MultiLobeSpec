@@ -1092,6 +1092,8 @@ void AFogMSBoxVolume::UpdateDensity()
 				State.ForwardDepthValue = Finite(MSOcclusion, 0.0f, 1.0f, 0.5f);
 				State.ForwardEccValue = Finite(MSEccentricity, 0.0f, 1.0f, 0.5f);
 				State.ForwardFloorValue = Finite(MSBackFloor, 0.0f, 1.0f, 0.25f);
+				// W46 host prefilter strength (host MID only, written every update; the Details clamp [0,4] here too).
+				State.HostPrefilterValue = Finite(HostPrefilter, 0.0f, 4.0f, 1.0f);
 				// W41 Sun Detail Shadow (material node FogMS_SunDetail v1, matedit_density.py; map FogMS_SunDetail.usf). Only with the hybrid
 				// split: it redistributes the native sun single scattering that mode 2 scales by the field's per-cell sun share. The basis
 				// uses this frame's atmosphere sun (the one the runtime hands the solver); the render thread builds the map with it.
@@ -1252,12 +1254,13 @@ void AFogMSBoxVolume::WriteDensityParameters(UMaterialInstanceDynamic& MID, cons
 	MID.SetScalarParameterValue(TEXT("FogMS_HeightTopSoftness"), State.TopSoftnessValue);
 	MID.SetScalarParameterValue(TEXT("FogMS_HeightAnvilStrength"), State.AnvilStrengthValue);
 	// W36 (FogMS_DepthFootprint / FogMS_Extinction v3). A material without them ignores both (material defaults
-	// 0 = v2 math). Froxel-only: the cloud host evaluates the solver's w = 0 formula.
-	if (!bCloudHost)
-	{
+	// 0 = v2 math). Depth Prefilter is froxel-only; the wavelengths also feed the W46 host prefilter (M_FogMS_Cloud v2 node
+	// FogMS_CloudFootprint: w = FogMS_CloudPrefilter * max(FogMS_CloudStep, traced pixel width); strength 0 = w 0, the solver's formula).
+	MID.SetVectorParameterValue(TEXT("FogMS_PrefilterWavelengths"), State.PrefilterWavelengths);
+	if (bCloudHost)
+		MID.SetScalarParameterValue(TEXT("FogMS_CloudPrefilter"), State.HostPrefilterValue);
+	else
 		MID.SetScalarParameterValue(TEXT("FogMS_DepthPrefilter"), State.DepthPrefilterValue);
-		MID.SetVectorParameterValue(TEXT("FogMS_PrefilterWavelengths"), State.PrefilterWavelengths);
-	}
 	// W37/W38 (FogMS_ForwardLobe). A material without the node ignores them; Strength 0 returns the injection
 	// Emissive unchanged. FogMS_ForwardEcc exists from node v2 on; a v1 node ignores it (fixed g/2 = Ecc 0.5).
 	MID.SetScalarParameterValue(TEXT("FogMS_ForwardStrength"), State.ForwardStrengthValue);
