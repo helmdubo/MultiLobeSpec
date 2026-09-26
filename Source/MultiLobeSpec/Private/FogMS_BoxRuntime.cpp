@@ -3,6 +3,7 @@
 #include "FogMS_DensityAtlas.h"
 #include "FogMS_ShadowCache.h"
 #include "FogMS_Spatial.h"
+#include "FogMS_Weather.h"
 #include "FogMS_WorldLighting.h"
 #include "FogMS_ScreenScattering.h"
 #include "MultiLobeSpec.h"
@@ -585,6 +586,8 @@ namespace
 					Sky.LowerHemisphereColor = Light->LowerHemisphereColor;
 					ProcessedSky = Light->GetProcessedSkyTexture();
 				}
+				// W49: the FogMS Weather sky dome is in the capture (FFogMSWorldSky::bWeatherSky; auto sky source -> the capture's SH).
+				Sky.bWeatherSky = AFogMSWeather::IsSkyDomeActive(World);
 			}
 			FString Problem;
 			// Enabled, visible Boxes. Emissive Injection Boxes (Transport + Emissive Injection requested) each solve into their

@@ -40,6 +40,7 @@ namespace
 		TEXT("Added to the sector-matched sky cubemap mip used as transport/world boundary radiance. Negative sharpens, positive blurs."), ECVF_RenderThreadSafe);
 	TAutoConsoleVariable<int32> CVarWorldSkySource(TEXT("r.FogMS.World.SkySource"), 0,
 		TEXT("Sky boundary radiance of the transport/world solve. 0 auto: Real Time Capture + rendered SkyAtmosphere -> Sky View LUT; ")
+		TEXT("Real Time Capture + a FogMS Weather sky dome (W49: the capture holds the weather clouds, the LUT does not) -> the capture's SH; ")
 		TEXT("static capture -> processed cubemap (public USkyLightComponent API); otherwise the sky SH (View UB). ")
 		TEXT("2 force Sky View LUT, 3 force processed capture, 4 force SH. An unavailable forced source falls back to SH; the Box ")
 		TEXT("status names the source in use. 1 (the removed private renderer path) acts as 0 with a one-time log warning; other values act as 0."),
@@ -148,6 +149,11 @@ namespace
 			&& Sky.ProcessedTexture->GetDesc().Dimension == ETextureDimension::TextureCube;
 		uint32 Source = SkySourceSH;
 		const TCHAR* Fallback = nullptr;
+		// W49 (FogMS_Weather_Design.md 4.2): with a FogMS Weather sky dome the Real Time Capture renders the dome (Is Sky mesh: the atmosphere
+		// AND the weather clouds, ReflectionEnvironmentRealTimeCapture.cpp 'If there are any mesh tagged as IsSky then we render them only');
+		// the Sky View LUT still holds the cloudless atmosphere. The capture's SH (View.SkyIrradianceEnvironmentMap, the same SH that lights
+		// the world and the fog) is then the sky: overcast darkens and greys the light inside the Boxes as it does outside.
+		const bool bWeatherCapture = Sky.bRealTimeCapture && Sky.bWeatherSky;
 		switch (Mode)
 		{
 		case 2:
@@ -161,7 +167,8 @@ namespace
 		case 4:
 			break;
 		default: // 0 = auto
-			if (Sky.bRealTimeCapture && bAtmosphere) Source = SkySourceViewLut;
+			if (bWeatherCapture) Source = SkySourceSH;
+			else if (Sky.bRealTimeCapture && bAtmosphere) Source = SkySourceViewLut;
 			else if (!Sky.bRealTimeCapture && bCapture) Source = SkySourceCubemap;
 			else Fallback = Sky.bRealTimeCapture ? TEXT("auto: Real Time Capture without a rendered SkyAtmosphere")
 				: TEXT("auto: processed capture not ready");
@@ -211,8 +218,13 @@ namespace
 		}
 		else
 		{
-			OutSkySource = TEXT("SH");
+			OutSkySource = bWeatherCapture ? TEXT("SH (Real Time Capture, weather clouds)") : TEXT("SH");
 		}
+		// W49: sources that miss (or freeze) the weather clouds of the sky dome.
+		if (Sky.bWeatherSky && Source == SkySourceViewLut)
+			OutSkySource += TEXT(" (the FogMS Weather clouds are not in the Sky View LUT: r.FogMS.World.SkySource 0 or 4 takes the capture's SH)");
+		else if (Sky.bWeatherSky && !Sky.bRealTimeCapture)
+			OutSkySource += TEXT(" (a static sky capture holds the FogMS Weather clouds of its last recapture only: tick Real Time Capture on the SkyLight)");
 		if (Fallback) OutSkySource += FString::Printf(TEXT(" (fallback: %s)"), Fallback);
 		if (Sky.Count > 1) OutSkySource += FString::Printf(TEXT(" [%d sky lights; first ASkyLight used]"), Sky.Count);
 		return true;

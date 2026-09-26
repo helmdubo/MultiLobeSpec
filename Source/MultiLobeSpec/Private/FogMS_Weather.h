@@ -8,18 +8,19 @@
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class USceneComponent;
+class UStaticMeshComponent;
 class UTexture2D;
 class UTextureRenderTarget2D;
 
-/** W48 built-in weather states (FogMS_Weather_Design.md 1.6: oktas / 8, WMO altitudes of the middle latitudes). */
+/** W48 built-in weather states (FogMS_Weather_Design.md 1.6: oktas / 8, WMO altitudes of the middle latitudes); W49 adds the cirrus. */
 UENUM(BlueprintType)
 enum class EFogMSWeatherPreset : uint8
 {
 	Custom = 0 UMETA(DisplayName="Custom", ToolTip="The values are edited directly."),
-	Clear = 1 UMETA(DisplayName="Clear (SKC)", ToolTip="No low or middle clouds: no weather shadows (cirrus is W49's sky)."),
-	Scattered = 2 UMETA(DisplayName="Scattered (SCT)", ToolTip="Cumulus mediocris, coverage 0.40 (3 oktas), base 1.0 km, top 2.5 km, extinction 0.05 1/m, wind 8 m/s; no deck."),
-	Broken = 3 UMETA(DisplayName="Broken (BKN)", ToolTip="Stratocumulus / cumulus congestus, coverage 0.75 (6 oktas), base 0.8 km, top 3.0 km, extinction 0.07 1/m; altostratus deck 0.30 at 2.5-3.5 km; wind 10 m/s."),
-	Overcast = 4 UMETA(DisplayName="Overcast (OVC)", ToolTip="Stratus / stratocumulus sheet, coverage 1.0 (8 oktas), base 0.5 km, top 1.2 km, extinction 0.07 1/m; altostratus deck 0.80 at 2.0-3.5 km; wind 10 m/s. No direct sun on the ground.")
+	Clear = 1 UMETA(DisplayName="Clear (SKC)", ToolTip="No clouds at all: no weather shadows, no cirrus, the sky dome stays off (the sky is exactly the level's own, as without a weather actor)."),
+	Scattered = 2 UMETA(DisplayName="Scattered (SCT)", ToolTip="Cumulus mediocris, coverage 0.40 (3 oktas), base 1.0 km, top 2.5 km, extinction 0.05 1/m, wind 8 m/s; no deck; cirrus 0.30 at 8 km."),
+	Broken = 3 UMETA(DisplayName="Broken (BKN)", ToolTip="Stratocumulus / cumulus congestus, coverage 0.75 (6 oktas), base 0.8 km, top 3.0 km, extinction 0.07 1/m; altostratus deck 0.30 at 2.5-3.5 km; cirrostratus 0.30 at 7 km; wind 10 m/s."),
+	Overcast = 4 UMETA(DisplayName="Overcast (OVC)", ToolTip="Stratus / stratocumulus sheet, coverage 1.0 (8 oktas), base 0.5 km, top 1.2 km, extinction 0.07 1/m; altostratus deck 0.80 at 2.0-3.5 km; wind 10 m/s. No direct sun on the ground, no visible cirrus.")
 };
 
 /** W48 decision 2 (FogMS_Weather_Design.md 7): how the weather reaches the engine's cloud shadow map through the cloud host. Picked by the
@@ -74,11 +75,26 @@ struct FFogMSWeatherValues
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Wind", meta=(DisplayName="Wind Direction", UIMin="-180.0", UIMax="180.0", Units="Degrees", ToolTip="The direction the clouds move TOWARD, as a yaw around +Z (0 = +X, 90 = +Y)."))
 	float WindDirectionDeg = 30.0f;
 
+	/** W49 high layer (L2, cirrus / cirrostratus): a thin 2D layer drawn only by the sky dome (optical depth below 1-3: no ground shadow,
+	 * FogMS_Weather_Design.md 3.2). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="High Layer (L2)", meta=(DisplayName="Cirrus Coverage", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Area fraction of the cirrus streaks on the sky dome. 0 = no cirrus."))
+	float CirrusCoverage = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="High Layer (L2)", meta=(DisplayName="Cirrus Altitude", ClampMin="0.5", UIMin="3.0", UIMax="13.0", Units="km", ToolTip="Altitude of the cirrus layer above the SkyAtmosphere ground (km, physical scale; WMO middle latitudes 5-13 km)."))
+	float CirrusAltitudeKm = 8.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="High Layer (L2)", meta=(DisplayName="Cirrus Optical Depth", ClampMin="0.0", ClampMax="5.0", UIMin="0.0", UIMax="3.0", ToolTip="Vertical optical depth of a full cirrus streak (ice: 0.1-3). The dome makes it slanted toward the horizon."))
+	float CirrusOpticalDepth = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="High Layer (L2)", meta=(DisplayName="Cirrus Streak Direction", UIMin="-180.0", UIMax="180.0", Units="Degrees", ToolTip="Yaw of the streaks' long axis (0 = +X)."))
+	float CirrusStreakDeg = 30.0f;
+
 	/** Component-wise blend (wind as a vector). */
 	static FFogMSWeatherValues Lerp(const FFogMSWeatherValues& A, const FFogMSWeatherValues& B, float T);
 	bool Equals(const FFogMSWeatherValues& Other) const;
 	bool HasLowLayer() const { return Coverage > 0.0f && Extinction > 0.0f && TopKm > BaseKm; }
 	bool HasDeck() const { return DeckCoverage > 0.0f && DeckExtinction > 0.0f && DeckTopKm > DeckBaseKm; }
+	bool HasCirrus() const { return CirrusCoverage > 0.0f && CirrusOpticalDepth > 0.0f; }
 };
 
 /**
@@ -105,6 +121,9 @@ public:
 	/** The built-in numbers of a preset (Custom: the struct defaults). */
 	static FFogMSWeatherValues GetPresetValues(EFogMSWeatherPreset InPreset);
 
+	/** W49: a preset asset (Preset != Custom) always carries its preset's numbers, so an asset saved before a version added fields (W49
+	 * cirrus) gets the new ones on load. Custom assets keep what they have (new fields: the struct defaults). */
+	virtual void PostLoad() override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
@@ -128,8 +147,18 @@ public:
  *   no cloud host in the level and Create Cloud Host ticked: SpawnHost (the FogMS.CloudHost.Create path); the actor remembers it and deletes
  *     it with itself when no Box renders through it. Without a Box the host is 'shadows only' (empty view trace);
  *   the engine's cloud shadow map (sun: Cast Cloud Shadows, extent/resolution, FogMS.Weather.SetupShadows) then shadows the ground, the
- *     fog, Lumen and the atmosphere. Not in W48: visible weather clouds (W49 sky dome), the weather inside the hero clouds and the solver
- *     (W50), storms and lightning (W52).
+ *     fog, Lumen and the atmosphere;
+ *   W49 sky dome (FogMS_Weather_Design.md 3.2, 4.2, 6 'W49'): SkyDome, a transient static mesh sphere (Sky Dome Radius, 1000 km, around
+ *     this actor) with a MID of M_FogMS_WeatherSky (Unlit, Is Sky, matedit_weather.py) fed every tick with the SAME weather parameters as the
+ *     cloud host (origin, domain, wind, L0, L1, the weather map / LUT / pattern / curl) plus the cirrus L2 and the march / light settings:
+ *     the visible clouds are the shadow pass's density, so they line up with their ground shadows. The engine draws an Is Sky mesh only in
+ *     its SkyPass (depth-tested, no depth write): sky pixels keep the far depth, the SkyAtmosphere stops drawing its own sky pixels (the
+ *     dome draws the atmosphere with SkyAtmosphereViewLuminance), fog and the cloud host compose over the dome exactly as over the
+ *     atmosphere's sky, and the SkyLight's Real Time Capture renders the dome (the cheap Reflection Capture Pass Switch branch) instead of
+ *     the atmosphere: the sky light, Lumen's sky, the fog's SH and the FogMS solver (auto sky source: the capture's SH while the dome is
+ *     active, FogMS_WorldSources.cpp) darken and grey with the weather. The dome shows only while a layer is visible (Clear: off, the sky is
+ *     exactly the level's own) and r.FogMS.Weather.SkyDome is 1; it is never saved (transient) and goes with the actor.
+ *   Not yet: the weather inside the hero clouds and the solver's sun (W50), fog by weather (W51), storms and lightning (W52).
  * Status: WeatherStatus (Details), GetWeatherStatus, console FogMS.Weather.Status. Console FogMS.Weather.Set <preset|asset> [seconds].
  */
 UCLASS(BlueprintType, Blueprintable, ClassGroup=(FogMS), hidecategories=(Collision, Physics, Input, HLOD, Replication, Networking, LevelInstance, Cooking), meta=(DisplayName="FogMS Weather"))
@@ -180,6 +209,36 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather", meta=(ClampMin="1.0", ClampMax="200.0", Units="km", ToolTip="Cloud Shadow Extent the button / FogMS.Weather.SetupShadows gives the sun (the map's radius around the camera); the status warns when the sun's extent is smaller."))
 	float ShadowExtentKm = 10.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather|Sky", meta=(DisplayName="Sky Dome", ToolTip="W49: draw the weather clouds (low layer, deck, cirrus) on the sky with an Is Sky dome (M_FogMS_WeatherSky). The SkyLight's Real Time Capture then sees them: the sky light, the fog and the FogMS solver darken with the weather. Needs a SkyAtmosphere. Off (or Clear): the sky is the level's own. r.FogMS.Weather.SkyDome 0 hides it everywhere."))
+	bool bSkyDome = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="5.0", ClampMax="400.0", Units="km", ToolTip="How far along the view ray the dome marches the low layer and the deck (physical scale, x Weather Scale); the density fades out over the last 40 % (the cirrus reaches twice as far). Beyond it the aerial perspective hides the clouds anyway."))
+	float SkyMaxDistanceKm = 60.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="1", ClampMax="64", ToolTip="Ray-march steps through the low layer per sky pixel (design 16-32; the capture uses 6). Cost scales with it."))
+	int32 SkyViewSteps = 20;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="1", ClampMax="32", ToolTip="Ray-march steps through the deck (smooth: fewer are enough; the capture uses 4)."))
+	int32 SkyDeckSteps = 8;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="1", ClampMax="8", ToolTip="Samples toward the sun per lit low-layer sample (design 4-6; the capture uses 1). The deck above is added analytically (two-stream)."))
+	int32 SkySunSamples = 4;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="-0.95", ClampMax="0.95", ToolTip="Forward lobe g of the dual-lobe Henyey-Greenstein phase of the sky clouds (water clouds ~0.8: bright rims toward the sun)."))
+	float SkyPhaseForward = 0.8f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="-0.95", ClampMax="0.95", ToolTip="Backward lobe g of the dual-lobe phase (negative: back scattering, the sun-lit side seen from the sun's side)."))
+	float SkyPhaseBack = -0.3f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="0.0", ClampMax="1.0", ToolTip="Weight of the backward lobe."))
+	float SkyPhaseBackWeight = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="0.0", ClampMax="1.0", ToolTip="Sky light at the cloud base relative to the top (the volumetric cloud's Sky Light Cloud Bottom Occlusion as a visibility: 0.5 = half at the base, full at the top)."))
+	float SkyBottomVisibility = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="50.0", ClampMax="10000.0", Units="km", ToolTip="Radius of the dome sphere around this actor. It only has to enclose every camera and all geometry (the dome is drawn behind everything, the picture does not depend on the radius)."))
+	float SkyDomeRadiusKm = 1000.0f;
+
 	/** Button: the sun's Cast Cloud Shadows on, Cloud Shadow Extent = Shadow Extent Km, resolution x2 (1024), shadow ray samples x1 (Thin)
 	 * or x4 (Extended); one log line with the previous values, one undo step (UFogMSCloudHostSubsystem::SetupSunShadows). */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category="FogMS Weather", meta=(DisplayName="Setup Sun Shadows", ToolTip="Sets the atmosphere sun up for the weather shadows: Cast Cloud Shadows on, Cloud Shadow Extent = Shadow Extent Km (10), Cloud Shadow Map Resolution Scale 2 (1024 texels: 19.5 m at 10 km), Cloud Shadow Ray Sample Count Scale 1 with the Thin layer (the engine's 16 samples through the hero band) or 4 with the Extended layer (64 through the tall layer; the shadow pass costs in proportion). One log line with the previous values; Ctrl+Z undoes it. Nothing is saved."))
@@ -197,6 +256,10 @@ public:
 
 	/** The plugin's preset asset (DA_FogMS_Weather_<Preset>), or a transient state with the built-in values when it is missing. */
 	static UFogMSWeatherState* FindPresetState(EFogMSWeatherPreset Preset);
+
+	/** W49 (game thread): a FogMS Weather actor of World shows its sky dome now, i.e. the SkyLight's Real Time Capture holds the weather
+	 * clouds (FogMS_BoxRuntime.cpp -> FFogMSWorldSky::bWeatherSky: the solver's auto sky source takes the capture's SH). */
+	static bool IsSkyDomeActive(const UWorld* World);
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS Weather", meta=(DisplayName="Weather Status"))
 	FString WeatherStatus;
@@ -231,6 +294,18 @@ public:
 	TObjectPtr<UTexture2D> CurlTexture;
 	UPROPERTY(EditAnywhere, AdvancedDisplay, Category="FogMS Weather|Assets")
 	TObjectPtr<UTexture2D> TypeLUT;
+	/** W49: the sky dome material (empty = /MultiLobeSpec/FogMS/Weather/M_FogMS_WeatherSky, matedit_weather.py). */
+	UPROPERTY(EditAnywhere, AdvancedDisplay, Category="FogMS Weather|Assets")
+	TObjectPtr<UMaterialInterface> SkyMaterial;
+
+	/** W49 sky dome: created with the actor, TRANSIENT (never saved: a level saved while it shows reloads it hidden and without a material,
+	 * and the actor rebuilds it), hidden until the weather feeds it. Not selectable (clicking the sky does not select this actor), no
+	 * shadows, no collision, not in ray tracing / distance fields / Lumen / HLOD, ignored by the editor's focus. */
+	UPROPERTY(VisibleAnywhere, Transient, Category="FogMS Weather|Sky")
+	TObjectPtr<UStaticMeshComponent> SkyDome;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS Weather|Sky", meta=(DisplayName="Sky Dome Active", ToolTip="The dome shows the weather sky now (and the SkyLight's Real Time Capture holds it)."))
+	bool bSkyDomeActive = false;
 
 private:
 	UPROPERTY(VisibleAnywhere, Category="FogMS Weather")
@@ -239,6 +314,17 @@ private:
 	TObjectPtr<UMaterialInstanceDynamic> ComposeMID;
 	UPROPERTY(Transient, DuplicateTransient)
 	TObjectPtr<UMaterialInstanceDynamic> SunMID;
+	UPROPERTY(Transient, DuplicateTransient)
+	TObjectPtr<UMaterialInstanceDynamic> SkyMID;
+
+	/** W49: the dome for this tick's blended values (after the host feed): visibility, mesh, MID and its parameters; SkyNote = the status
+	 * part. Returns nothing: every problem hides the dome and says why. */
+	void UpdateSkyDome(const FFogMSWeatherValues& V, double Scale, const FLinearColor& Origin, const FLinearColor& Domain, const FLinearColor& Wind,
+		const FLinearColor& L0, const FLinearColor& L1);
+	/** Hides the dome (one log line when it was shown); bSkyDomeActive false. */
+	void HideSkyDome(const FString& Reason);
+	FString SkyNote;
+	FString LastSkyLog;
 
 	void UpdateWeather(float DeltaSeconds);
 	/** Materials, textures, MIDs, render targets, the RGBA write check. False with OutProblem when something is missing (retried on disk

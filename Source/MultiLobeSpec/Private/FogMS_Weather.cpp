@@ -3,7 +3,14 @@
 
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/SkyAtmosphereComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/VolumetricCloudComponent.h"
+#include "Engine/CollisionProfile.h"
 #include "Engine/Engine.h"
+#include "Engine/SkyLight.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
@@ -11,11 +18,13 @@
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
 #include "Kismet/KismetRenderingLibrary.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "MultiLobeSpec.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/UObjectHash.h"
 
 namespace
 {
@@ -26,6 +35,17 @@ namespace
 	const TCHAR* const FogMS_PatternName = TEXT("T_FogMS_WeatherPattern");
 	const TCHAR* const FogMS_CurlName = TEXT("T_FogMS_Curl2D");
 	const TCHAR* const FogMS_LUTName = TEXT("T_FogMS_CloudTypeLUT");
+	/** W49 sky dome: the material (matedit_weather.py, its scalar FogMS_SkyOn tells a W49 material) and the engine's unit sphere (radius
+	 * 50 cm; the dome scales it to Sky Dome Radius). */
+	const TCHAR* const FogMS_SkyName = TEXT("M_FogMS_WeatherSky");
+	const TCHAR* const FogMS_SkyOnParameter = TEXT("FogMS_SkyOn");
+	const TCHAR* const FogMS_SkyMeshPath = TEXT("/Engine/BasicShapes/Sphere.Sphere");
+	constexpr double FogMS_SkyMeshRadiusCm = 50.0;
+
+	TAutoConsoleVariable<int32> CVarWeatherSkyDome(TEXT("r.FogMS.Weather.SkyDome"), 1,
+		TEXT("W49: 1 (default) = a FogMS Weather actor with Sky Dome ticked draws its visible clouds (low layer, deck, cirrus) on an Is Sky dome ")
+		TEXT("(M_FogMS_WeatherSky); the SkyLight's Real Time Capture then holds them and the FogMS solver's auto sky source takes the capture's SH. ")
+		TEXT("0 = the dome is hidden everywhere (A/B: the sky is the level's own again, the weather shadows stay)."), ECVF_Default);
 	/** RT_FogMS_WeatherMap / RT_FogMS_WeatherSun size (design 3.6: 512^2 over 16-32 km). */
 	constexpr int32 FogMS_WeatherMapSize = 512;
 	constexpr double FogMS_KmToCm = 1.0e5;
@@ -101,7 +121,10 @@ namespace
 		const FString Deck = V.HasDeck()
 			? FString::Printf(TEXT("deck %.2f %.2f-%.2f km sigma %.3f/m"), V.DeckCoverage, V.DeckBaseKm, V.DeckTopKm, V.DeckExtinction)
 			: FString(TEXT("deck off"));
-		return FString::Printf(TEXT("%s; %s; wind %.1f m/s toward %.0f deg"), *Low, *Deck, V.WindSpeed, V.WindDirectionDeg);
+		const FString Cirrus = V.HasCirrus()
+			? FString::Printf(TEXT("cirrus %.2f at %.1f km tau %.2f"), V.CirrusCoverage, V.CirrusAltitudeKm, V.CirrusOpticalDepth)
+			: FString(TEXT("cirrus off"));
+		return FString::Printf(TEXT("%s; %s; %s; wind %.1f m/s toward %.0f deg"), *Low, *Deck, *Cirrus, V.WindSpeed, V.WindDirectionDeg);
 	}
 
 	// Console: FogMS.Weather.Set <Clear|Scattered|Broken|Overcast|asset path> [seconds]
@@ -187,6 +210,10 @@ FFogMSWeatherValues FFogMSWeatherValues::Lerp(const FFogMSWeatherValues& A, cons
 	Out.DeckBaseKm = FMath::Lerp(A.DeckBaseKm, B.DeckBaseKm, T);
 	Out.DeckTopKm = FMath::Lerp(A.DeckTopKm, B.DeckTopKm, T);
 	Out.DeckExtinction = FMath::Lerp(A.DeckExtinction, B.DeckExtinction, T);
+	Out.CirrusCoverage = FMath::Lerp(A.CirrusCoverage, B.CirrusCoverage, T);
+	Out.CirrusAltitudeKm = FMath::Lerp(A.CirrusAltitudeKm, B.CirrusAltitudeKm, T);
+	Out.CirrusOpticalDepth = FMath::Lerp(A.CirrusOpticalDepth, B.CirrusOpticalDepth, T);
+	Out.CirrusStreakDeg = A.CirrusStreakDeg + T * FMath::FindDeltaAngleDegrees(A.CirrusStreakDeg, B.CirrusStreakDeg);
 	// Wind as a vector: a turn through the short way, the speed blends with it.
 	const float RadA = FMath::DegreesToRadians(A.WindDirectionDeg), RadB = FMath::DegreesToRadians(B.WindDirectionDeg);
 	const FVector2D Wind = FMath::Lerp(FVector2D(FMath::Cos(RadA), FMath::Sin(RadA)) * A.WindSpeed, FVector2D(FMath::Cos(RadB), FMath::Sin(RadB)) * B.WindSpeed, T);
@@ -199,7 +226,9 @@ bool FFogMSWeatherValues::Equals(const FFogMSWeatherValues& O) const
 {
 	return Coverage == O.Coverage && CloudType == O.CloudType && BaseKm == O.BaseKm && TopKm == O.TopKm && Extinction == O.Extinction
 		&& DetailStrength == O.DetailStrength && DeckCoverage == O.DeckCoverage && DeckBaseKm == O.DeckBaseKm && DeckTopKm == O.DeckTopKm
-		&& DeckExtinction == O.DeckExtinction && WindSpeed == O.WindSpeed && WindDirectionDeg == O.WindDirectionDeg;
+		&& DeckExtinction == O.DeckExtinction && WindSpeed == O.WindSpeed && WindDirectionDeg == O.WindDirectionDeg
+		&& CirrusCoverage == O.CirrusCoverage && CirrusAltitudeKm == O.CirrusAltitudeKm && CirrusOpticalDepth == O.CirrusOpticalDepth
+		&& CirrusStreakDeg == O.CirrusStreakDeg;
 }
 
 FFogMSWeatherValues UFogMSWeatherState::GetPresetValues(EFogMSWeatherPreset InPreset)
@@ -212,15 +241,27 @@ FFogMSWeatherValues UFogMSWeatherState::GetPresetValues(EFogMSWeatherPreset InPr
 		V.Coverage = Coverage; V.CloudType = Type; V.BaseKm = Base; V.TopKm = Top; V.Extinction = Sigma; V.DetailStrength = Detail;
 		V.DeckCoverage = Deck; V.DeckBaseKm = DeckBase; V.DeckTopKm = DeckTop; V.DeckExtinction = DeckSigma; V.WindSpeed = Wind; V.WindDirectionDeg = 30.0f;
 	};
+	// W49 cirrus (design 1.6: SCT Ci/Cc 0-0.3, BKN Cs 0.3; Clear keeps 0 so that it stays identical to no weather actor; Overcast hides it).
+	const auto SetCirrus = [&V](float Coverage, float AltitudeKm, float OpticalDepth)
+	{
+		V.CirrusCoverage = Coverage; V.CirrusAltitudeKm = AltitudeKm; V.CirrusOpticalDepth = OpticalDepth; V.CirrusStreakDeg = 30.0f;
+	};
 	switch (InPreset)
 	{
-	case EFogMSWeatherPreset::Clear:     Set(0.00f, 0.50f, 1.0f, 2.0f, 0.05f, 1.0f, 0.00f, 2.5f, 3.5f, 0.03f, 5.0f); break;
-	case EFogMSWeatherPreset::Scattered: Set(0.40f, 0.50f, 1.0f, 2.5f, 0.05f, 1.0f, 0.00f, 2.5f, 3.5f, 0.03f, 8.0f); break;
-	case EFogMSWeatherPreset::Broken:    Set(0.75f, 0.60f, 0.8f, 3.0f, 0.07f, 1.0f, 0.30f, 2.5f, 3.5f, 0.03f, 10.0f); break;
-	case EFogMSWeatherPreset::Overcast:  Set(1.00f, 0.15f, 0.5f, 1.2f, 0.07f, 0.6f, 0.80f, 2.0f, 3.5f, 0.03f, 10.0f); break;
+	case EFogMSWeatherPreset::Clear:     Set(0.00f, 0.50f, 1.0f, 2.0f, 0.05f, 1.0f, 0.00f, 2.5f, 3.5f, 0.03f, 5.0f); SetCirrus(0.0f, 8.0f, 0.5f); break;
+	case EFogMSWeatherPreset::Scattered: Set(0.40f, 0.50f, 1.0f, 2.5f, 0.05f, 1.0f, 0.00f, 2.5f, 3.5f, 0.03f, 8.0f); SetCirrus(0.3f, 8.0f, 0.4f); break;
+	case EFogMSWeatherPreset::Broken:    Set(0.75f, 0.60f, 0.8f, 3.0f, 0.07f, 1.0f, 0.30f, 2.5f, 3.5f, 0.03f, 10.0f); SetCirrus(0.3f, 7.0f, 0.6f); break;
+	case EFogMSWeatherPreset::Overcast:  Set(1.00f, 0.15f, 0.5f, 1.2f, 0.07f, 0.6f, 0.80f, 2.0f, 3.5f, 0.03f, 10.0f); SetCirrus(0.0f, 8.0f, 0.5f); break;
 	default: break;
 	}
 	return V;
+}
+
+void UFogMSWeatherState::PostLoad()
+{
+	Super::PostLoad();
+	// W49: fields added after the asset was saved (the cirrus) come from the preset; a preset asset's values are the preset's by construction.
+	if (Preset != EFogMSWeatherPreset::Custom) Values = GetPresetValues(Preset);
 }
 
 void UFogMSWeatherState::ApplyPreset(EFogMSWeatherPreset InPreset)
@@ -255,6 +296,55 @@ AFogMSWeather::AFogMSWeather()
 	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	Root->SetMobility(EComponentMobility::Movable);
 	SetRootComponent(Root);
+	// W49: the dome's 1000 km bounds must not become the level's bounds (level bounds, lightmass importance).
+	bRelevantForLevelBounds = false;
+
+	// W49 sky dome (class comment): transient (never saved), hidden until fed, invisible to everything but the SkyPass and the sky capture.
+	SkyDome = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SkyDome"), /*bTransient*/ true);
+	SkyDome->SetupAttachment(Root);
+	SkyDome->SetMobility(EComponentMobility::Movable);
+	SkyDome->SetUsingAbsoluteRotation(true);
+	SkyDome->SetUsingAbsoluteScale(true);
+	SkyDome->SetVisibility(false);
+	SkyDome->SetCastShadow(false);
+	SkyDome->bCastDynamicShadow = false;
+	SkyDome->bCastStaticShadow = false;
+	SkyDome->bAffectDynamicIndirectLighting = false;
+	SkyDome->bAffectDistanceFieldLighting = false;
+	SkyDome->bVisibleInRayTracing = false;
+	SkyDome->bVisibleInRealTimeSkyCaptures = true;
+	SkyDome->bVisibleInReflectionCaptures = true;
+	SkyDome->bReceivesDecals = false;
+	SkyDome->bUseAsOccluder = false;
+	SkyDome->bSelectable = false;
+	SkyDome->bNeverDistanceCull = true;
+	SkyDome->bAllowCullDistanceVolume = false;
+	SkyDome->bEnableAutoLODGeneration = false;
+	SkyDome->SetIgnoreBoundsForEditorFocus(true);
+	SkyDome->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	SkyDome->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+	SkyDome->SetGenerateOverlapEvents(false);
+	SkyDome->SetCanEverAffectNavigation(false);
+}
+
+bool AFogMSWeather::IsSkyDomeActive(const UWorld* World)
+{
+	if (!World) return false;
+	for (TActorIterator<AFogMSWeather> It(const_cast<UWorld*>(World)); It; ++It)
+		if (!It->IsActorBeingDestroyed() && It->bSkyDomeActive) return true;
+	return false;
+}
+
+void AFogMSWeather::HideSkyDome(const FString& Reason)
+{
+	const bool bWasShown = SkyDome && SkyDome->GetVisibleFlag();
+	if (bWasShown) SkyDome->SetVisibility(false);
+	bSkyDomeActive = false;
+	SkyNote = FString::Printf(TEXT("sky dome off: %s"), *Reason);
+	// One line when the dome goes away, and when the reason for keeping it off changes (never every tick).
+	if (bWasShown || (!LastSkyLog.IsEmpty() && Reason != LastSkyLog))
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather '%s': sky dome off (%s)."), *GetActorNameOrLabel(), *Reason);
+	LastSkyLog = Reason;
 }
 
 UFogMSWeatherState* AFogMSWeather::FindPresetState(EFogMSWeatherPreset Preset)
@@ -346,6 +436,7 @@ void AFogMSWeather::StopFeeding(const TCHAR* Reason, bool bDeleteCreatedHost)
 	UFogMSCloudHostSubsystem* Hosts = World ? World->GetSubsystem<UFogMSCloudHostSubsystem>() : nullptr;
 	if (Hosts && bFeeding) Hosts->StopWeather(*this, Reason);
 	bFeeding = false;
+	HideSkyDome(Reason);
 	if (bDeleteCreatedHost && IsValid(CreatedCloudHost) && Hosts)
 	{
 		if (Hosts->IsHostBoundToBox(CreatedCloudHost))
@@ -483,19 +574,22 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 	UFogMSCloudHostSubsystem* Hosts = World ? World->GetSubsystem<UFogMSCloudHostSubsystem>() : nullptr;
 	if (!Hosts)
 	{
+		HideSkyDome(TEXT("no FogMS cloud host subsystem in this world"));
 		WeatherStatus = TEXT("Inactive: no FogMS cloud host subsystem in this world (editor, PIE and game worlds only)");
 		return;
 	}
 	if (!bEnabled)
 	{
 		if (bFeeding) StopFeeding(TEXT("Enabled unticked"), false);
-		WeatherStatus = TEXT("Off (Enabled unticked): the cloud host is as without weather");
+		HideSkyDome(TEXT("Enabled unticked"));
+		WeatherStatus = TEXT("Off (Enabled unticked): the cloud host and the sky are as without weather");
 		return;
 	}
 	FString Other;
 	if (!Hosts->ClaimWeather(*this, Other))
 	{
 		bFeeding = false;
+		HideSkyDome(FString::Printf(TEXT("FogMS Weather '%s' drives this world"), *Other));
 		WeatherStatus = FString::Printf(TEXT("Inactive: FogMS Weather '%s' drives this world (one weather actor per level)"), *Other);
 		return;
 	}
@@ -529,6 +623,7 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 	if (!EnsureResources(Problem))
 	{
 		if (bFeeding) StopFeeding(TEXT("its resources are missing"), false);
+		HideSkyDome(TEXT("the weather resources are missing"));
 		if (Problem != LastLoggedProblem)
 		{
 			LastLoggedProblem = Problem;
@@ -645,6 +740,9 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 		if (Host) CreatedCloudHost = Host;
 	}
 
+	// 7b. W49: the visible weather sky (the same parameters as the host's shadow pass).
+	UpdateSkyDome(V, Scale, Origin, Domain, Wind, L0, L1);
+
 	// 8. Status.
 	const FString StateText = bTransition
 		? FString::Printf(TEXT("'%s' -> '%s' %.0f %% (%.1f of %.1f s)"), *FromName, *ToName, 100.0f * Progress, TransitionElapsed, TransitionDuration)
@@ -661,9 +759,129 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 			SunNote += FString::Printf(TEXT(": weather shadows only within %g km of the camera; Setup Sun Shadows gives %g km"), Sun->CloudShadowExtent, ShadowExtentKm);
 	}
 	const FString HostNote = Hosts->GetWeatherNote().IsEmpty() ? FString(TEXT("waiting for the cloud host subsystem tick")) : Hosts->GetWeatherNote();
-	WeatherStatus = FString::Printf(TEXT("%s: %s: %s | map %d^2 over %.1f km (%.0f m/texel), drawn %d x | %s | %s | %s"),
-		bActive ? TEXT("Active") : TEXT("Clear"), *StateText, *FogMS_ValuesText(V), FogMS_WeatherMapSize, DomainCm * 1.0e-5,
-		DomainCm * 0.01 / FogMS_WeatherMapSize, MapDrawCount,
+	WeatherStatus = FString::Printf(TEXT("%s: %s: %s | map %d^2 over %.1f km (%.0f m/texel), drawn %d x | %s | %s | %s | %s"),
+		bActive ? TEXT("Active") : (V.HasCirrus() ? TEXT("Cirrus only") : TEXT("Clear")), *StateText, *FogMS_ValuesText(V), FogMS_WeatherMapSize,
+		DomainCm * 1.0e-5, DomainCm * 0.01 / FogMS_WeatherMapSize, MapDrawCount,
 		bThin ? TEXT("shadow layer: thin (the weather column spread over the host layer)") : TEXT("shadow layer: extended host layer"),
-		*HostNote, *SunNote);
+		*HostNote, *SunNote, *SkyNote);
+}
+
+void AFogMSWeather::UpdateSkyDome(const FFogMSWeatherValues& V, double Scale, const FLinearColor& Origin, const FLinearColor& Domain,
+	const FLinearColor& Wind, const FLinearColor& L0, const FLinearColor& L1)
+{
+	UWorld* World = GetWorld();
+	if (!SkyDome || !World) return;
+	if (!bSkyDome) { HideSkyDome(TEXT("Sky Dome unticked")); return; }
+	if (CVarWeatherSkyDome.GetValueOnGameThread() == 0) { HideSkyDome(TEXT("r.FogMS.Weather.SkyDome 0")); return; }
+	if (!V.HasLowLayer() && !V.HasDeck() && !V.HasCirrus())
+	{
+		HideSkyDome(TEXT("no visible layer (Clear): the sky is the level's own"));
+		return;
+	}
+	// The dome draws the atmosphere itself with the SkyAtmosphere material nodes: without a SkyAtmosphere they return 0 (a black sky).
+	bool bAtmosphere = false;
+	ForEachObjectOfClass(USkyAtmosphereComponent::StaticClass(), [&bAtmosphere, World](UObject* Object)
+	{
+		const USkyAtmosphereComponent* Sky = static_cast<const USkyAtmosphereComponent*>(Object);
+		if (!bAtmosphere && Sky->GetWorld() == World && Sky->IsRegistered() && Sky->ShouldRender()) bAtmosphere = true;
+	}, true, RF_ClassDefaultObject | RF_ArchetypeObject, EInternalObjectFlags::Garbage);
+	if (!bAtmosphere) { HideSkyDome(TEXT("no rendering SkyAtmosphere in the level (the dome draws the atmosphere with its nodes)")); return; }
+
+	// Material (a W49 M_FogMS_WeatherSky has FogMS_SkyOn) and the engine's sphere; both looked up by path like the other weather assets.
+	UMaterialInterface* Material = SkyMaterial ? SkyMaterial.Get() : FogMS_LoadWeatherAsset<UMaterialInterface>(FogMS_SkyName);
+	float OnDefault = 0.0f;
+	if (!Material || !Material->GetScalarParameterDefaultValue(FHashedMaterialParameterInfo(FogMS_SkyOnParameter), OnDefault))
+	{
+		HideSkyDome(FString::Printf(TEXT("%s is missing or older than W49 (run matedit_weather.py)"), FogMS_SkyName));
+		return;
+	}
+	const UMaterial* Base = Material->GetMaterial();
+	if (!Base || !Base->bIsSky)
+	{
+		HideSkyDome(FString::Printf(TEXT("%s is not an Is Sky material"), *Material->GetName()));
+		return;
+	}
+	if (!SkyDome->GetStaticMesh())
+	{
+		UStaticMesh* Mesh = FindObject<UStaticMesh>(nullptr, FogMS_SkyMeshPath);
+		if (!Mesh) Mesh = LoadObject<UStaticMesh>(nullptr, FogMS_SkyMeshPath, nullptr, LOAD_NoWarn | LOAD_Quiet);
+		if (!Mesh || !SkyDome->SetStaticMesh(Mesh))
+		{
+			HideSkyDome(FString::Printf(TEXT("cannot set the dome mesh %s"), FogMS_SkyMeshPath));
+			return;
+		}
+	}
+	if (!SkyMID || SkyMID->Parent != Material)
+	{
+		SkyMID = UMaterialInstanceDynamic::Create(Material, this, MakeUniqueObjectName(this, UMaterialInstanceDynamic::StaticClass(), TEXT("MID_FogMS_WeatherSky")));
+		if (!SkyMID) { HideSkyDome(TEXT("cannot create the sky material instance")); return; }
+		SkyDome->SetMaterial(0, SkyMID);
+	}
+	const FVector WantScale(FMath::Max(static_cast<double>(SkyDomeRadiusKm), 50.0) * FogMS_KmToCm / FogMS_SkyMeshRadiusCm);
+	if (!SkyDome->GetComponentScale().Equals(WantScale, 1.0)) SkyDome->SetWorldScale3D(WantScale);
+
+	// The same weather parameters as the host's shadow pass (UFogMSCloudHostSubsystem::WriteWeatherParameters): the clouds line up with
+	// their shadows. Domain.w (the shadow pass's detail mip) is replaced in the shader by the pixel footprint.
+	SkyMID->SetScalarParameterValue(FogMS_SkyOnParameter, 1.0f);
+	SkyMID->SetTextureParameterValue(TEXT("FogMS_WeatherMap"), WeatherMap.Get());
+	if (UTexture2D* Texture = TypeLUT ? TypeLUT.Get() : FogMS_LoadWeatherAsset<UTexture2D>(FogMS_LUTName)) SkyMID->SetTextureParameterValue(TEXT("FogMS_WeatherTypeLUT"), Texture);
+	if (UTexture2D* Texture = PatternTexture ? PatternTexture.Get() : FogMS_LoadWeatherAsset<UTexture2D>(FogMS_PatternName)) SkyMID->SetTextureParameterValue(TEXT("FogMS_WeatherPattern"), Texture);
+	if (UTexture2D* Texture = CurlTexture ? CurlTexture.Get() : FogMS_LoadWeatherAsset<UTexture2D>(FogMS_CurlName)) SkyMID->SetTextureParameterValue(TEXT("FogMS_WeatherCurl"), Texture);
+	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherOrigin"), Origin);
+	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherDomain"), Domain);
+	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherWind"), Wind);
+	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherL0"), L0);
+	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherL1"), L1);
+	// Cirrus (coverage, altitude cm, optical depth, streak direction rad), march (max distance cm, L0 / deck steps, sun samples), light
+	// (phase g forward / back, back weight, sky light at the cloud base).
+	SkyMID->SetVectorParameterValue(TEXT("FogMS_SkyL2"), V.HasCirrus()
+		? FLinearColor(FMath::Clamp(V.CirrusCoverage, 0.0f, 1.0f), static_cast<float>(FMath::Max(V.CirrusAltitudeKm, 0.1f) * FogMS_KmToCm * Scale),
+			FMath::Max(V.CirrusOpticalDepth, 0.0f), FMath::DegreesToRadians(V.CirrusStreakDeg))
+		: FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+	SkyMID->SetVectorParameterValue(TEXT("FogMS_SkyMarch"), FLinearColor(static_cast<float>(FMath::Clamp(static_cast<double>(SkyMaxDistanceKm), 5.0, 400.0) * FogMS_KmToCm * Scale),
+		static_cast<float>(FMath::Clamp(SkyViewSteps, 1, 64)), static_cast<float>(FMath::Clamp(SkyDeckSteps, 1, 32)), static_cast<float>(FMath::Clamp(SkySunSamples, 1, 8))));
+	SkyMID->SetVectorParameterValue(TEXT("FogMS_SkyLight"), FLinearColor(FMath::Clamp(SkyPhaseForward, -0.95f, 0.95f), FMath::Clamp(SkyPhaseBack, -0.95f, 0.95f),
+		FMath::Clamp(SkyPhaseBackWeight, 0.0f, 1.0f), FMath::Clamp(SkyBottomVisibility, 0.0f, 1.0f)));
+
+	if (!SkyDome->GetVisibleFlag())
+	{
+		SkyDome->SetVisibility(true);
+		TArray<FString> Visible;
+		if (V.HasLowLayer()) Visible.Add(TEXT("low layer"));
+		if (V.HasDeck()) Visible.Add(TEXT("deck"));
+		if (V.HasCirrus()) Visible.Add(TEXT("cirrus"));
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather '%s': sky dome on (%s; Is Sky dome %.0f km around the actor, %s): the sky pixels, the SkyLight's Real Time Capture and the FogMS solver's auto sky source (SH of the capture) now follow the weather."),
+			*GetActorNameOrLabel(), *FString::Join(Visible, TEXT(", ")), SkyDomeRadiusKm, *Material->GetName());
+		LastSkyLog = TEXT("on");
+	}
+	bSkyDomeActive = true;
+
+	// Status: what reaches the sky light, and the two ways the ambient can miss the weather.
+	FString Light = TEXT("no SkyLight: the weather clouds light nothing (add a SkyLight with Real Time Capture)");
+	for (TActorIterator<ASkyLight> It(World); It; ++It)
+	{
+		const USkyLightComponent* Component = It->GetLightComponent();
+		if (!Component || !Component->IsRegistered() || !Component->bAffectsWorld || !Component->ShouldRender()) continue;
+		Light = Component->IsRealTimeCaptureEnabled()
+			? FString(TEXT("sky light: Real Time Capture holds the dome; the FogMS solver takes its SH"))
+			: FString::Printf(TEXT("the SkyLight '%s' has no Real Time Capture: the sky light, the fog and the FogMS solver do not follow the weather clouds (tick Real Time Capture)"),
+				*It->GetActorNameOrLabel());
+		break;
+	}
+	FString HeroNote;
+	if (const UMaterial* HostMaterial = UFogMSCloudHostSubsystem::GetCloudHostMaterial())
+	{
+		ForEachObjectOfClass(UVolumetricCloudComponent::StaticClass(), [&HeroNote, World, HostMaterial](UObject* Object)
+		{
+			const UVolumetricCloudComponent* Cloud = static_cast<const UVolumetricCloudComponent*>(Object);
+			const UMaterialInterface* CloudMaterial = Cloud->Material.Get();
+			if (!HeroNote.IsEmpty() || Cloud->GetWorld() != World || !Cloud->IsRegistered() || !Cloud->GetVisibleFlag() || !CloudMaterial
+				|| CloudMaterial->GetMaterial() != HostMaterial || !Cloud->bVisibleInRealTimeSkyCaptures) return;
+			HeroNote = FString::Printf(TEXT("; WARNING cloud host '%s' is Visible In Real Time Sky Captures: the hero clouds darken the whole sky light and feed their own sky (untick it)"),
+				Cloud->GetOwner() ? *Cloud->GetOwner()->GetActorNameOrLabel() : *Cloud->GetName());
+		}, true, RF_ClassDefaultObject | RF_ArchetypeObject, EInternalObjectFlags::Garbage);
+	}
+	SkyNote = FString::Printf(TEXT("sky dome on (%.0f km, %d/%d steps, %d sun samples; clouds within %.0f km): %s%s"), SkyDomeRadiusKm,
+		FMath::Clamp(SkyViewSteps, 1, 64), FMath::Clamp(SkyDeckSteps, 1, 32), FMath::Clamp(SkySunSamples, 1, 8),
+		FMath::Clamp(static_cast<double>(SkyMaxDistanceKm), 5.0, 400.0) * Scale, *Light, *HeroNote);
 }

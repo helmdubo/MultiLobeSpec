@@ -28,6 +28,10 @@ struct FFogMSWorldSky
 	FSamplerStateRHIRef ProcessedSampler;
 	/** Candidate sky light components found; > 1 means the choice may differ from the renderer's (last registered). */
 	int32 Count = 0;
+	/** W49: a FogMS Weather sky dome (an Is Sky mesh with the weather clouds, AFogMSWeather::IsSkyDomeActive) shows in this world. With Real
+	 * Time Capture the capture renders that dome instead of the atmosphere, so the Sky View LUT (atmosphere only) is no longer the sky: the
+	 * auto sky source takes the capture's SH (FogMS_WorldSources.cpp). */
+	bool bWeatherSky = false;
 };
 
 /** Current-frame isotropic lighting in the authored Box, independent of fog history.
