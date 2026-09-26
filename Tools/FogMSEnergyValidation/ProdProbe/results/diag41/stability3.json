@@ -1,0 +1,210 @@
+{
+ "map_cvars_before": {
+  "r.FogMS.SunMap.Steps": 64.0,
+  "r.FogMS.SunMap.Resolution": 256.0
+ },
+ "t_ref": 10996.439197137952,
+ "off": {
+  "d2": 0.407,
+  "d2_blur": 0.104,
+  "hp9": 0.051,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0028,
+  "d1": 0.24,
+  "mean": 96.25,
+  "frames": 48,
+  "wob_med": 0.008,
+  "wob_p75": 0.023,
+  "wob_period": 5.2,
+  "wob_tiles": 153,
+  "mid": {
+   "weight": 1.0,
+   "sun_detail": 0.0,
+   "albedo": "<Struct 'LinearColor' (0x000001BEC466C4E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+  },
+  "cvars": {
+   "r.FogMS.SunMap.Steps": 64.0,
+   "r.FogMS.SunMap.Resolution": 256.0
+  },
+  "status": ": native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60]",
+  "own_cloud_wob_med": 0.082,
+  "own_cloud_wob_p75": 0.142,
+  "own_cloud_d2b": 0.35,
+  "own_cloud_d1": 0.504,
+  "own_cloud_frac": 0.143
+ },
+ "on": {
+  "d2": 0.414,
+  "d2_blur": 0.11,
+  "hp9": 0.054,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0031,
+  "d1": 0.247,
+  "mean": 96.24,
+  "frames": 48,
+  "wob_med": 0.008,
+  "wob_p75": 0.024,
+  "wob_period": 5.2,
+  "wob_tiles": 153,
+  "mid": {
+   "weight": 1.0,
+   "sun_detail": 1.0,
+   "albedo": "<Struct 'LinearColor' (0x000001BE07D84360) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+  },
+  "cvars": {
+   "r.FogMS.SunMap.Steps": 64.0,
+   "r.FogMS.SunMap.Resolution": 256.0
+  },
+  "status": "lve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]",
+  "own_cloud_wob_med": 0.087,
+  "own_cloud_wob_p75": 0.146,
+  "own_cloud_d2b": 0.386,
+  "own_cloud_d1": 0.541,
+  "own_cloud_frac": 0.144
+ },
+ "on_steps128": {
+  "d2": 0.413,
+  "d2_blur": 0.109,
+  "hp9": 0.054,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0031,
+  "d1": 0.247,
+  "mean": 96.2,
+  "frames": 48,
+  "wob_med": 0.008,
+  "wob_p75": 0.024,
+  "wob_period": 5.2,
+  "wob_tiles": 153,
+  "mid": {
+   "weight": 1.0,
+   "sun_detail": 1.0,
+   "albedo": "<Struct 'LinearColor' (0x000001BEC46BADE0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+  },
+  "cvars": {
+   "r.FogMS.SunMap.Steps": 128.0,
+   "r.FogMS.SunMap.Resolution": 256.0
+  },
+  "status": "lve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]",
+  "own_cloud_wob_med": 0.096,
+  "own_cloud_wob_p75": 0.173,
+  "own_cloud_d2b": 0.381,
+  "own_cloud_d1": 0.541,
+  "own_cloud_frac": 0.144
+ },
+ "on_res512": {
+  "d2": 0.415,
+  "d2_blur": 0.11,
+  "hp9": 0.054,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0032,
+  "d1": 0.248,
+  "mean": 96.25,
+  "frames": 48,
+  "wob_med": 0.008,
+  "wob_p75": 0.023,
+  "wob_period": 5.2,
+  "wob_tiles": 153,
+  "mid": {
+   "weight": 1.0,
+   "sun_detail": 1.0,
+   "albedo": "<Struct 'LinearColor' (0x000001BE08804060) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+  },
+  "cvars": {
+   "r.FogMS.SunMap.Steps": 64.0,
+   "r.FogMS.SunMap.Resolution": 512.0
+  },
+  "status": "lve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]",
+  "own_cloud_wob_med": 0.089,
+  "own_cloud_wob_p75": 0.153,
+  "own_cloud_d2b": 0.389,
+  "own_cloud_d1": 0.548,
+  "own_cloud_frac": 0.144
+ },
+ "on_s05": {
+  "d2": 0.409,
+  "d2_blur": 0.105,
+  "hp9": 0.052,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0028,
+  "d1": 0.243,
+  "mean": 96.27,
+  "frames": 48,
+  "wob_med": 0.008,
+  "wob_p75": 0.023,
+  "wob_period": 5.2,
+  "wob_tiles": 153,
+  "mid": {
+   "weight": 1.0,
+   "sun_detail": 0.5,
+   "albedo": "<Struct 'LinearColor' (0x000001BEC46BADE0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+  },
+  "cvars": {
+   "r.FogMS.SunMap.Steps": 64.0,
+   "r.FogMS.SunMap.Resolution": 256.0
+  },
+  "status": "attering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 0.50]",
+  "own_cloud_wob_med": 0.084,
+  "own_cloud_wob_p75": 0.127,
+  "own_cloud_d2b": 0.359,
+  "own_cloud_d1": 0.517,
+  "own_cloud_frac": 0.144
+ },
+ "on_steps128_rep": {
+  "d2": 0.414,
+  "d2_blur": 0.109,
+  "hp9": 0.054,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0032,
+  "d1": 0.247,
+  "mean": 96.2,
+  "frames": 48,
+  "wob_med": 0.008,
+  "wob_p75": 0.022,
+  "wob_period": 5.2,
+  "wob_tiles": 153,
+  "mid": {
+   "weight": 1.0,
+   "sun_detail": 1.0,
+   "albedo": "<Struct 'LinearColor' (0x000001BE08804060) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+  },
+  "cvars": {
+   "r.FogMS.SunMap.Steps": 128.0,
+   "r.FogMS.SunMap.Resolution": 256.0
+  },
+  "status": "lve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60] [sun detail 1.00]",
+  "own_cloud_wob_med": 0.086,
+  "own_cloud_wob_p75": 0.149,
+  "own_cloud_d2b": 0.385,
+  "own_cloud_d1": 0.543,
+  "own_cloud_frac": 0.144
+ },
+ "off_rep": {
+  "d2": 0.407,
+  "d2_blur": 0.103,
+  "hp9": 0.05,
+  "d2_p99": 2.33,
+  "frac_d2_gt4": 0.0027,
+  "d1": 0.241,
+  "mean": 96.25,
+  "frames": 48,
+  "wob_med": 0.008,
+  "wob_p75": 0.023,
+  "wob_period": 5.2,
+  "wob_tiles": 153,
+  "mid": {
+   "weight": 1.0,
+   "sun_detail": 0.0,
+   "albedo": "<Struct 'LinearColor' (0x000001BEC46BADE0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+  },
+  "cvars": {
+   "r.FogMS.SunMap.Steps": 64.0,
+   "r.FogMS.SunMap.Resolution": 256.0
+  },
+  "status": ": native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun softness 5.0\u00b0] [forward lobe 0.40 g 0.60]",
+  "own_cloud_wob_med": 0.088,
+  "own_cloud_wob_p75": 0.158,
+  "own_cloud_d2b": 0.347,
+  "own_cloud_d1": 0.506,
+  "own_cloud_frac": 0.143
+ }
+}

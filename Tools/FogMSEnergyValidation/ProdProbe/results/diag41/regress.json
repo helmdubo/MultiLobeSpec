@@ -1,0 +1,250 @@
+{
+ "views": {
+  "against": [
+   [
+    -17875.675258153144,
+    794.073376025688,
+    3000.0
+   ],
+   [
+    4.0,
+    6.737991333007818,
+    0.0
+   ]
+  ],
+  "mine": [
+   [
+    -7630.240509782841,
+    -9138.30897256058,
+    2397.531605187931
+   ],
+   [
+    8.200002074241638,
+    49.93853524327278,
+    0.0
+   ]
+  ]
+ },
+ "sun": [
+  176.73798526484507,
+  13.226460297361434
+ ],
+ "cap": {
+  "r41b_off|against": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x000001BEC46BB8E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.225,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r41b_on|against": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x000001BEC46913A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.221,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r41b_on_rep|against": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x000001BE08841860) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.225,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r41b_off|mine": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x000001BEC46BAD60) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.196,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r41b_on|mine": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x000001BEC45FA720) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.192,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r41b_on_rep|mine": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x000001BEC46BAD60) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.195,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun so"
+  },
+  "r43_off|against": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000024E8306B2A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.22,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun so"
+  },
+  "r43_on|against": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x0000024E8306B7A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.219,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun so"
+  },
+  "r43_on_rep|against": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x0000024E8306B420) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.224,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r43_off|mine": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x0000024E83069120) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.202,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun so"
+  },
+  "r43_on|mine": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x0000024E8306B6A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.203,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r43_on_rep|mine": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x0000024E83069020) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.208,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r44_off|against": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x00000254B874C8E0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.219,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun so"
+  },
+  "r44_on|against": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x000002548706F960) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.22,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun so"
+  },
+  "r44_on_rep|against": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x000002548706E5A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.219,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r44_off|mine": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 0.0,
+    "albedo": "<Struct 'LinearColor' (0x000002548706E2A0) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.196,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r44_on|mine": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x000002548706F320) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.199,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bo"
+  },
+  "r44_on_rep|mine": {
+   "frames": 6,
+   "mid": {
+    "weight": 1.0,
+    "sun_detail": 1.0,
+    "albedo": "<Struct 'LinearColor' (0x000002548706E360) {r: 1.000000, g: 1.000000, b: 1.000000, a: 1.000000}>"
+   },
+   "flicker_abs": 0.2,
+   "status": "Active B3 isotropic transport (16 directions, tol 1.00e-06; emissive injection via material; hybrid: native single scattering; hold 1/2; bounce: Lumen; see convergence diagnostics) [sky: Sky View LUT, 5-tap sector average] [tau core ~48.7, upper bound] [sun so"
+  }
+ },
+ "metrics_r41b_r43": {
+  "against": {
+   "roi_frac": 0.102,
+   "on_r41b_vs_r43": 0.791,
+   "floor_r41b": 0.609,
+   "floor_r43": 0.664,
+   "off_r41b_vs_r43": 0.818,
+   "on_vs_off_r41b": 8.013
+  },
+  "mine": {
+   "roi_frac": 0.093,
+   "on_r41b_vs_r43": 0.633,
+   "floor_r41b": 0.5,
+   "floor_r43": 0.546,
+   "off_r41b_vs_r43": 0.588,
+   "on_vs_off_r41b": 7.197
+  }
+ },
+ "metrics_r41b_r44": {
+  "against": {
+   "roi_frac": 0.102,
+   "on_r41b_vs_r44": 0.728,
+   "floor_r41b": 0.609,
+   "floor_r44": 0.583,
+   "off_r41b_vs_r44": 0.841,
+   "on_vs_off_r41b": 8.013
+  },
+  "mine": {
+   "roi_frac": 0.093,
+   "on_r41b_vs_r44": 0.578,
+   "floor_r41b": 0.5,
+   "floor_r44": 0.469,
+   "off_r41b_vs_r44": 0.513,
+   "on_vs_off_r41b": 7.197
+  }
+ }
+}

@@ -1,0 +1,211 @@
+{
+ "on_0": {
+  "frame_ms": 14.87,
+  "events": 565,
+  "sun_march": 0.234,
+  "sun_cell": 0.059,
+  "sun_total": 0.293,
+  "fogms_all": 4.772,
+  "volumetric_fog": 8.443,
+  "voxelize": 0.458,
+  "rows_sun": [
+   [
+    0.234,
+    "FogMS SunDetail march 256x256x64"
+   ],
+   [
+    0.053,
+    "FogMS SunDetail cell average (slice partials)"
+   ],
+   [
+    0.006,
+    "FogMS SunDetail cell average 32^3"
+   ]
+  ],
+  "rows_fog": [
+   [
+    4.222,
+    "ComputeVolumetricFog"
+   ],
+   [
+    0.229,
+    "VolumetricFog::VoxelizePrimitives"
+   ],
+   [
+    0.229,
+    "VoxelizeVolumePrimitives"
+   ]
+  ]
+ },
+ "on_1": {
+  "frame_ms": 11.07,
+  "events": 421,
+  "sun_march": 0.239,
+  "sun_cell": 0.06,
+  "sun_total": 0.299,
+  "fogms_all": 1.16,
+  "volumetric_fog": 8.383,
+  "voxelize": 0.45,
+  "rows_sun": [
+   [
+    0.239,
+    "FogMS SunDetail march 256x256x64"
+   ],
+   [
+    0.053,
+    "FogMS SunDetail cell average (slice partials)"
+   ],
+   [
+    0.007,
+    "FogMS SunDetail cell average 32^3"
+   ]
+  ],
+  "rows_fog": [
+   [
+    4.192,
+    "ComputeVolumetricFog"
+   ],
+   [
+    0.225,
+    "VolumetricFog::VoxelizePrimitives"
+   ],
+   [
+    0.225,
+    "VoxelizeVolumePrimitives"
+   ]
+  ]
+ },
+ "on_2": {
+  "frame_ms": 11.46,
+  "events": 421,
+  "sun_march": 0.234,
+  "sun_cell": 0.061,
+  "sun_total": 0.295,
+  "fogms_all": 0.903,
+  "volumetric_fog": 9.216,
+  "voxelize": 0.456,
+  "rows_sun": [
+   [
+    0.234,
+    "FogMS SunDetail march 256x256x64"
+   ],
+   [
+    0.054,
+    "FogMS SunDetail cell average (slice partials)"
+   ],
+   [
+    0.007,
+    "FogMS SunDetail cell average 32^3"
+   ]
+  ],
+  "rows_fog": [
+   [
+    4.609,
+    "ComputeVolumetricFog"
+   ],
+   [
+    0.228,
+    "VolumetricFog::VoxelizePrimitives"
+   ],
+   [
+    0.228,
+    "VoxelizeVolumePrimitives"
+   ]
+  ]
+ },
+ "off_0": {
+  "frame_ms": 14.27,
+  "events": 561,
+  "sun_march": 0,
+  "sun_cell": 0,
+  "sun_total": 0,
+  "fogms_all": 4.236,
+  "volumetric_fog": 8.343,
+  "voxelize": 0.412,
+  "rows_sun": [],
+  "rows_fog": [
+   [
+    4.172,
+    "ComputeVolumetricFog"
+   ],
+   [
+    0.206,
+    "VolumetricFog::VoxelizePrimitives"
+   ],
+   [
+    0.206,
+    "VoxelizeVolumePrimitives"
+   ]
+  ]
+ },
+ "off_1": {
+  "frame_ms": 14.29,
+  "events": 561,
+  "sun_march": 0,
+  "sun_cell": 0,
+  "sun_total": 0,
+  "fogms_all": 4.235,
+  "volumetric_fog": 8.377,
+  "voxelize": 0.412,
+  "rows_sun": [],
+  "rows_fog": [
+   [
+    4.189,
+    "ComputeVolumetricFog"
+   ],
+   [
+    0.206,
+    "VolumetricFog::VoxelizePrimitives"
+   ],
+   [
+    0.206,
+    "VoxelizeVolumePrimitives"
+   ]
+  ]
+ },
+ "off_2": {
+  "frame_ms": 10.44,
+  "events": 417,
+  "sun_march": 0,
+  "sun_cell": 0,
+  "sun_total": 0,
+  "fogms_all": 0.601,
+  "volumetric_fog": 8.258,
+  "voxelize": 0.408,
+  "rows_sun": [],
+  "rows_fog": [
+   [
+    4.13,
+    "ComputeVolumetricFog"
+   ],
+   [
+    0.204,
+    "VolumetricFog::VoxelizePrimitives"
+   ],
+   [
+    0.204,
+    "VoxelizeVolumePrimitives"
+   ]
+  ]
+ },
+ "median": {
+  "on": {
+   "frame_ms": 11.46,
+   "sun_march": 0.234,
+   "sun_cell": 0.06,
+   "sun_total": 0.295,
+   "volumetric_fog": 8.443,
+   "voxelize": 0.456,
+   "fogms_all": 1.16
+  },
+  "off": {
+   "frame_ms": 14.27,
+   "sun_march": 0.0,
+   "sun_cell": 0.0,
+   "sun_total": 0.0,
+   "volumetric_fog": 8.343,
+   "voxelize": 0.412,
+   "fogms_all": 4.235
+  }
+ }
+}

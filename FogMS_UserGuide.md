@@ -354,6 +354,14 @@ compiled`, `PATCHED saved=True`; повтор — `FIELD_WIRING ok (4 pins)`, `A
 `FreezeDensityAnimation`/`ResumeDensityAnimation`, `ResetMotionOrigin`; `Use Manual Animation Time` + `Manual Animation Time`
 дают воспроизводимый кадр.
 
+**Sun Detail Shadow (раунд 41, по умолчанию выключено).** Точная тень солнца внутри облака для пути инъекции с гибридом.
+Каждый кадр со стороны солнца строится карта Box (`r.FogMS.SunMap.Resolution` 256, `r.FogMS.SunMap.Steps` 64) по той же
+функции плотности, что у материала. Материал перераспределяет долю солнца ячейки решателя внутри ячейки: освещённая кромка
+ярче, тень за ней темнее, средняя энергия ячейки та же (двойного счёта с решателем нет). Действует на штатное однократное
+рассеяние гибрида и на лепесток. `Sun Detail Strength` 0…1 — доля эффекта. Цена ~0,3 мс на Box. Эффект заметнее всего
+против солнца и с фазой тумана (контраст кромки +4…5 %); по стабильности с анимацией одна из серий на близкой камере была
+хуже, поэтому выключено по умолчанию. Для облачного хоста (попиксельный путь, в разработке) не нужно.
+
 **FogMS|Sun** (`Authored Sun Shadow`, `Cast Sun Shadow`, `Filtered Sun Shadow`) и **FogMS|Indirect** работают только
 с overlay. Transport не использует `Indirect Shadowing`, `Spatial Strength` и `Spatial Distance`.
 
