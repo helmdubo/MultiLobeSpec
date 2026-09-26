@@ -1,0 +1,21 @@
+{
+ "button_status": "[sun detail off: the cloud host marches the sun per step] [render: cloud host] [cloud host 'FogMS Cloud Host': step ~2.6 m, trace 2.0 km; displaces Volumetric Cloud 'VolumetricCloud' (one cloud renders per scene)]",
+ "cvars_with_host": {
+  "r.VolumetricCloud.DistanceToSampleMaxCount": 2.0,
+  "r.VolumetricCloud.SampleMinCount": 8.0
+ },
+ "cvars_after": {
+  "r.VolumetricCloud.DistanceToSampleMaxCount": 15.0,
+  "r.VolumetricCloud.SampleMinCount": 2.0
+ },
+ "weight": 0.0,
+ "log": [
+  "[2026.09.26-10.31.29:739][759]LogMultiLobeSpec: Warning: FogMS FogMS - Live Box: created cloud host 'FogMS Cloud Host' (MI_FogMS_Cloud; layer 0.075-0.175 km above the ground, trace 2.0 km from the camera, view samples x8, sun march 0.25 km). Only one Volumetric Cloud renders per scene: while this host is visible it displaces the sky cloud 'VolumetricCloud'. Nothing was saved: save the level to kee",
+  "[2026.09.26-10.31.29:739][759]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host': material MI_FogMS_Cloud wrapped in MID_FogMS_CloudHost_0 for Box 'FogMS - Live Box'.",
+  "[2026.09.26-10.31.29:739][759]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' renders Box 'FogMS - Live Box' (Render Path = Cloud Host); the Box's froxel copy is off (FogMS_FroxelWeight 0).",
+  "[2026.09.26-10.31.29:754][760]LogMultiLobeSpec: Display: FogMS cloud host 'FogMS Cloud Host' takes the render over 1 other Volumetric Cloud(s), e.g. 'VolumetricCloud' (one cloud renders per scene).",
+  "[2026.09.26-10.31.29:754][760]LogMultiLobeSpec: Display: FogMS cloud host step settings (SetByGameSetting, while a Box renders through a host): r.VolumetricCloud.DistanceToSampleMaxCount 15 -> 2; r.VolumetricCloud.SampleMinCount 2 -> 8.",
+  "[2026.09.26-10.31.32:964][854]LogMultiLobeSpec: Display: FogMS cloud host '?' is empty: its Box no longer renders through it.",
+  "[2026.09.26-10.31.32:964][854]LogMultiLobeSpec: Display: FogMS cloud host step settings restored: r.VolumetricCloud.DistanceToSampleMaxCount 15, r.VolumetricCloud.SampleMinCount 2."
+ ]
+}
