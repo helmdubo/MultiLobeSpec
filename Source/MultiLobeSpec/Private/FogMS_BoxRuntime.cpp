@@ -1413,6 +1413,9 @@ namespace
 								*Selected->GetActorNameOrLabel());
 					}
 				}
+				// P2 Render Path (AFogMSBoxVolume::RenderPath, FogMS_CloudHost.h): ' [render: cloud host] [...]' or ' [cloud host: <why>,
+				// froxel fallback]' from the Box's last UpdateDensity; empty for Froxel Fog (the former status text).
+				if (!Selected->GetRenderPathStatus().IsEmpty()) Selected->SpatialStatus += Selected->GetRenderPathStatus();
 				// Per-Box tag with several active Boxes: runtime id (FogMS_WorldLighting state key, "FogMS Box #id" RDG scope,
 				// dump "boxId"). One Box: the former status text, unchanged.
 				if (bTag) Selected->SpatialStatus += FString::Printf(TEXT(" [Box #%u%s]"), GPU->BoxId, bPacketOwner ? TEXT("") : TEXT(", injection"));

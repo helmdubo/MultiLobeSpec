@@ -1,5 +1,6 @@
 #include "FogMS_BoxVolume.h"
 #include "FogMS_BoxRuntime.h"
+#include "FogMS_CloudHost.h"
 
 #include "Components/BoxComponent.h"
 #include "Components/ArrowComponent.h"
@@ -250,6 +251,29 @@ namespace
 	{
 		return FMath::Clamp(FMath::DivideAndRoundUp(FMath::Max(Value, 1), 8) * 8, Min, Max);
 	}
+
+	// P2: the 'Create Cloud Host' button for game worlds and scripts (the -game smoke test uses it through -ExecCmds).
+	FAutoConsoleCommandWithWorldAndArgs FogMS_CloudHostCreateCommand(TEXT("FogMS.CloudHost.Create"),
+		TEXT("FogMS.CloudHost.Create [Box name or label]: what the Box button 'Create Cloud Host' does, for the first enabled FogMS Box of this ")
+		TEXT("world (or the named one): spawns a Volumetric Cloud 'FogMS Cloud Host' with MI_FogMS_Cloud and the tested settings (unless a host ")
+		TEXT("exists) and sets that Box's Render Path to Cloud Host. Only one Volumetric Cloud renders per scene: the host displaces the sky clouds. ")
+		TEXT("Nothing is saved."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			AFogMSBoxVolume* Target = nullptr;
+			for (TActorIterator<AFogMSBoxVolume> It(World); It && !Target; ++It)
+			{
+				if (It->IsActorBeingDestroyed()) continue;
+				if (Args.Num() > 0 ? (It->GetName() == Args[0] || It->GetActorNameOrLabel() == Args[0]) : It->bEnabled) Target = *It;
+			}
+			if (!Target)
+			{
+				UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS.CloudHost.Create: no %s FogMS Box in this world; nothing spawned."),
+					Args.Num() > 0 ? *FString::Printf(TEXT("'%s'"), *Args[0]) : TEXT("enabled"));
+				return;
+			}
+			Target->CreateCloudHost();
+		}));
 }
 
 FVector3f FogMS_FindAtmosphereSunDirection(UWorld* World)
@@ -475,6 +499,12 @@ float AFogMSBoxVolume::GetCoreOpticalDepthEstimate() const
 
 void AFogMSBoxVolume::Destroyed()
 {
+	// P2: a host this Box rendered through goes empty now (its tick would notice one frame later).
+	if (bCloudHostBound)
+	{
+		if (UFogMSCloudHostSubsystem* Hosts = GetWorld() ? GetWorld()->GetSubsystem<UFogMSCloudHostSubsystem>() : nullptr) Hosts->ReleaseBox(*this);
+		bCloudHostBound = false;
+	}
 	ReleaseTransportField();
 	ReleaseSunDetailMaps();
 	Super::Destroyed();
@@ -735,7 +765,8 @@ bool AFogMSBoxVolume::FDensityState::HasSameMaterialParameters(const FDensitySta
 		&& ForwardDepthValue == Other.ForwardDepthValue && ForwardEccValue == Other.ForwardEccValue
 		&& ForwardFloorValue == Other.ForwardFloorValue
 		&& SunDetailValue == Other.SunDetailValue && SunMapRowU == Other.SunMapRowU && SunMapRowV == Other.SunMapRowV
-		&& SunMapRowW == Other.SunMapRowW && SunMap == Other.SunMap && SunCell == Other.SunCell;
+		&& SunMapRowW == Other.SunMapRowW && SunMap == Other.SunMap && SunCell == Other.SunCell
+		&& FroxelWeightValue == Other.FroxelWeightValue;
 }
 
 bool AFogMSBoxVolume::FDensityState::HasSameEffect(const FDensityState& Other) const
@@ -773,6 +804,9 @@ void AFogMSBoxVolume::UpdateDensity()
 	if (bUpdatingDensity || HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || IsActorBeingDestroyed()) return;
 	TGuardValue<bool> UpdateGuard(bUpdatingDensity, true);
 	SunDetailProblem.Reset(); // W41 status note, re-derived below
+	RenderPathStatus.Reset(); // P2 status suffix, re-derived below
+	// P2: the cloud host's MID when a host renders this Box this update (resolved below, after the injection state).
+	UMaterialInstanceDynamic* HostMID = nullptr;
 	// OnConstruction, PostLoad, PostEditChangeProperty, Tick and BoxRuntime (right before it
 	// packs the transport controls) all pass here: the packet always sees the preset's values,
 	// also after a Blueprint/runtime write that bypassed PostEditChangeProperty.
@@ -963,6 +997,32 @@ void AFogMSBoxVolume::UpdateDensity()
 				// Hybrid: native fog keeps single scattering; the field carries J_ms and T_sun (packet row 23.w = 6).
 				State.bHybridInjection = bInjection && bHybridSingleScattering && !State.bFieldOnlyInjection;
 				State.InjectionField = bInjection ? TransportField.Get() : nullptr;
+				// P2 Render Path = Cloud Host (FogMS_CloudHost.h): the host renders from this Box's transport field, so it needs the
+				// injection state above. With a usable host the solver publishes the hybrid field (the cloud marches the sun itself on
+				// every ray step; Field Only (Debug) keeps the full field, mode 3), the froxel copy gets FogMS_FroxelWeight 0 and the
+				// host's MID gets this Box's parameters below. Otherwise the Box stays in the froxels; the status says why.
+				if (RenderPath == EFogMSRenderPath::CloudHost && bEnabled)
+				{
+					if (!bInjection)
+						RenderPathStatus = TEXT(" [cloud host: needs Transport with Emissive Injection, froxel fallback]");
+					else if (UFogMSCloudHostSubsystem* Hosts = World->GetSubsystem<UFogMSCloudHostSubsystem>())
+					{
+						FFogMSCloudBoxGeometry Geometry;
+						GetCloudHostGeometry(Geometry);
+						FFogMSCloudHostBinding Binding = Hosts->AcquireHost(*this, Geometry);
+						HostMID = Binding.MID;
+						RenderPathStatus = MoveTemp(Binding.Status);
+					}
+					else RenderPathStatus = TEXT(" [cloud host: no cloud host subsystem in this world, froxel fallback]");
+				}
+				if (HostMID)
+				{
+					State.bHybridInjection = !State.bFieldOnlyInjection;
+					State.FroxelWeightValue = 0.0f;
+					// The cloud shadows itself per step: no sun map (16 MB) for this Box while the host renders it.
+					if (SunDetailMap || SunDetailCell) ReleaseSunDetailMaps();
+					if (bSunDetailShadow) SunDetailProblem = TEXT("the cloud host marches the sun per step");
+				}
 				State.Texture = DensityTexture.Get();
 				State.TextureResource = DensityTexture->GetResource();
 				State.ChannelMask = FLinearColor(0, 0, 0, 0);
@@ -1035,7 +1095,7 @@ void AFogMSBoxVolume::UpdateDensity()
 				// W41 Sun Detail Shadow (material node FogMS_SunDetail v1, matedit_density.py; map FogMS_SunDetail.usf). Only with the hybrid
 				// split: it redistributes the native sun single scattering that mode 2 scales by the field's per-cell sun share. The basis
 				// uses this frame's atmosphere sun (the one the runtime hands the solver); the render thread builds the map with it.
-				if (State.bHybridInjection && bSunDetailShadow && FMath::IsFinite(SunDetailStrength) && SunDetailStrength > 0.0f)
+				if (State.bHybridInjection && bSunDetailShadow && FMath::IsFinite(SunDetailStrength) && SunDetailStrength > 0.0f && !HostMID)
 				{
 					float MaterialDefault = 0.0f;
 					if (!DensityMaterial->GetScalarParameterDefaultValue(FHashedMaterialParameterInfo(TEXT("FogMS_SunDetail")), MaterialDefault))
@@ -1126,64 +1186,13 @@ void AFogMSBoxVolume::UpdateDensity()
 
 				if (!bHasMaterialState || !State.HasSameMaterialParameters(LastMaterialState))
 				{
-					DensityMID->SetTextureParameterValue(TEXT("FogMS_Noise"), DensityTexture);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_ChannelMask"), State.ChannelMask);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_TileScale"), State.TileScaleValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_WorldAligned"), State.bWorldAligned ? 1.0f : 0.0f);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldFrequencies"), State.WorldFrequencies);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldPhase0"), State.WorldPhase0);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldPhase1"), State.WorldPhase1);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldPhase2"), State.WorldPhase2);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_Threshold"), State.ThresholdValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_Softness"), State.SoftnessValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailStrength"), State.DetailStrengthValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailScale"), State.DetailScaleValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_DetailSecondOctave"), State.DetailSecondOctaveValue);
-					// S1/S2 (material node FogMS_Extinction, Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py).
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_ErosionStrength"), State.ErosionStrengthValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_ErosionDepth"), State.ErosionDepthValue);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_ErosionMask"), State.ErosionMask);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightProfile"), State.bHeightProfile ? 1.0f : 0.0f);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightBottom"), State.HeightBottomValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightTop"), State.HeightTopValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightBottomSoftness"), State.BottomSoftnessValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightTopSoftness"), State.TopSoftnessValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_HeightAnvilStrength"), State.AnvilStrengthValue);
-					// W36 (FogMS_DepthFootprint / FogMS_Extinction v3). A material without them ignores both (material defaults
-					// 0 = v2 math).
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_DepthPrefilter"), State.DepthPrefilterValue);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_PrefilterWavelengths"), State.PrefilterWavelengths);
-					// W37/W38 (FogMS_ForwardLobe). A material without the node ignores them; Strength 0 returns the injection
-					// Emissive unchanged. FogMS_ForwardEcc exists from node v2 on; a v1 node ignores it (fixed g/2 = Ecc 0.5).
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardStrength"), State.ForwardStrengthValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardG"), State.ForwardGValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardDepth"), State.ForwardDepthValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardEcc"), State.ForwardEccValue);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_ForwardFloor"), State.ForwardFloorValue);
-					// W41 (FogMS_SunDetail v1). Strength 0 (off, night, material default) returns the field alpha unchanged; the textures
-					// stay bound while the maps exist (ReleaseSunDetailMaps clears every override when they go).
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_SunDetail"), State.SunDetailValue);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_SunMapU"), State.SunMapRowU);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_SunMapV"), State.SunMapRowV);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_SunMapW"), State.SunMapRowW);
-					if (State.SunMap.IsValid()) DensityMID->SetTextureParameterValue(TEXT("FogMS_SunMap"), State.SunMap.Get());
-					if (State.SunCell.IsValid()) DensityMID->SetTextureParameterValue(TEXT("FogMS_SunMapCell"), State.SunCell.Get());
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_Density"), State.bUseNativeDensity ? State.DensityValue : 0.0f);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_Albedo"), State.Albedo);
-					DensityMID->SetVectorParameterValue(TEXT("FogMS_WorldExtent"), State.WorldExtent);
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_DensityFeather"), State.Feather);
-					// Material contract: valid = Field.a >= 0.5 (cleared field: 0), Emissive = valid*Field.rgb*Albedo*sigma_t.
-					// Mode 1 (full field, J, a = 1): BaseColor = Albedo*(1 - valid). Mode 2 (hybrid, J_ms, a = 0.5 + 0.5*T_sun):
-					// BaseColor = Albedo*lerp(1, saturate(2*Field.a - 1), valid), native single scattering darkened by T_sun.
-					// Mode 3 (debug field only, full field J, a = 1; field contract v4): BaseColor = 0 even without a valid
-					// field, Emissive as mode 1. A material older than v4 treats 3 like 2 (BaseColor = Albedo with a = 1).
-					DensityMID->SetScalarParameterValue(TEXT("FogMS_InjectionMode"), State.bEmissiveInjection
-						? (State.bFieldOnlyInjection ? 3.0f : (State.bHybridInjection ? 2.0f : 1.0f)) : 0.0f);
-					if (State.bEmissiveInjection)
-						DensityMID->SetTextureParameterValue(TEXT("FogMS_TransportField"), TransportField);
+					WriteDensityParameters(*DensityMID, State, false);
 					LastMaterialState = State;
 					bHasMaterialState = true;
 				}
+				// P2: the host's MID gets the same parameters every update (a MID skips unchanged values), so a new or emptied host and
+				// a moved Box are always current; the host's own FogMS_Cloud* look parameters stay the instance's.
+				if (HostMID) WriteDensityParameters(*HostMID, State, true);
 				if (DensityComponent->GetMaterial(0) != DensityMID) DensityComponent->SetMaterial(0, DensityMID);
 			}
 		}
@@ -1197,6 +1206,12 @@ void AFogMSBoxVolume::UpdateDensity()
 	{
 		++DensityRevision;
 	}
+	// P2: a host this Box rendered through last update but not now (Render Path, fallback, density off) goes empty.
+	if (bCloudHostBound && !HostMID)
+	{
+		if (UFogMSCloudHostSubsystem* Hosts = World ? World->GetSubsystem<UFogMSCloudHostSubsystem>() : nullptr) Hosts->ReleaseBox(*this);
+	}
+	bCloudHostBound = HostMID != nullptr;
 	// Refresh even when only animated phases changed. The packet must match the MID.
 	LastDensityState = State;
 	DensityAnimationTime = State.bAnimationActive ? State.SampleTime : 0.0;
@@ -1209,6 +1224,119 @@ void AFogMSBoxVolume::UpdateDensity()
 		}
 		LastDensityProblem = MoveTemp(Problem);
 	}
+}
+
+void AFogMSBoxVolume::WriteDensityParameters(UMaterialInstanceDynamic& MID, const FDensityState& State, bool bCloudHost) const
+{
+	MID.SetTextureParameterValue(TEXT("FogMS_Noise"), DensityTexture);
+	MID.SetVectorParameterValue(TEXT("FogMS_ChannelMask"), State.ChannelMask);
+	MID.SetVectorParameterValue(TEXT("FogMS_TileScale"), State.TileScaleValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_WorldAligned"), State.bWorldAligned ? 1.0f : 0.0f);
+	MID.SetVectorParameterValue(TEXT("FogMS_WorldFrequencies"), State.WorldFrequencies);
+	MID.SetVectorParameterValue(TEXT("FogMS_WorldPhase0"), State.WorldPhase0);
+	MID.SetVectorParameterValue(TEXT("FogMS_WorldPhase1"), State.WorldPhase1);
+	MID.SetVectorParameterValue(TEXT("FogMS_WorldPhase2"), State.WorldPhase2);
+	MID.SetScalarParameterValue(TEXT("FogMS_Threshold"), State.ThresholdValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_Softness"), State.SoftnessValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_DetailStrength"), State.DetailStrengthValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_DetailScale"), State.DetailScaleValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_DetailSecondOctave"), State.DetailSecondOctaveValue);
+	// S1/S2 (material node FogMS_Extinction, Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py).
+	MID.SetScalarParameterValue(TEXT("FogMS_ErosionStrength"), State.ErosionStrengthValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_ErosionDepth"), State.ErosionDepthValue);
+	MID.SetVectorParameterValue(TEXT("FogMS_ErosionMask"), State.ErosionMask);
+	MID.SetScalarParameterValue(TEXT("FogMS_HeightProfile"), State.bHeightProfile ? 1.0f : 0.0f);
+	MID.SetScalarParameterValue(TEXT("FogMS_HeightBottom"), State.HeightBottomValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_HeightTop"), State.HeightTopValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_HeightBottomSoftness"), State.BottomSoftnessValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_HeightTopSoftness"), State.TopSoftnessValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_HeightAnvilStrength"), State.AnvilStrengthValue);
+	// W36 (FogMS_DepthFootprint / FogMS_Extinction v3). A material without them ignores both (material defaults
+	// 0 = v2 math). Froxel-only: the cloud host evaluates the solver's w = 0 formula.
+	if (!bCloudHost)
+	{
+		MID.SetScalarParameterValue(TEXT("FogMS_DepthPrefilter"), State.DepthPrefilterValue);
+		MID.SetVectorParameterValue(TEXT("FogMS_PrefilterWavelengths"), State.PrefilterWavelengths);
+	}
+	// W37/W38 (FogMS_ForwardLobe). A material without the node ignores them; Strength 0 returns the injection
+	// Emissive unchanged. FogMS_ForwardEcc exists from node v2 on; a v1 node ignores it (fixed g/2 = Ecc 0.5).
+	MID.SetScalarParameterValue(TEXT("FogMS_ForwardStrength"), State.ForwardStrengthValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_ForwardG"), State.ForwardGValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_ForwardDepth"), State.ForwardDepthValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_ForwardEcc"), State.ForwardEccValue);
+	MID.SetScalarParameterValue(TEXT("FogMS_ForwardFloor"), State.ForwardFloorValue);
+	if (!bCloudHost)
+	{
+		// W41 (FogMS_SunDetail v1). Strength 0 (off, night, material default) returns the field alpha unchanged; the textures
+		// stay bound while the maps exist (ReleaseSunDetailMaps clears every override when they go).
+		MID.SetScalarParameterValue(TEXT("FogMS_SunDetail"), State.SunDetailValue);
+		MID.SetVectorParameterValue(TEXT("FogMS_SunMapU"), State.SunMapRowU);
+		MID.SetVectorParameterValue(TEXT("FogMS_SunMapV"), State.SunMapRowV);
+		MID.SetVectorParameterValue(TEXT("FogMS_SunMapW"), State.SunMapRowW);
+		if (State.SunMap.IsValid()) MID.SetTextureParameterValue(TEXT("FogMS_SunMap"), State.SunMap.Get());
+		if (State.SunCell.IsValid()) MID.SetTextureParameterValue(TEXT("FogMS_SunMapCell"), State.SunCell.Get());
+		// P2 (M_FogMS_Density FogMS_FroxelWeight, matedit_density.py W39): 1 = the Box renders in the froxels, 0 = a cloud host
+		// renders it (the froxel copy then adds no extinction, scattering or emissive to the volumetric fog).
+		MID.SetScalarParameterValue(TEXT("FogMS_FroxelWeight"), State.FroxelWeightValue);
+	}
+	// The host always gets the true density (it has no native/overlay split).
+	MID.SetScalarParameterValue(TEXT("FogMS_Density"), (bCloudHost || State.bUseNativeDensity) ? State.DensityValue : 0.0f);
+	MID.SetVectorParameterValue(TEXT("FogMS_Albedo"), State.Albedo);
+	MID.SetVectorParameterValue(TEXT("FogMS_WorldExtent"), State.WorldExtent);
+	MID.SetScalarParameterValue(TEXT("FogMS_DensityFeather"), State.Feather);
+	// Material contract: valid = Field.a >= 0.5 (cleared field: 0), Emissive = valid*Field.rgb*Albedo*sigma_t.
+	// Mode 1 (full field, J, a = 1): BaseColor = Albedo*(1 - valid). Mode 2 (hybrid, J_ms, a = 0.5 + 0.5*T_sun):
+	// BaseColor = Albedo*lerp(1, saturate(2*Field.a - 1), valid), native single scattering darkened by T_sun.
+	// Mode 3 (debug field only, full field J, a = 1; field contract v4): BaseColor = 0 even without a valid
+	// field, Emissive as mode 1. A material older than v4 treats 3 like 2 (BaseColor = Albedo with a = 1).
+	MID.SetScalarParameterValue(TEXT("FogMS_InjectionMode"), State.bEmissiveInjection
+		? (State.bFieldOnlyInjection ? 3.0f : (State.bHybridInjection ? 2.0f : 1.0f)) : 0.0f);
+	if (State.bEmissiveInjection)
+		MID.SetTextureParameterValue(TEXT("FogMS_TransportField"), TransportField);
+	if (bCloudHost && DensityComponent)
+	{
+		// M_FogMS_Cloud FogMS_CloudBoxLocal: cube space -50..50 of this sample = rows . (sample - centre). Row i = world axis i of the
+		// density cube divided by its world scale on that axis (a negative scale mirrors like TransformPosition World -> Local).
+		const FTransform CubeToWorld = DensityComponent->GetComponentTransform();
+		const FVector Center = CubeToWorld.GetLocation();
+		const FVector Scale = CubeToWorld.GetScale3D();
+		MID.SetVectorParameterValue(TEXT("FogMS_CloudBoxCenter"), FLinearColor(static_cast<float>(Center.X), static_cast<float>(Center.Y),
+			static_cast<float>(Center.Z), 0.0f));
+		static const FName RowNames[3] = { TEXT("FogMS_CloudWorldToLocal0"), TEXT("FogMS_CloudWorldToLocal1"), TEXT("FogMS_CloudWorldToLocal2") };
+		for (int32 Axis = 0; Axis < 3; ++Axis)
+		{
+			const FVector Row = CubeToWorld.GetRotation().RotateVector(FVector(Axis == 0 ? 1.0 : 0.0, Axis == 1 ? 1.0 : 0.0, Axis == 2 ? 1.0 : 0.0)) / Scale[Axis];
+			MID.SetVectorParameterValue(RowNames[Axis], FLinearColor(static_cast<float>(Row.X), static_cast<float>(Row.Y), static_cast<float>(Row.Z), 0.0f));
+		}
+	}
+}
+
+void AFogMSBoxVolume::GetCloudHostGeometry(FFogMSCloudBoxGeometry& Out) const
+{
+	Out.CubeToWorld = DensityComponent ? DensityComponent->GetComponentTransform() : FTransform::Identity;
+	Out.LocalZMin = -50.0f;
+	Out.LocalZMax = 50.0f;
+	// Same band as the W41 sun map: with the height profile on and Threshold - Softness/2 above Detail Strength the density is exactly 0
+	// outside Height Bottom..Top (the material's h = cube z * 0.01 + 0.5).
+	if (bHeightProfile && HeightBottom < HeightTop && Threshold - 0.5f * Softness - DetailStrength > 1.0e-6f)
+	{
+		Out.LocalZMin = (FMath::Clamp(HeightBottom, 0.0f, 1.0f) - 0.5f) * 100.0f;
+		Out.LocalZMax = (FMath::Clamp(HeightTop, 0.0f, 1.0f) - 0.5f) * 100.0f;
+	}
+}
+
+void AFogMSBoxVolume::CreateCloudHost()
+{
+	FString Message;
+	AActor* Host = UFogMSCloudHostSubsystem::SpawnHost(GetWorld(), this, Message);
+	if (Host && RenderPath != EFogMSRenderPath::CloudHost)
+	{
+		Modify();
+		RenderPath = EFogMSRenderPath::CloudHost;
+		Message += TEXT(" Render Path of this Box set to Cloud Host.");
+	}
+	UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS %s: %s"), *GetActorNameOrLabel(), *Message);
+	UpdateDensity();
 }
 
 bool AFogMSBoxVolume::RestoreDensityMotionReference(const FFogMSDensityMotionReference& Reference)

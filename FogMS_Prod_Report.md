@@ -931,6 +931,72 @@ Detail Lighting — у облака неба тот же DOP (`VolumetricCloud.u
 лепесток 0,4 / 0,6, мягкость солнца 5°, эрозия 0,05 / 0,10 (значения карты с диска); вьюпорт FourPanes сохранён в Lit
 (`VMI_Lit` в `EditorPerProjectUserSettings.ini`).
 
+## Раунд 45 (P2): `Render Path = Cloud Host` в C++ — Box в штатном Volumetric Cloud без Python
+
+Срез P2 из `FogMS_PerPixelClouds_Design.md` (раздел 4): прототип P1 (раунд 39) перенесён в плагин. Box получает свойство
+`Render Path` (`Froxel Fog` по умолчанию | `Cloud Host`); новая подсистема мира `UFogMSCloudHostSubsystem`
+(`Source/MultiLobeSpec/Private/FogMS_CloudHost.h/.cpp`) находит облачный хост и кормит его параметрами Box каждое обновление;
+материал хоста `M_FogMS_Cloud` + `MI_FogMS_Cloud` строит `ProdProbe/matedit_cloud.py` (из `cloudproto_material.py`), ассеты в
+`Content/FogMS/`. Попутно (просьба владельца): `Sun Detail Shadow` у Box теперь по умолчанию **вкл.** Проверка — облегчённый
+план владельца (одна установка, один шумовой пол, статусы и по кадру на состояние), скрипт `ProdProbe/d45_p2.py`; числа —
+`results/diag45/*.json`, сводка `r45_summary.txt`, лист `p2_sheet.png`; кадры — `measure/diag45` (связка на
+`D:\FogMS_ProbeFrames\diag45`). Во всех прогонах: облако неба скрыто (оно скрыто и в сессии владельца), троттлинг выкл.,
+`r.SkyLight.RealTimeReflectionCapture.TimeSlice 0`, режим Lit (`ShowFlag.OverrideDiffuseAndSpecular 0`); хост, созданный
+прогоном, удаляется в конце прогона; карта не сохранялась.
+
+**Путь данных за кадр (Box с `Render Path = Cloud Host` и годным хостом):**
+
+```text
+GAME THREAD, тик Box → UpdateDensity (и ещё раз в BeginRenderViewFamily каждого вида)
+  состояние плотности (как раньше: шум, порог, деталь, эрозия, профиль, фазы анимации CPU, лепесток)
+  └─► UFogMSCloudHostSubsystem::AcquireHost(Box, полоса плотности)
+        хост = видимый UVolumetricCloudComponent этого мира, у материала которого базовый материал M_FogMS_Cloud
+        проверки: домен Volume, не Unlit, 'Used with Volumetric Cloud', октавы VAO = 0 (только редактор),
+                  слой хоста накрывает полосу плотности Box (высота над землёй SkyAtmosphere), один Box на хост
+        материал хоста → MID (outer = облачный компонент: сохраняется с уровнем, после загрузки переиспользуется)
+     годен  → гибрид вкл. (Field Only: полное поле), FogMS_FroxelWeight 0, карта Sun Detail не строится
+              MID Box (M_FogMS_Density) ← прежние параметры и вес 0: во фрокселях Box ничего не добавляет
+              MID хоста ← FogMS_* (плотность, шум, фазы, лепесток, поле TransportField) + FogMS_CloudBoxCenter,
+                          FogMS_CloudWorldToLocal0..2 (строки куба плотности); статус ' [render: cloud host] [...]'
+     не годен → вес 1, Box во фрокселях; статус ' [cloud host: <причина>, froxel fallback]'; хост, которого Box больше не
+              кормит, пустеет (FogMS_Density 0 → консервативная плотность 0)
+  тик подсистемы (после тиков актёров): хост без кормящего Box — пустой; пока Box рисуется хостом, другие видимые облака
+  вытесняются (сцена рисует последний добавленный облачный компонент): при изменении набора других облаков, их
+  MarkRenderStateDirty или правке в Details хост пересоздаёт своё состояние рендера в следующем кадре;
+  cvar шага: r.VolumetricCloud.DistanceToSampleMaxCount = Tracing Max Distance хоста, SampleMinCount 8 (приоритет game
+  setting, явное значение сильнее; после — прежние значения; r.FogMS.CloudHost.StepSettings 0 — не трогать)
+RENDER THREAD (без изменений движка)
+  решатель 32³ → FogMS_TransportField (гибрид: RGB = J − нерассеянное солнце, A = 0,5 + 0,5·T_sun·k), как раньше
+  Volumetric Cloud (Mode 0): луч на тексель 1/4; на шаге: куб Box → плотность (FogMS_Extinction_v3, w = 0) → σt;
+    марш к солнцу 0,25 км × 32, HG(Phase G Box, G2/Blend инстанса); Emissive = σs·J·лепесток; AO 0 → реконструкция → поверх тумана
+```
+
+**Решения по ходу (отличия от буквы дизайна):**
+- Фроксельная копия гасится весом `FogMS_FroxelWeight`, как в брифе. Замечание: в C++ можно скрыть и сам `DensityComponent`
+  (рантайм решателя его видимость не читает, только видимость актёра) — это сняло бы и стоимость вокселизации копии; оставлено
+  на P6 (вес переключается мгновенно, смена видимости пересоздаёт прокси).
+- Фаза облака — `Phase G` Box (вход Phase G узла VAO читает `FogMS_ForwardG`); `Phase G2` / `Phase Blend` — параметры инстанса
+  `FogMS_CloudPhaseG2` / `FogMS_CloudPhaseBlend`. `FogMS_Density` в материале по умолчанию 0: хост, который никто не кормит,
+  пустой (консервативная плотность 0).
+- При хосте гибрид включается принудительно (поле всегда гибридное, дизайн 3.11); `Field Only (Debug)` → режим 3: у облака
+  альбедо 0 (узел `FogMS_CloudAlbedo`), Emissive = полное поле. У Box владельца гибрид и так вкл., поэтому ревизия плотности
+  при переключении не меняется: холодного пересчёта нет.
+- Шаг: без cvar хост с трассой 2 км шагал бы 2000 м / (768·2/15) ≈ 19,5 м; поэтому подсистема ставит
+  `DistanceToSampleMaxCount` = трасса хоста (2,6 м), пока им рисуется Box.
+- Хост плагин сам не создаёт (дизайн 2.4). Кнопка Box **Create Cloud Host** (и консоль `FogMS.CloudHost.Create` — нужна для
+  `-game`) создаёт актёр `FogMS Cloud Host` с `MI_FogMS_Cloud` и настройками P1 (слой = полоса Box ±10 м над землёй, трасса
+  2 км от камеры, ×8, марш к солнцу 0,25 км × 32, порог 0,005, без захвата неба) и ставит Box `Cloud Host`; в лог —
+  предупреждение, что облака неба вытесняются, пока хост виден. Ничего не сохраняет; Undo нет — хост удаляется руками.
+- `matedit_cloud.py`: граф P1, **каждая** связь Custom-узлов проверяется по T3D (хранимый OutputIndex → имя выхода источника,
+  как в W40); идемпотентен (`ALREADY_PATCHED`); откат: ассет с файлом перечитывается с диска, несохранённый очищается в
+  памяти. Первый запуск упал на моей же строгой проверке (выход `''` у Constant4Vector) и показал, что
+  `delete_all_material_expressions` удаляет не все узлы — теперь узлы удаляются по одному. Итог: `MATERIAL_OK`, 11 Custom-узлов,
+  73 пина проверены по T3D, повтор — `ALREADY_PATCHED`, строк «Failed to compile Material … M_FogMS_Cloud» в логе нет.
+- Сборка: первая — ошибка UHT (подсказка `Sun Detail Shadow` длиннее 1024 символов после правки), вторая — `MD_Volume` без
+  `MaterialDomain.h`; третья — BUILD PASS (см. ниже).
+
+**Проверка:** числа — по мере прогонов (таблица критериев ниже).
+
 ## Что не сделано / открыто
 
 - Квадратура, ориентированная на солнце: работает после исключения диска и префильтрации неба, включена по умолчанию.

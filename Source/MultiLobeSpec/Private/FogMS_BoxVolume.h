@@ -13,6 +13,7 @@ class UStaticMeshComponent;
 class UTextureRenderTargetVolume;
 class UVolumeTexture;
 class FTextureResource;
+struct FFogMSCloudBoxGeometry;
 
 UENUM(BlueprintType)
 enum class EFogMSDensityChannel : uint8
@@ -79,6 +80,14 @@ enum class EFogMSLumenBounce : uint8
 {
 	Auto = 0 UMETA(DisplayName="Auto", ToolTip="Lumen surface-cache radiance at ray hits when this engine build supports it (exact engine version 5.8.2) and the cache is ready; otherwise the fallback, without disabling Transport."),
 	Off = 1 UMETA(DisplayName="Off", ToolTip="Always the fallback: hit surfaces lit by the sun (ray-traced shadow, attenuated by this Box's medium) plus SH sky irradiance, times the Box's Fallback Ground Albedo.")
+};
+
+/** P2 (FogMS_PerPixelClouds_Design.md section 4): which renderer draws this Box's density. */
+UENUM(BlueprintType)
+enum class EFogMSRenderPath : uint8
+{
+	FroxelFog = 0 UMETA(DisplayName="Froxel Fog", ToolTip="The native Volumetric Fog voxelizes this Box's Volume material (one density sample per froxel, fog history), as before. For haze, valley fog and rivers."),
+	CloudHost = 1 UMETA(DisplayName="Cloud Host", ToolTip="The engine's Volumetric Cloud renders this Box per pixel (a ray march with its own sun shadow and phase) through a cloud host: a Volumetric Cloud actor whose material is MI_FogMS_Cloud (Create Cloud Host). The solver's field lights it through Emissive. Without a usable host the Box stays in the froxels and the status says why. For dense clouds.")
 };
 
 UENUM(BlueprintType)
@@ -152,6 +161,19 @@ public:
 	 * features (A1d/A1e, shadow cache, SSFS sky disk, FogMS.DumpSpatial) serve one Box only. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ToolTip="Enable this box as the live FogMS region. Changes apply live after Enable Live Box has compiled the shaders (automatic for Emissive Injection without -BindlessAll). Several Boxes: any number of enabled Transport Boxes with Emissive Injection run at once, each solving into its own field (r.FogMS.MaxBoxesPerFrame solves per view and frame; the others hold their last solve or wait, status 'Queued'); at most one enabled Box without Emissive Injection (the overlay path). Limits: a Box's rays and its sun transmittance do not see other Boxes' density; overlapping Boxes add their injected light (double lighting in the overlap, avoid overlaps); the overlay delivery and its features (authored/surface sun shadow, shadow cache, SSFS sky disk, FogMS.DumpSpatial) serve one Box only."))
 	bool bEnabled = true;
+
+	/** P2 Render Path (FogMS_CloudHost.h, UFogMSCloudHostSubsystem). Cloud Host with a usable host: the froxel copy is off (MID
+	 * FogMS_FroxelWeight 0), the solver publishes the hybrid field (the cloud marches the sun itself; Field Only (Debug) keeps the
+	 * full field), Sun Detail Shadow is not built, and every UpdateDensity writes this Box's material parameters into the host's MID.
+	 * Needs Transport + Emissive Injection. Status suffix: [render: cloud host], [cloud host: none, froxel fallback] or
+	 * [cloud host: <problem>, froxel fallback]. Default Froxel Fog: packet, MID and image as before (MID FogMS_FroxelWeight 1). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(DisplayName="Render Path", ToolTip="Which renderer draws this Box. Froxel Fog (default): the native Volumetric Fog, as before; best for haze, valley fog and rivers. Cloud Host: the engine's Volumetric Cloud renders the Box per pixel (its own sharp sun shadow and silver lining on every ray step, no froxel shimmer on still clouds); the solver's field still brings sky, bounce, lamps and multiple scattering. Needs Transport with Emissive Injection and a cloud host in the level: a Volumetric Cloud actor with MI_FogMS_Cloud (button Create Cloud Host). Only ONE Volumetric Cloud renders per scene, so the host displaces the sky clouds while it is visible. Without a usable host the Box stays in the froxels and the status says why ('[cloud host: none, froxel fallback]'). Cost: about 0.3-0.4 ms for the host in the probe window (round 39), the solver as before. Changes apply live."))
+	EFogMSRenderPath RenderPath = EFogMSRenderPath::FroxelFog;
+
+	/** P2 editor convenience (also console FogMS.CloudHost.Create): spawns the host with the P1 settings and switches this Box to
+	 * Render Path = Cloud Host. Warns in the log that only one Volumetric Cloud renders per scene. Nothing is saved. */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category="FogMS", meta=(DisplayName="Create Cloud Host", ToolTip="Spawns a Volumetric Cloud actor 'FogMS Cloud Host' with MI_FogMS_Cloud and the tested settings (layer fitted to this Box's density band +-10 m, trace 2 km from the camera, step about 2.6 m, sun march 0.25 km) and sets this Box's Render Path to Cloud Host. If a host exists already, nothing is spawned. WARNING: only one Volumetric Cloud renders per scene; while the host is visible, the level's sky clouds are displaced (not rendered). Nothing is saved: save the level to keep the host, delete the host actor to get the sky clouds back."))
+	void CreateCloudHost();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS", meta=(ClampMin="0.0", UIMin="0.0", Units="cm", ToolTip="Feather distance in world centimetres. Changes apply live after Enable Live Box has compiled the shaders."))
 	float FeatherDistance = 200.0f;
@@ -242,12 +264,13 @@ public:
 	 * the fog sample, Tbar = its sigma-weighted mean over the cell (MID FogMS_SunDetail / FogMS_SunMap / FogMS_SunMapCell /
 	 * FogMS_SunMapU/V/W, material node FogMS_SunDetail v1, matedit_density.py). S_hi scales native sun single scattering and is the
 	 * forward lobe's S. Off, night, no sun: the W40 material exactly. Material only: no density revision, no re-solve.
-	 * Default OFF (round 41): energy and look passed (Box brightness x0.986..x1.010, rim/core up on every view), but with the
-	 * owner's animated density (Edge Flow 500 cm/s) the frame-to-frame change of the cloud rose 11-13 % at his camera (replayed
-	 * density, 3 + 2 repeats; not map resolution: Steps 128 / Resolution 512 the same, strength 0.5 +3 %), so the criterion
-	 * 'flicker not worse than off' failed there. Actors saved without the property load with the default. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="Sun Detail Shadow", EditCondition="bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ToolTip="Sharp sun self-shadowing inside the cloud. Off: the sun light comes from the solver's cells (32 per Box side, about 7 m here), so a whole cell is lit equally. On: a sun map of this Box's own density (256 x 256 x 64, rebuilt every frame) moves the sun light inside every cell: sunlit bumps brighter, shadowed undersides darker, billows more defined; with Height Fog Scattering Distribution about 0.6 backlit edges get a silver lining. Energy per cell is kept (whole-cloud brightness changes about 1 %); also sharpens the forward lobe. Default off: with fast density animation (Edge Flow) the finer light detail moves with the density, about +10 % frame-to-frame change at some views; use it for static or slowly animated clouds, or lower Sun Detail Strength. Hybrid Single Scattering only; needs matedit_density.py (FogMS_SunDetail). Off = the previous look exactly; no change at night. Cost about 0.25 ms GPU per Box and frame, 16.25 MB video memory while on. Changes apply live."))
-	bool bSunDetailShadow = false;
+	 * Default ON since round 45 (the owner's request; round 41 had it off: energy and look passed, Box brightness x0.986..x1.010,
+	 * rim/core up on every view, but with the owner's animated density, Edge Flow 500 cm/s, the frame-to-frame change of the cloud
+	 * rose 11-13 % at his camera in one series). UE saves only differences from the class default, so Boxes saved while the default
+	 * was off without ticking it load with it ON; untick it (and save) to keep a Box without it. Not built for a Box that renders
+	 * through a cloud host (Render Path): the cloud marches the sun on every ray step. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="Sun Detail Shadow", EditCondition="bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ToolTip="Sharp sun self-shadowing inside the cloud. Off: the sun light comes from the solver's cells (32 per Box side, about 7 m here), so a whole cell is lit equally. On: a sun map of this Box's own density (256 x 256 x 64, rebuilt every frame) moves the sun light inside every cell: sunlit bumps brighter, shadowed undersides darker; with fog Scattering Distribution about 0.6 backlit edges get a silver lining. Energy per cell is kept (whole cloud about 1 %); also sharpens the forward lobe. Default ON since round 45 (was off; Boxes saved without touching it load with it on). With fast Edge Flow the finer light detail moves with the density (+10 % frame-to-frame change at some views, round 41): then lower Sun Detail Strength or untick it. Hybrid only; needs matedit_density.py (FogMS_SunDetail). Off = the previous look exactly; no change at night. Cost about 0.25 ms GPU and 16.25 MB per Box. Not used with Render Path = Cloud Host. Changes apply live."))
+	bool bSunDetailShadow = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Multiple Scattering Look", meta=(DisplayName="Sun Detail Strength", EditCondition="bSunDetailShadow && bEmissiveInjection && bHybridSingleScattering && (ScatteringMode == EFogMSScatteringMode::Transport || ScatteringMode == EFogMSScatteringMode::AngularTransport)", ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0", ToolTip="Blend of Sun Detail Shadow: 0 = the solver's per-cell sun light (as with the switch off), 1 = the full sun-map detail (default). In between the rims and cores are proportionally softer. Changes apply live."))
 	float SunDetailStrength = 1.0f;
@@ -303,6 +326,13 @@ public:
 	const FString& GetSunDetailProblem() const { return SunDetailProblem; }
 	/** W41: MID strength of the last UpdateDensity (0 = off). */
 	float GetSunDetailStrengthInEffect() const { return LastDensityState.SunDetailValue; }
+	/** P2: status suffix of the Render Path from the last UpdateDensity (empty for Froxel Fog): ' [render: cloud host] [...]',
+	 * ' [cloud host: none, froxel fallback]' or ' [cloud host: <problem>, froxel fallback]'. Appended by the Box runtime. */
+	const FString& GetRenderPathStatus() const { return RenderPathStatus; }
+	/** P2: a cloud host renders this Box after the last UpdateDensity (its froxel copy is off). */
+	bool IsCloudHostActive() const { return bCloudHostBound; }
+	/** P2: the density cube's transform and the cube-space z range that can hold density (for the host layer check / fit). */
+	void GetCloudHostGeometry(FFogMSCloudBoxGeometry& Out) const;
 	/** This actor instance ran Apply Required Render Settings (game BeginPlay or an automatic runtime start). */
 	bool HasAppliedRequiredRenderSettings() const { return bRequiredRenderSettingsApplied; }
 	/** CPU upper bound of the optical depth through the Box centre (definition at the implementation); negative without
@@ -584,6 +614,8 @@ private:
 		 * SunMapRow* = MID FogMS_SunMapU/V/W (the basis rows in the material's cube space -50..50); SunBasis = the same map in
 		 * Box-axis centimetres for the render thread (compared through the rows). */
 		float SunDetailValue = 0.0f;
+		/** P2: MID FogMS_FroxelWeight (material only): 1 = the Box renders in the froxels, 0 = a cloud host renders it. */
+		float FroxelWeightValue = 1.0f;
 		FLinearColor SunMapRowU = FLinearColor(0, 0, 0, 0);
 		FLinearColor SunMapRowV = FLinearColor(0, 0, 0, 0);
 		FLinearColor SunMapRowW = FLinearColor(0, 0, 0, 0);
@@ -655,6 +687,13 @@ private:
 	void ReleaseSunDetailMaps();
 	/** W41: status note of the last UpdateDensity (GetSunDetailProblem). */
 	FString SunDetailProblem;
+	/** P2 Render Path state of the last UpdateDensity (GetRenderPathStatus / IsCloudHostActive). */
+	FString RenderPathStatus;
+	bool bCloudHostBound = false;
+	/** Writes the density/look parameters of State into MID: the Box's own M_FogMS_Density MID, or (bCloudHost) a cloud host's
+	 * M_FogMS_Cloud MID: then the true density without the froxel-only prefilter / sun-map / froxel-weight parameters, plus the
+	 * density cube's placement (FogMS_CloudBoxCenter, FogMS_CloudWorldToLocal0..2). */
+	void WriteDensityParameters(UMaterialInstanceDynamic& MID, const FDensityState& State, bool bCloudHost) const;
 
 	bool GetDensityMotionVelocities(FVector& Out0, FVector& Out1, FVector& Out2) const;
 	bool EvaluateDirectionalMotion(double Time, const FVector& Velocity0, const FVector& Velocity1,
