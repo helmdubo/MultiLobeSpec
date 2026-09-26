@@ -1,264 +1,342 @@
-# FogMS — передача дел (handover) новому исполнителю
+# FogMS — обзор для аудитора
 
-**Состояние на вечер 23.09.2026 (этап C, ветка `claude/fogms-production`, голова `9c10d3d`, не запушена; владелец пушит сам).** Установлен в проекте владельца раунд 25; раунды 26–30 собраны (`E:\GITHUB\MultiLobeSpec\.codex-build\FogMS_Prod_20260922\Package26..30`, все три цели: UnrealEditor + UnrealGame Development/Shipping), **не установлены и не прогонялись**: 26 — `DirectSamples 4` по умолчанию; 27 — удалены приватные пути неба и hit-flags; 28 — откат Lumen v2 (`FallbackGroundAlbedo` на Box, ослабление средой, `r.FogMS.World.FallbackMedium`); 29–30 — **несколько Box в runtime** для пути инъекции (состояние на пару вид+Box, `r.FogMS.MaxBoxesPerFrame`, парковка состояния 120 кадров при выключении; overlay по-прежнему один Box; ревью Opus без блокеров, путь одного Box не изменён). Установка и проверка следующего свободного окна редактора: `bash E:/GITHUB/MultiLobeSpec/.codex-build/FogMS_Prod_20260922/session30.sh 30` (skyab/lumenab/trimsab + `ProdProbe/multibox_test.py`, затем редактор возвращается владельцу с FourPanes2x2). Направление после оптимизации утверждено владельцем: много локальных объёмов тумана (речной туман, туман в ущельях) рядом со штатным Height Fog + система LOD (`FogMS_LOD_Research.md`, тиры T0–T3 и планировщик по бюджету), затем авторская плотность: эрозия краёв, семейство высотных профилей, прижатие к рельефу, карта погоды с грозовым ядром (`FogMS_DensityAuthoring_Design.md`, срезы S0–S5; S0 = пакет 24→32 строк без изменения поведения — в работе). Правила замеров: замораживать `r.SkyLight.RealTimeReflectionCapture 0` на время A/B и всегда приводить шумовой пол повтором той же конфигурации; никакой автоматизации редактора, пока владелец в нём работает. Руководство для художников — `FogMS_UserGuide.md`, готовность к Fab — `FogMS_Fab_Readiness.md`.
+Состояние на **2026-09-27**, ветка `main` (срез для аудита — ветка `fogms/audit-2026-09-27`); код — коммит `083341c` (после него менялась только
+документация и два комментария с путём к журналу). Документ описывает то, что делает код сейчас. Утверждения сверены с
+исходниками (ссылки файл:строка — там, где это существенно); что не удалось проверить, помечено «(не проверено)». Хронология
+решений и замеры по раундам — [`docs/history/FogMS_Prod_Report.md`](docs/history/FogMS_Prod_Report.md); прежний handover
+(журнал этапов A–C до 23.09) и отчёты этапов A1–B3 — [`docs/archive/`](docs/archive/README.md).
 
-**Предыдущий блок 23.09.2026 (утро) — этап C «продукт».** Результаты и цифры — в **`FogMS_Prod_Report.md`** (читать первым для этого этапа). Сделано: warm start PCG между кадрами (`r.FogMS.Transport.WarmStart`), адаптивный бюджет по tolerance, квадратуры 16/24 направлений, квадратура, ориентированная на солнце (`SunAligned`, с исключением диска и префильтрованным по сектору небом), **`Transport Preset`** на Box (Production 16/≤16/1e-6 ≈ 2,2–3,5 мс; High 48; Cinematic 96; Custom) с пер-Box `Transport Tolerance` (−1 = cvar; старые карты грузятся как Custom без смены вида), **`Emissive Injection`** (opt-in, экспериментально): поле J публикуется в RT-volume Box и попадает в штатную вокселизацию через emissive volume-материала (`FogMS_TransportField`/`FogMS_InjectionMode`, маркер пакета 23.w=5) — поле совпадает с overlay, native LightScattering дешевле на ~0,7 мс, с 23.09 (раунд 12) Box в режиме инъекции работает **без `-BindlessAll`** (`-d3d12 -sm6`, дефолтная конфигурация RayTracing): та же картинка (PSNR 44 дБ в Box); overlay-функции остаются «Advanced, editor + -BindlessAll». В упакованной игре `-BindlessAll` не парсится — injection-only единственный путь в билде. `r.FogMS.Transport.SweepThreads` = 1024 (−6 % sweep, поле побитово то же). Инструменты замеров: `Tools/FogMSEnergyValidation/ProdProbe/` (мост UE-MCP :9877, `measure.py`, `abfrozen.sh`, `abinject.sh`, `sweepab.sh`, `fg.ps1`; редактор должен быть на переднем плане). Спайк при остановке камеры в редакторе — hit proxy + синхронное чтение GPU, в игре отсутствует. Открыто: async compute решателя (в работе, cvar по умолчанию 0), перевод входов решателя с bindless, временное поведение инъекции (штатная история 0,9 теперь применяется к σs·J).
+Сокращения путей: `MLS/` = `Source/MultiLobeSpec/Private/`, `FR/` = `Source/FogMSRender/Private/`, `SH/` =
+`Shaders/Private/`, `PP/` = `Tools/FogMSEnergyValidation/ProdProbe/`.
 
-**Уточнение производительности Package6:** полный `MainGPU6.log` содержит также77.298/76.851ms FinalIntegration в пользовательском ракурсе `own-ssfs-objects-06`, SSFS .211ms. Первоначальный отчёт сообщил только около18ms для солнечного near-Box ракурса. Mode3 имеет серьёзную зависимую от ракурса регрессию производительности; его нельзя считать готовой оптимизированной реализацией. Подробности исправлены в `FogMS_SSFS_Report.md`. При объяснении владельцу состояние viewport/CVars не менялось.
+## 0. Коротко
 
-**Текущая работа 22.09.2026: Package6 установлен для полевого сравнения.** Собственный SSFS (`r.FogMS.SSFS`, plugin default0) заменяет отклонённый native FSSS. Mode3 отсчитывает view-ray samples от входа в Box и кэширует коэффициент общей для соседних слоёв ячейки. В проектном `Saved/FogMS/enable_box.py` выбран field candidate: ViewIntegration3, SSFS1/Amount1/Radius24; compiled defaults остаются0. StrictIncludes/D3D12-SM6 и непрерывный camera-protocol64 кадров прошли; на просмотренных кадрах нет нового тёмного ореола, солнечный прямоугольный hotspot устранён. **Полное устранение W/S shimmer ещё не доказано; стоимость интеграции около18ms в солнечном near-Box тесте остаётся высокой, SSFS около.18ms.** Статус, провалы и ограничения — `FogMS_SSFS_Report.md`, команды — `FogMS_SSFS_Verification.md`. **Владелец изменил сцену: Density=.5, WindSpeed100, EdgeFlow150, extents11110/4888/5029cm**; старые .2/200 и размеры не восстанавливать. `restart6-state.json` сохраняет последнюю камеру/фазу; Engine/crash guard не менять. Новые B2/B3/animation/view/SSFS изменения не опубликованы.
+- **FogMS** — многократное рассеяние света и самозатенение среды для локальных объёмов тумана и облаков в UE 5.8. Автор
+  ставит актёр **FogMS Box Volume** (ориентированный бокс с плотностью из 3D-текстуры). Решатель переноса на сетке 32³ в осях
+  Box считает падающий свет каждой ячейки со всех сторон (солнце, point/spot, небо, отражённый свет, все порядки рассеяния) и
+  отдаёт это поле штатным рендерерам движка. Файлы движка не меняются.
+- **Основной путь:** Box → решатель → поле `TransportField` (32³) → доставка: **облачный хост** (штатный Volumetric Cloud
+  с материалом `M_FogMS_Cloud`; `Render Path` по умолчанию с раунда 46) или **Froxel Fog** (штатный Volumetric Fog через
+  Volume-материал Box, `Emissive Injection`; он же откат хоста) → погода (актёр **FogMS Weather**: тени облаков погоды через
+  проход теней хоста, купол-небо) → штатная карта теней облака и захват SkyLight.
+- **Legacy-путь** (этапы A1–B1; только редактор с `-BindlessAll`): оверлей шейдеров движка — A1, Octaves, Spatial, World,
+  авторская тень солнца, кэш теней, `Indirect Shadowing`, View Integration. В игре его нет. Экранный постфильтр SSFS остался
+  опцией (по умолчанию выкл.).
+- **Проверено** только на UE 5.8.2 (CL 56702186), Win64, D3D12 SM6, аппаратный ray tracing, RTX 3070, одна тестовая сцена
+  заказчика. Автотестов UE Automation у FogMS нет (раздел 7). В `.uplugin` — `IsBetaVersion`.
+- **Ассеты Unreal в репозитории не хранятся** (раздел 6); `M_FogMS_Density` и `T_FogMS_DefaultVolume` скриптами репозитория
+  с нуля не создаются — только из истории git.
 
-**Важное исправление статуса 22.09.2026:** следующий ниже Package1 ViewIntegration **отклонён владельцем**: W/S хуже, тёмные края, резкое перекрытие диска. Post-stop RMS не доказал качество движения. Native FSSS выключен live и в startup preset; он не соответствует запрошенному SSFS Карпухина. Разрабатывается сравнение прежнего temporal пути с coherent subray L/T и собственный отдельный SSFS. Пока не считать их проверенными. Авторские параметры/последнюю камеру сохранять; Engine read-only.
+## 1. Документы
 
-**Актуально: View Integration + native SSFS, 22.09.2026.** Установлен **Package1 из `.codex-build/FogMS_ViewIntegration_20260922`**, 86 файлов сверены. Валидный B2/B3 теперь добавляет текущие Box source/extinction в FinalIntegration после native history; восемь фиксированных согласованных выборок. Старый fallback/debug сохранён. W/S post-stop RMS 1.912%→0.984%; это не доказательство полного отсутствия непрерывного shimmer. Native SSFS включён на прежнем HeightFog, отдельная FSSS TAA выключена. Поздний procedural sun добавлен в source native blur без двойного ослабления; плотность3x скрывает диск в контрольном ракурсе. Существующий startup preset сохраняет SSFS1 / SeparateComposition-1 / FSSS.TAA0. Авторские B3High96/8, Density.2, bounds/light/camera сохранены; пользователь поднял EdgeFlowSpeed до **150**, не восстанавливать20. Та же карта, анимация возобновлена. Протокол и ограничения: `FogMS_ViewIntegration_Report.md`, `FogMS_ViewIntegration_Verification.md`; итог живого наблюдения — `field-live.json`. Предшествующий `field-ready.json` остановился после52 кадров из-за изменения камеры; FAIL сохранён, это не краш. Последнюю камеру не откатывать. Engine/crash guard неизменны; новый merge не заявляется.
-
-**Актуально: Motion + Edge Flow, 21.09.2026.** Установлен **Package5 из `.codex-build/FogMS_Motion_20260921`** (не одноимённый старый пакет B3). В той же карте `/Game/FogMS_Test/FogMS_Box`: **B3 High96 / 8 iterations**, Density=.2, World Texture Size=10000 cm, Detail Strength=.1, Detail Scale=8. Пользователь увеличил Box до scale `(12.4073157468, 5.2314909978, 9.2884261813)` и менял свет/камеру; эти изменения сохранять. Старые authored snapshots ниже не восстанавливать.
-
-**Движение:** Directional Wind, независимая стрелка, Wind Speed=200 cm/s, **Edge Flow Speed=20 cm/s**, оба advanced relative vector=0, Animate Density включено. Крупная форма переносится общим ветром; два detail-слоя дополнительно движутся поперёк него. Flow=0 останавливает относительное течение без скачка рисунка. Freeze/Resume сохраняют фазу. Это изменение контуров в полосе значений шума, а не fluid simulation или строго внешняя erosion-mask. Изменены только actor control/velocity; shader/material/producer относительно Motion Package4 идентичны. Подробности: `FogMS_EdgeFlow_Report.md`, `FogMS_EdgeFlow_Verification.md`.
-
-**Доставка/проверки Motion:** 4 согласованные tetrahedral выборки плотности и `sigma_s * J` на froxel, локальное сокращение native image history при движении/расхождении, общий world-clock packet. Пакет StrictIncludes установлен и сверён по 85 файлам. Edge Flow: 21 native control check и 5 кадров morphology PASS с точным восстановлением сцены; изолированный `edge-field-ready-03.json` — 1200 кадров / 41.797 s, READY_FOR_FIELD, карта сохранена, preferences восстановлены, камера не менялась. Два предшествующих field harness запуска FAIL сохранены в отчёте; их нельзя скрывать или выдавать за доказанную поломку production кода. Общая физическая/Shipping/долгая crash-приёмка этим не закрыта.
-
-**Последний отзыв владельца:** Motion заметно лучше; нужен живой контур — реализован Edge Flow. Осталось дрожание отверстий при **W/S dolly с фиксированным FOV**, особенно издалека; при A/D pan и вблизи слабее. Frozen-density проверки завершены: удвоение Z208→416 слабо меняет post-stop settling, а отключение fog history при одинаковом miss-sample count снижает раннюю ошибку dolly 3.272%→1.060% (LDR ROI, не измерение мерцания в движении). Настройки полностью возвращены. Приоритет следующего среза — предыдущая Box-плотность/покрытие для открывающихся просветов; затем footprint-фильтрация thresholded density. Причина на уровне одной строки не доказана, исправление ещё не реализовано: `FogMS_Dolly_Research.md`. Near04/05 Motion A/B были недействительны: владелец подтвердил изменение параметров во время замеров. Нельзя переносить цифры промежуточного 8-point варианта на финальный 4-point. `FogMS_Motion_Report.md` хранит границы доказательств.
-
-**Инварианты:** Engine read-only, crash compatibility guard неизменен, новые уровни не создавать. Текущая ветка `codex/fogms-b2`; B2/B3/Motion/Edge Flow локальны, новой публикации этот checkpoint не утверждает.
-
-**Предыдущий срез B3 + анимация, исторический снимок 21.09.2026:** владелец принял B2 и разрешил следующие срезы. Package5 установлен; в прежней карте выбран **Transport (B3 Angular), 48 directions, 24 iterations**. B2 сохранён. Новый перенос использует положительную парную угловую квадратуру и консервативный finite-volume оператор; GPU 9/9, анимация 11/11, камера/линейность источников и 1800 кадров runtime прошли. Фактическая стоимость B3 значительна: около 31.85 ms Graphics / 18.186 ms solver против B2 16.64 / 2.206 ms в контрольной сцене. Не называть это дешёвым режимом или завершённой физикой всей картинки. Детали/границы — `FogMS_B3_Report.md`, проверка — `FogMS_B3_Verification.md`.
-
-**Доставка B3:** анимация выключена для статического сравнения; подготовлены Wind (80,0,0), Detail (0,12,0), Evolution (0,0,5) cm/s. Animate Density включает движение, Freeze/Resume сохраняют фазу. World mapping не растягивается с Box; обычное движение не сбрасывает глобальную fog history. Новый текущий снимок — `.codex-build/FogMS_B3_20260921/scene-inspect-20260921T164412_764069Z-e71730fe.json`, `field-ready.json`; последняя камера сохранена. Прежнюю камеру из B2 не восстанавливать. Field motion acceptance ещё за владельцем. g=0 остаётся требованием; anisotropy и lowland density shaping — следующие отдельные этапы. Ветка `codex/fogms-b2`, B2/B3 локальны, новой публикации не было. Engine и crash guard read-only; карта одна.
-
-**Предыдущий срез B2 — исправления после внешнего аудита:** B1 уже опубликован и слит в main (`d769a7f`, PR7). Внешний аудит получен; владелец согласился с корректировкой и разрешил автономную реализацию/перезапуск проекта. Прежнее ожидание аудита снято. Ветка `codex/fogms-b2` содержит следующий срез **Transport (B2)**; текущая доставка и границы доказательств — `FogMS_B2_Report.md`, полевой протокол — `FogMS_B2_Verification.md`. Новую публикацию B2 этот отчёт не утверждает.
-
-**Текущий B2:** изотропный перенос в Box 32³ по шести направлениям, формальное решение сегментов и PCG вместо трёх затухающих порядков/короткого радиуса. Все Box first-order и MS используют общий источник Sun/Point/Spot/sky/Lumen. Per-order Strength и Indirect Shadow Strength не меняют B2. Вакуум сохраняет перенос, преграды закрывают взаимные грани, интерполяция не смешивает разделённые ими ячейки. CPU 44/44, GPU 11/11, тонкая стенка 6/6 и native receiver 6/6 прошли; это консервативная **дискретная** модель, не доказательство физической точности всей картинки. Шесть направлений имеют измеренную угловую ошибку (~16.59% RMS slab); её нельзя исправлять множителем яркости. DF исследован, но RT оставлен эталоном из-за coverage/тонких стенок. Фактические runtime результаты, стоимость и caveats указаны в отчёте.
-
-**Не восстанавливать исторические значения ниже.** Актуальный authored baseline — `scene-inspect-20260921T141245_365699Z-790f461d.json` в `.codex-build/FogMS_B2_20260921`: Density=.6, Texture World Size=8000 cm, Strength=.35, Indirect Shadow Strength=.6, последняя камера/FOV55 и существующий Spot с меткой PointLight. В поле выбран Transport/24; прежние художественные параметры сохраняются для B1. Карта одна, Engine строго read-only, crash compatibility guard не менять. Этот B2-снимок исторический: актуальные B3 и animation описаны выше; SSFS не заменяет пространственный перенос.
-
-**Предыдущий срез 2026-09-21 — B1 / World (Current Frame), исторический снимок:** источник освещения перенесён из предыдущего camera fog history в фиксированную сетку Box 32³. Каждый кадр заново вычисляются primary source (scene lights + sky + Lumen surface cache) и три дополнительных порядка с HWRT-видимостью. Старый Spatial сохранён для сравнения. Package6 / StrictIncludes установлен; GPU-проверки direct-only и полного GI при orbit/dolly/turn-away/FOV прошли: максимальные RMS изменения 0.000501% / 0.062475%. Радиометрия (точное 2×, нулевые source/albedo/Strength), RC0↔1 и visibility/fallback проверены. Протокол, ограничения и итоговая доставка — **FogMS_B1_Report.md**, evidence `.codex-build/FogMS_B1_20260921`. Это ограниченные три порядка при g=0, не завершённый бесконечный MS/B2. Плотность .6, Strength .35, Distance500cm и последний пользовательский ракурс из `live-authored-5.json`; не восстанавливать старые ракурсы из исторических отчётов. Engine и crash compatibility guard не менять; карта одна.
-
-
-**Сглаживание самозатенения 2026-09-21:** добавлен opt-in Filter Sun Inside Volume (Details → FogMS → Sun), использующий existing filtered sun cache и общий Shadow Filter Sigma. В рабочей сцене включён при Sigma100; off возвращает обычный sun march. Receiver теперь совпадает с native jittered sample, включая supersamples. Build2/Package2 StrictIncludes, 72 файла, matched runtime On/Off и HDR проверены; подробности и ограничения — FogMS_Banding_Report.md, evidence .codex-build/FogMS_Banding_20260921. Не объявлять все исходные полосы артефактом или полностью устранёнными: межпроцессное освещение изменялось, остаются физические shafts. Авторские Density=.8 и последний ракурс сохранены; Engine и crash compatibility guard не менять.
-
-**Исправление crash 2026-09-21:** startup-delay из Stability не устранил падение. Три одинаковых D3D12RHI стека, включая запуск длительностью 4ч41м, сопоставлены с native RT `UnsetExplicitDescriptorCache → SetDescriptorHeaps → null CurrentViewHeap` при BindlessAll. В FogMSRender добавлен ограниченный UE5.8.2/D3D12/SM6/All/single-GPU compatibility guard: ранний `r.RHICmd.ParallelTranslate.Enable=0` + однократная подготовка default context через публичный RHI. RT/Lumen/lighting не отключены, RDG ParallelExecute остаётся 2; возможна цена CPU translation. Guard действует до завершения процесса, даже FogMS Off. Package3/StrictIncludes/72 файла установлен; два запуска финального пакета и 15 минут / 13048 кадров camera/sun/occluder soak прошли. Авторские параметры сохранены, все 4 статуса Active; итог delivery-receipt.json, проект открыт. Точная цепочка, ограничения и последующие результаты — `FogMS_Crash_Report.md`, evidence `.codex-build/FogMS_Crash_20260921`. Engine не меняли.
-
-**Предыдущая доставка 2026-09-21 — Stability:** после полевой проверки Fields уменьшено дрожание indirect: Enable Indirect Preview задаёт фиксированную выборку TLV Jitter=0/N8, сохраняя RC=0 и A1c. Spatial теперь обрезает луч аналитически по предыдущему frustum и проверяет conservative-depth validity. В единственной FogMS_Box View Distance увеличен до 50000cm, GridSizeZ=208; preset расширяет TLV EndDistance до 50000cm без растяжения ближних слоёв. Пользовательские Density=.6, SpatialStrength=.5, SpatialDistance=2000cm, IndirectSteps=32 сохранены. StrictIncludes Build1/Package1, 70 файлов; отчёт `FogMS_Stability_Report.md`, evidence `.codex-build/FogMS_Stability_20260921`. Первый немедленный startup упал в D3D12RHI ShadowBatch; точная причина не установлена. Два последующих запуска с отложенным Apply успешны, второй через сохранённый startup wrapper. Camera-independent B ещё не завершён, fixed-sample bias и грубое дальнее GI остаются ограничениями. Engine не менять; новых уровней нет.
-
-**Предыдущая доставка 2026-09-21 — Fields:** реализованы filtered sun cache и экспериментальный пространственный A2 с HWRT, взаимоисключающий с Octaves. Новый ранний FogMSRender находится внутри прежнего плагина. StrictIncludes Build5 прошёл; пакет 70 файлов установлен. Реальные D3D12 A/B, HDR-линейность, нулевые источники/scattering, статичная история и возврат камеры проверены; финальный запуск и сверка фиксируются в `delivery-receipt.json` под `.codex-build/FogMS_Fields_20260921`. Отчёт — `FogMS_Fields_Report.md`, протокол владельцу — `FogMS_Fields_Test_Protocol.md`. Это не завершённый camera-independent B: источник ещё из previous fog history/frustum, тонкие стены и движение требуют дальнейшей проверки. Sky Light сохранён: Captured Scene, intensity=3, RTC=false; исходный native VolumetricCloud временно скрыт. Визуальная приёмка владельцем ожидается. Новых уровней нет, Engine не изменять.
-
-**Отзыв после A1e:** заказчик считал тени грубыми; ориентир RDR2 — широкое плавное ослабление солнца и пространственно меняющийся свет неба. Исследование в `FogMS_A1f_Research.md` привело к filtered sun cache в текущем срезе. Отдельные направленные sky scattering/transmittance поля для поверхностей и согласование отражений ещё не реализованы. Не заменять их общей маской затемнения SceneColor/Lumen GI.
-
-**Предыдущая доставка 2026-09-21 — A1e:** world-locked Perlin с отдельным World Texture Size и Cast Sun Shadow для deferred поверхностей. StrictIncludes, D3D12/SM6 On/Off,12 GPU profiles и основной полевой запуск завершены; пакет60 файлов сверён, прежняя карта сохранена, редактор открыт. WorldAligned=true, Size2000cm, CastSun=true/Strength1/Steps64; старые authored controls сохранены, в том числе пользовательский IndirectShadowSteps=16. Визуальная приёмка заказчика ожидается. Протокол — `FogMS_A1e_Report.md`; native reuse — `FogMS_NativeCloudShadows_Research.md`. Surface march не объявляется дешевле native BSM; при1367×954 наRTX3070 +0.719ms в directional pass при64 шагах, не полная стоимость FogMS. Следующая оптимизация-кандидат: локальная depth-aware transmittance cache без захвата единственного native cloud layer. Engine не менять.
-
-Читай в таком порядке:
-
-1. **`FogMS_HANDOVER.md`** — этот файл: что за проект, где мы, что делать.
-2. **`FogMS_Audit_UE58.md`** — аудит исходников UE 5.8.2 (сделан предыдущим исполнителем, файл:строка).
-3. **`FogMS_Research_Note_01.md`** (v1.5) — математика A1 и исправленная конвенция A1b, задание/результат мини-аудита №2.
-4. **`FogMS_A1_Report.md`** — инвентаризация, реализация A1, границы локальной проверки и пошаговый протокол заказчика.
-5. **`FogMS_Audit2_UE58.md`** — завершённый read-only мини-аудит Q1–Q8, оставшиеся вопросы compile/link/GPU.
-6. **`FogMS_Box_Report.md`** — реализованный live Box, GPU-проверки и протокол заказчика; **`FogMS_Project_Install.md`** — история установки.
-7. **`FogMS_TextureDensity_Plan.md`** — исходники/контракт плотности из Perlin; **`FogMS_TextureDensity_Report.md`** — реализация, GPU-проверки и установка. **`FogMS_Visibility_Fix.md`** — глазик и границы visibility policy.
-8. **`FogMS_A1b_Report.md`** — разбор A1/Audit2 в роли исследователя и следующий срез октав; **`FogMS_References.md`** — список литературы, присланный заказчиком, справочник по этапам.
-9. **`FogMS_A1c_Research.md`** — исследование indirect self-shadow; **`FogMS_A1c_Report.md`** — реализация, CPU/GPU-проверки и установленный экспериментальный A1c; визуальная приёмка не пройдена из-за мерцания indirect и недостаточной детализации.
-10. **`FogMS_A1d_Report.md`** — предшествующая доставка: две detail-октавы той же Perlin, полный authored Box sun path, более подробная froxel-сетка и 36 indirect-направлений. Заказчик оценил объём положительно, затем запросил тени на поверхностях и мировой Perlin.
-11. **`FogMS_A1e_Report.md`** — эти два изменения и текущая доставка; **`FogMS_NativeCloudShadows_Research.md`** — ограничения прямого native reuse и направление оптимизации.
-
-12. **`FogMS_B1_Report.md`** — предыдущий World source и три порядка, результаты камеры/HDR и протокол.
-13. **`FogMS_B2_Report.md`**, **`FogMS_B2_Verification.md`** — актуальный перенос после внешнего аудита, численные доказательства и границы полевой проверки.
-
-Приоритет при противоречиях: **исходники движка → аудит → заметка исследователя → этот файл.** Нашёл противоречие — исправь документ сразу (см. §8), не оставляй на потом.
-
-Старый `KICKOFF_FogMS_UE58.md` **устарел — удалить, если встретишь.** Этот файл его полностью заменяет.
-
----
-
-## 0. Суть за 30 секунд
-
-Делаем плагин для UE 5.8: **многократное рассеяние света внутри Volumetric Fog.** План утверждён заказчиком. Состояние на конец работы 2026-09-20:
-
-- **Задача 0 выполнена:** 8/8 анкеров VERIFIED; старый worktree и его untracked аудит сохранены, kickoff не найден.
-- **Задача 1 выполнена:** документы согласованы с source-term математикой, действующими решениями и новым контрактом Extinction Scale.
-- **Задача 2 — A1 написан и установлен:** самозатенение directional + аналитическое продолжение, независимый переключатель, три debug-вида. Strict C++ build и допущенные UE fog shaders прошли; D3D12/SM6 On/Off и debug smoke выполнен. Заказчик сообщил «Дефектов не заметил» и разрешил следующий срез; это не доказательство всех математических пределов модели. См. `FogMS_Project_Install.md`.
-- **Задача 3 выполнена:** Audit2 Q1–Q8 готов; работоспособность будущего B не доказана.
-- **Live Box реализован и установлен:** один ориентированный объём на мир, живые transform/feather/enabled без Apply, legacy вне объёма, полный солнечный путь внутри. Strict build, отдельные D3D12/SM6 GPU-кадры, редкий capture и 56 GPU-замеров завершены. Пакет установлен с backup после разрешения заказчика закрыть редактор; основной проект открыт на новой тестовой карте с активным Box и сохранённым HWRT. Код не закоммичен.
-
-**История предыдущего среза:** после замечания об исчезновении дымки заказчик разрешил продолжить срез, считая глазик второстепенным. Реализована настоящая добавляемая плотность из `/Game/MimirHead/Textures/perlin.perlin` (64³), независимая от A1. Live-параметры, новый компонент и материал собраны StrictIncludes; D3D12/SM6 actor regression и 24 GPU-замера выполнены. Фикс глазика включён. Детали/пределы и текущая доставка — `FogMS_TextureDensity_Report.md`.
-
-**Новые уровни не создавать** — последнее прямое указание заказчика. Работа и пользовательское сравнение остаются в существующем `/Game/FogMS_Test/FogMS_Box`; не заменять его целиком картой из probe. Параметры обновлять на существующем акторе, сохранять пользовательские transforms и backup.
-
-**TextureDensity принят заказчиком:** «мне нравится результат, давай следующий срез». A1/Audit2 разобраны исполнителем в разрешённой роли исследователя, конвенции независимо сверены с UE; ошибка рекурсии фазы исправлена. Следом был доставлен A1b — ограниченная directional octave approximation в source term. Статус/доказательства — `FogMS_A1b_Report.md`. Полноценный пространственный MS и обход препятствий не реализованы; принятие плотности не является их приёмкой. Подробности прежнего отзыва и исправленных ошибок Python съёмки — `FogMS_Box_Report.md`.
-
-**Актуальная доставка после A1b:** заказчик разрешил автономно довести следующий срез до полевой проверки. A1c реализован и установлен внутри прежнего плагина/уровня: каждый входящий Lumen ray ослабляется по авторской Box+Perlin плотности до native hit endpoint, только для fog current SH output. Это attenuation, не пространственный MS. StrictIncludes, D3D12/SM6, 1817 CPU checks, 30 первичных и 21 фиксированных HDR captures выполнены. Небо и внутренний emissive различаются по длине пути; native history suffix сохранён по исходникам. Специальный preview preset (RC/filter/depth offset/async) включается кнопкой Enable Indirect Preview, checkbox/Strength переключают эффект вживую; Restore Standard Lumen возвращает настройки и stock TLV после recompile. Пакетные 52 файла сверены, backup и ограничения — `FogMS_A1c_Report.md`. Прежние density/transform/A1b сохранены, новых рабочих уровней нет. Полевая проверка выявила сильное мерцание indirect и недостаточную детализацию; визуальная приёмка A1c не пройдена. Перед крупным расширением собственного renderer/MS выполнить ограниченное сравнение с native Cloud/HV в той же карте, сохраняя HWRT/RT-shadow требования. Диагностика истории/выборок — FogMS_A1c_Report.md; основания сравнения — FogMS_Nubis_Review.md.
-
----
-
-## 1. Кто есть кто
-
-**Предшествующий срез — A1d (исторический снимок).** Основной проект открыт и сохранён на той же `FogMS_Box`, Sun Shadow / Indirect Status Active. Authored Sun Shadow=true, Detail Strength=.18 / Scale4 / SecondOctave.5, grid4/Z128, sun Steps64, indirect N6/Steps32, history .9/Jitter1. Сохранены последние пользовательские параметры density .9, threshold .58, feather100, канал G, transform/scattering. Native RT Shadows и HWRT включены. В неподвижной серии N6 примерно вдвое уменьшил mean temporal pixel variance против N3; движение требует полевой оценки. Подробности сравнений, стоимости, аварии tooling при попытке редактирования загруженного материала и безопасного восстановления — `FogMS_A1d_Report.md`. Кода Engine не меняли, новых уровней нет, commit/push не выполнялись.
-
-| Роль | Кто | Что делает |
+| Документ | Статус | Зачем читать |
 |---|---|---|
-| **Заказчик** | Alexander, tech art lead студии 3D-окружения. 3D-художник, **не программист** | Принимает решения, компилирует, смотрит глазами, пересылает файлы между агентами |
-| **Исследователь** | отдельная чат-сессия Claude **без доступа к файлам**, ТЫ ТАК ЖЕ МОЖЕШЬ БЫТЬ ИССЛЕДОВАТЕЛЕМ! | Физика, математика, литература, дизайн, критика. Факты о движке принимает только от тебя с файл:строка |
-| **Исполнитель** | **ты** (Claude Code, доступ к исходникам) | Читаешь код, пишешь код, ведёшь документы в репозитории |
+| этот файл | текущий | архитектура, модули, пути рендера, глобальные изменения движка, сборка, техдолг, открытые задачи |
+| [`FogMS_UserGuide.md`](FogMS_UserGuide.md) | текущий | каждое свойство, cvar, команда, статус, цена; политика ассетов (раздел 9) |
+| [`FogMS_PerPixelClouds_Design.md`](FogMS_PerPixelClouds_Design.md) | дизайн, реализованы P1, P2, часть P4 | облачный хост; P3, P5, P6 открыты |
+| [`FogMS_Weather_Design.md`](FogMS_Weather_Design.md) | дизайн, реализованы W47, W48, фаза 1 W49 | погода; W50–W53 открыты |
+| [`FogMS_DensityAuthoring_Design.md`](FogMS_DensityAuthoring_Design.md) | частично устарел, S0–S2 реализованы | эрозия, профиль высоты, пакет Box |
+| [`FogMS_ForwardLobe_Design.md`](FogMS_ForwardLobe_Design.md) | частично устарел, F1a/F2 реализованы | прямой лепесток, `Sun Softness` |
+| [`FogMS_LOD_Research.md`](FogMS_LOD_Research.md), [`FogMS_Cloud_Lighting_Review.md`](FogMS_Cloud_Lighting_Review.md), [`FogMS_NativeCloudShadows_Research.md`](FogMS_NativeCloudShadows_Research.md), [`FogMS_References.md`](FogMS_References.md) | исследования и справка, частично устарели | обзоры игр и литературы, факты движка |
+| [`FogMS_Fab_Readiness.md`](FogMS_Fab_Readiness.md) | частично устарел | план снятия приватных зависимостей (актуальный список — раздел 8 здесь) |
+| [`docs/history/FogMS_Prod_Report.md`](docs/history/FogMS_Prod_Report.md) | журнал | раунды 1–49: что менялось, как проверяли, числа, решения владельца |
+| [`docs/archive/README.md`](docs/archive/README.md) | архив | отчёты этапов A1–B3, ранние аудиты, прежний handover, устаревшие документы MLS |
+| [`README_RU.md`](README_RU.md) и документы MLS | MLS | вторая часть плагина (BRDF-оверлей), к FogMS относится только общий оверлей |
 
-Для простых задач используй subagents.
+У каждого дизайн-документа в шапке — статус реализации на 2026-09-27.
 
-Общение с заказчиком — **на русском**. Объясняй через поток данных: сущности, атрибуты, инварианты, графы проходов (как Blueprints / Houdini), не через ООП. Вопросы по физике/математике складывай в раздел **«Вопросы исследователю»** в своих отчётах — заказчик перешлёт.
+## 2. Архитектура и поток данных
 
----
+### 2.1 Сущности
 
-## 2. Цель проекта
+| Сущность | Где | Что хранит / делает |
+|---|---|---|
+| **Box** — `AFogMSBoxVolume` | `MLS/FogMS_BoxVolume.h/.cpp` | ориентированный бокс; авторская плотность (Volume Texture, порог, мягкость, две детальные октавы, мировая привязка, анимация «ветер + Edge Flow», эрозия, профиль высоты); режим рассеяния и пресет решателя; доставка (`Emissive Injection`, гибрид, `Render Path`); облик (`Multiple Scattering Look`, `Sun Softness`, `Sun Detail Shadow`). `UpdateDensity` пишет параметры плотности в MID своего `M_FogMS_Density` или в MID облачного хоста |
+| **Runtime Box** — `FFogMSBoxRuntime`, `FBoxViewExtension` | `MLS/FogMS_BoxRuntime.cpp` | scene view extension: собирает пакет Box (32 × float4, `FogMSRender::BoxRowCount`), атлас плотности, снимок неба; планирует решения (`r.FogMS.MaxBoxesPerFrame`), вызывает решатель, публикует поле, собирает статус |
+| **Атлас плотности** | `MLS/FogMS_DensityAtlas.h/.cpp`, `SH/FogMS_DensityAtlas.usf` | BGRA8-копия mip 0 Volume Texture (X × Y·Z) для решателя: в редакторе — загрузка с CPU из исходника текстуры, в игре — GPU-копия |
+| **Решатель** | `FR/FogMS_Transport.*`, `FR/FogMS_WorldLighting.*`, `FR/FogMS_WorldSources.*`, `FR/FogMS_LumenSource.*`; `SH/FogMS_Transport.usf`, `FogMS_WorldLighting.usf`, `FogMS_WorldSources.ush`, `FogMS_Indirect.ush`, `FogMS_LumenSource.ush` | изотропное стационарное уравнение переноса на сетке 32³; результат — поле J |
+| **Поле** — `TransportField` | свойство Box (`UTextureRenderTargetVolume` 32³ `PF_FloatRGBA`) | полное: RGB = J, A = 1; гибрид: RGB = max(J − нерассеянное солнце, 0), A = 0,5 + 0,5·T_sun·k (k — доля солнца в нерассеянном свете); A = 0 — поля нет, материал переходит к штатному освещению |
+| **Sun Detail Shadow** | `FR/FogMS_SunDetail.cpp`, `SH/FogMS_SunDetail.usf` | карта пропускания солнца в пространстве света на Box (256² × 64) и среднее по ячейке 32³ — перераспределяет долю солнца внутри ячейки во фрокселях |
+| **Облачный хост** — `UFogMSCloudHostSubsystem` | `MLS/FogMS_CloudHost.h/.cpp` | находит Volumetric Cloud с материалом на основе `M_FogMS_Cloud`, подгоняет его слой под Box, держит cvar облака и карты теней, принимает погоду |
+| **Погода** — `AFogMSWeather`, `UFogMSWeatherState` | `MLS/FogMS_Weather.h/.cpp` | состояние погоды (пресеты Clear/Scattered/Broken/Overcast), карта погоды, подача хосту, купол-небо |
+| **Legacy-оверлей** | `MLS/MultiLobeShaderPatcher.*`, `MLS/MultiLobeSpec.cpp`; `SH/FogMS_Common.ush`, `FogMS_Reconstruction.ush`, `FogMS_Spatial.usf`, `FogMS_ShadowCache.usf`, `FogMS_ScreenScattering.ush` | копия шейдеров движка с патчами по анкерам и ремап `/Engine` (только редактор) |
 
-Плотный, «материальный» туман; свет частично заполняет объёмные тени. Ориентир — плотность облаков у Hillaire.
+### 2.2 Поток данных за кадр
 
-- **Сначала максимальное качество** (офлайн / MRQ допустимы), потом понижение до realtime. Последнее уточнение заказчика: текущая производительность более чем устраивает, допустим дополнительный расход GPU ради качества; конкретного нового бюджета мс/FPS не задано.
-- Проект на **Hardware Ray Tracing** (Lumen HWRT + RT-тени). **MegaLights не используется**, поддержка отложена, но не отменена (правила — заметка §3.8).
-- Должны участвовать Lumen indirect, sky light, emissive (они уже приходят в туман — аудит §4).
-- Так же в качестве дополнительного функционала - Dmitry Karpukhin "Screen Space Fog Scattering" и "World of WarCraft forever" (новый проект от Blizzard) - их rendering feature - volumetric fog with GI.
-- Рабочий результат должен отображаться в обычном Lit/deferred viewport с Lumen, без обязательного переключения в UE Path Tracing. Это уточнение прежнего «Path Tracer в проект не входит»: оно не запрещает Hardware Ray Tracing, ray marching, стохастические выборки или вычисление многократного рассеяния внутри отдельного эффекта. Полный UE Path Tracer не выбран основным renderer проекта.
-
----
-
-## 3. Окружение
-
-- **Движок:** UE 5.8.2, `++UE5+Release-5.8`, CL 56702186. Корень: `D:\PersonalProjects\UE5\UE_5.8\Engine`.
-- **Проект заказчика:** `D:\PersonalProjects\UE5\MimirHead_portfolio 5.7 5.8 - 3` (пробелы в пути — кавычь).
-- **Рабочий репозиторий:** плагин заказчика **MultiLobeSpec** (там живёт механизм шейдерного оверлея). Прошлая сессия работала в worktree этого репозитория.
-- Конфиг проекта (по аудиту): `r.VolumetricFog.InjectRaytracedLights=1`, `r.RayTracing.Shadows=True`, `r.Shadow.Virtual.Enable=1`, `r.SupportExpFogMatchesVolumetricFog=True`.
-- Windows + Git Bash. Грабли прошлой сессии: heredoc спотыкается о кавычки → пиши скрипты в файл и запускай файлом; `awk` ломает табы → читай через `cat -n`.
-
-**Файлы движка не редактируем никогда.** Все правки шейдеров — через оверлей.
-
-### Механизм оверлея (аудит §8.5)
-
-`Source/MultiLobeSpec/Private/MultiLobeShaderPatcher.h:67–98`: плагин копирует весь `Engine/Shaders` в `Saved/MultiLobeSpec/<buildid>`, патчит текст по анкерам, ремапит `/Engine` (`MultiLobeSpec.cpp:173`), затем `RecompileShaders Changed`. Параметры — через defines в config-`.ush`, применение — по кнопке Apply. Editor-only.
-
-**Следствие:** независимые плагины не должны конкурировать за remap `/Engine`. **Подтверждено заказчиком в текущей сессии:** FogMS-патчи живут в репозитории MultiLobeSpec отдельной изолированной группой (файлы и defines с префиксом `FogMS_`, собственный выключатель, независимый от BRDF-пресетов). Вынос общего патчера и самостоятельного плагина — позже.
-
----
-
-## 4. Что уже решено (не переоткрывать без веской причины)
-
-1. Будущий MS добавляет свет **до штатного интегрирования** тумана, в source term; A1/MS не меняют extinction. Отдельно разрешённый TextureDensity добавляет extinction штатным Volume material до освещения.
-2. Финальный рендер использует штатную froxel-сетку камеры. A1c/A1d читают авторскую Box+Perlin плотность в мировых координатах. B1 дополнительно строит собственное поле освещения Box 32³ без fog-history source; сохраняются native froxel sampling и финальная reprojection. A1d опционально заменяет солнечный VBuffer-марш авторской плотностью и аналитикой height fog; остальные local media в нём не представлены. При выключенном Authored Sun Shadow остаётся прежний A1.
-3. **Самозатенение среды — обязательная пара к MS.** Без него MS делает туман ярче и площе, а не плотнее. В движке его нет (аудит §6).
-4. **Октавы, прежний Spatial и новый World — взаимоисключающие режимы** (аппроксимируют j₂+j₃+…; сложить = двойной учёт). Для живого Box — один runtime enum.
-5. Экранное рассеяние выключено при любых проверках.
-6. Lumen mesh cards не дают видимости; для occlusion вторичного света — HWRT.
-7. Поверхностный GI не дублируем. В прежних режимах он приходит через Lumen Translucency GI Volume; в World внутри Box этот base term заменён собственным HWRT gather из текущих Lumen surface-cache ресурсов и sky. Вне Box остаётся native indirect.
-8. Для нового B1 выбран solver без истории: три дополнительных порядка внутри кадра при g=0. Прежний Spatial из истории сохранён как экспериментальный режим сравнения. Его ограничения устойчивости, задержки и фазированной истории остаются (заметка §2.3); не переносить эти обещания на новый World. Native Lumen cache имеет собственную задержку обновления и не считается мгновенным.
-
-### Решения заказчика от 2026-09-20
-
-- **Модель A1 утверждена**, включая аналитическое продолжение за сеткой. Позднее заказчик проверил установленный A1, дефектов не заметил и разрешил live Box; оставшиеся пределы верификации перечислены в отчётах.
-- `FOGMS_EXCLUDE_GLOBAL_LAYER` по умолчанию **0** (физичный режим).
-- **Мини-аудит №2 одобрен и выполнен** в этой сессии.
-- **MegaLights не используется**; дверь не закрывать (заметка §3.8).
-- **После A1 реализовать локальный Box Volume.** Для production/realtime ограничивать дорогой расчёт выбранным объёмом; штатный туман вне него сохраняется. Внешний свет и геометрическая видимость учитываются через границу. Заказчик потребовал движение вживую без Apply; реализован D3D12/SM6 `-BindlessAll` вариант, см. отчёт Box.
-
----
-
-## 5. Выжимка фактов аудита (чтобы ориентироваться до полного чтения)
-
-Всё ниже — VERIFIED предыдущим исполнителем; ключевое ты перепроверишь в задаче 0.
-
-**Граф** (`VolumetricFog.cpp`, `ComputeVolumetricFog` 1497–2067; вызов `DeferredShadingRenderer.cpp:3660–3664`):
-
-```
-MaterialSetupCS ──► VBufferA (rgb = σs, a = σt), VBufferB (emissive)      [1/см]
-локальные затенённые источники ──► отдельные PS/RGS ──► LocalShadowedLightScattering
-directional RT-тень ──► RGS ──► RaytracedShadowVolume (только видимость 0/1)
-LightScatteringCS ──► LightScattering: rgb = PreExposure·(ΣL·σs + emissive), a = σt
-FinalIntegrationCS ──► IntegratedLightScattering
-LightScattering ──► история (blend 0.9, вместе с альфой)
+```text
+GAME THREAD
+  AFogMSBoxVolume::UpdateDensity (тик Box, правки, перемещение и BeginRenderViewFamily каждого view family)
+    -> MID M_FogMS_Density (Froxel Fog)  или  MID хоста M_FogMS_Cloud (Cloud Host; в своём MID FogMS_FroxelWeight 0)
+       параметры плотности FogMS_*, фазы анимации (один снимок времени мира на кадр), поле, лепесток, префильтры
+  AFogMSWeather::Tick -> смесь состояния, RT_FogMS_WeatherMap (M_FogMS_WeatherCompose, только при смене погоды),
+    RT_FogMS_WeatherSun (слой Thin), FeedWeather -> подсистема хоста; купол-небо (MID M_FogMS_WeatherSky)
+  UFogMSCloudHostSubsystem::Tick: выбор хоста, слой, погода в MID хоста, cvar облака и карты теней
+  FBoxViewExtension::BeginRenderViewFamily: направление на солнце, снимок SkyLight (+ bWeatherSky), пакет Box,
+    порядок Box, render command FogMS_UpdateBox (атлас плотности, текстура поля, карты Sun Detail)
+RENDER THREAD (движок без изменений; только хуки scene view extension)
+  base pass -> PostRenderBasePassDeferred: кэш тени солнца (legacy), публикация полей Box пакета
+  PostTLASBuild (только при ray tracing): на каждый Box — решение или удержание (до r.FogMS.MaxBoxesPerFrame решений на вид):
+    источники (солнце после атмосферы, point/spot, небо, отражённый свет по граничным лучам: Lumen surface cache на 5.8.2
+    или публичный откат) -> проход 2 (прямой свет ячейки с RT-тенями и пропусканием своей среды) -> свипы B2 или волновые
+    фронты B3 по направлениям + PCG (warm start, решение раз в SolveInterval кадров) -> публикация в TransportField
+    (сразу или на кадр позже при async compute) -> карта Sun Detail
+  RenderLights -> ComputeVolumetricFog: вокселизация M_FogMS_Density, Emissive = σs·J, BaseColor = Albedo (гибрид: × S)
+  RenderVolumetricCloud (хост): на каждом шаге луча плотность Box (тот же HLSL), свой марш к солнцу, Emissive = σs·J·лепесток;
+    в проходе теней облака — ещё плотность погоды -> штатная карта теней облака
+  SkyPass: купол-небо (Is Sky) -> захват SkyLight (Real Time Capture) рисует купол -> SH неба -> авто-источник неба решателя
+  PrePostProcessPass: SSFS (если включён), копии поля «на кадр позже»
 ```
 
-**Анкеры A1** (`Shaders/Private/VolumetricFog.usf`): ветка directional 943–989; тень = static × CSM × VSM × `RaytracedShadowsVolume` × cloud (946–976); фаза на камеру 988; чтение `VBufferA` 1161; запись 1169; blend истории 1177–1179; плотность height fog в `MaterialSetupCS` 169–178 (множитель 0.5, `GlobalExtinctionScale`, `PROJECT_EXPFOG_MATCHES_VFOG`).
+Хуки — только эти четыре (`MLS/FogMS_BoxRuntime.cpp:557–884`, флаги `SubscribesToPostTLASBuild |
+RequiresHardwareInlineRayTracing`).
 
-**Привязки `LightScatteringCS`** (`VolumetricFog.cpp:1145–1201`): `VBufferA/B` (SRV, 1795), `Fog` UB, история, `RaytracedShadowsVolume`, Lumen GI volume, GDF-параметры и др. TLAS **не** привязан.
+### 2.3 Функция плотности: одна формула в трёх местах
 
-**Ограничения:**
-- В проходы локальных затенённых источников `VBufferA` **не привязан** (454–462, 1058–1063) → их самозатенение в оверлее недостижимо.
-- `VolumetricFog.usf` — только глобальные шейдеры, пересборка секунды. **`HeightFogCommon.ush` и `LocalFogVolumeCommon.ush` не трогать** — полная перекомпиляция материалов.
-- Хуков внутри тумана нет: ближайшие — `PostTLASBuild` (до `RenderLights`) и `PostOpaque` (после тумана). TLAS плагину доступен публично (`FXRenderingUtils.h:89`); inline RT на D3D12 SM6 требует bindless.
-- За `ConservativeDepth` обнуляется LightScattering и его история, включая α; **текущий VBufferA сохраняет плотность** (Audit2 Q5). Сетка по умолчанию 16 px × 64 слоя. Directional в тумане только один.
-- `GlobalExtinctionScale` есть только в MaterialSetup, не в LightScattering/Fog UB. A1 передаёт snapshot компонента через define; после изменения Extinction Scale/карты необходим Apply. Погрешность FP16 и сдвиг центра плотности возле depth документированы в протоколе.
-- `View.GeneralPurposeTweak` доступен в non-shipping (`SceneRendering.cpp:437–454`) — годится для debug-переключателей.
+Решатель (HLSL `FogMS_IndirectLocalDensity`, `SH/FogMS_Indirect.ush`, по атласу плотности), Volume-материал `M_FogMS_Density`
+(узел `FogMS_Extinction_v3`) и материал хоста `M_FogMS_Cloud` считают одну экстинкцию. HLSL материала хранится в
+`PP/matedit_density.py` (`EXTINCTION_CODE_V3`) и дословной копией в комментарии `FogMS_Indirect.ush` между маркерами
+`BEGIN/END EXTINCTION_CODE_V3`; `matedit_density.py` сверяет копию перед правкой (`ush_sync_check`), `matedit_cloud.py` берёт
+тот же текст. Равенство функции решателя этой формуле при ширине префильтра 0 утверждается комментарием в `.ush`
+(автоматической проверки нет, не проверено). Решатель всегда считает без префильтра, поэтому `Depth Prefilter` и
+`Host Prefilter` меняют только картинку, не поле.
 
----
+### 2.4 Решатель
 
-## 6. Твои задачи, по порядку
+- **Режимы:** `Transport (B2)` — шесть осевых направлений, точное интегрирование по ячейке; `Transport (B3 Angular)` —
+  16/24/48/96 направлений (полярные узлы Гаусса × азимут), конечные объёмы против потока. Оба изотропные (g = 0), без
+  художественных множителей; уравнение решается PCG с диагональным предобусловливанием. Квадратура по умолчанию повёрнута
+  так, что одно направление смотрит на солнце (`r.FogMS.Transport.SunAligned 1`).
+- **Бюджет:** пресеты Box — Production 16 / 16 итераций / 1e-6 (по умолчанию), High 48 / 16 / 1e-8, Cinematic 96 / 64 / 1e-14,
+  Custom. Warm start продолжает решение между кадрами (сбрасывается при изменении границ Box); пропуск итераций по допуску —
+  ранний выход в шейдере, только в B3. Решение раз в `r.FogMS.Transport.SolveInterval` кадров (2), между ними поле держится;
+  `r.FogMS.Transport.AsyncCompute 1` (по умолчанию 0) уводит проходы решателя, кроме 0/1/2/14, в async-очередь с публикацией на
+  кадр позже.
+- **Источники** (`FR/FogMS_WorldSources.cpp`): солнце — освещённость у земли после атмосферы; point/spot — все, чья сфера
+  влияния задевает Box, до 256; rect-, static-, IES- или light-function-источник в зоне Box **выключает решатель целиком**
+  (Box уходит на штатное освещение, причина в статусе). Небо — `r.FogMS.World.SkySource` (авто: SH захвата при куполе
+  погоды; иначе Sky View LUT при Real Time Capture и SkyAtmosphere; иначе обработанная статическая кубмапа; иначе SH).
+  Отражённый свет по граничным лучам — Lumen surface cache (только сборка ровно 5.8.2, `Lumen Bounce` Auto), иначе публичный
+  откат: `Fallback Ground Albedo` × (солнце × тень × пропускание среды Box + SH неба).
+- **Видимость:** тени геометрии — inline ray tracing по TLAS сцены (публичный `FXRenderingUtils`), флаг CastShadow —
+  из публичных привязок; своя среда ослабляет лучи и солнце (T_sun на ячейку). Другие Box и чужие облака решатель не видит;
+  карту теней облака движка не читает (двойного счёта нет — комментарий W47 в `FogMS_WorldSources.cpp`).
+- **Прямой свет ячейки** (проход 2): солнце по 4 чередующимся точкам (`r.FogMS.Transport.DirectSamples 4`) или по 8 при
+  `Sun Softness` > 0 (конус Фогеля); point/spot — всегда по 8 точкам.
+- **Несколько Box:** любое число Box с `Emissive Injection`, у каждого своё поле и состояние по паре (вид, Box); Box без
+  инъекции (legacy-оверлей) — не больше одного. Приоритет решений: ждавший ≥ 8 кадров → камера внутри → крупнее на экране →
+  ближе. Дополнительную точку стриминга сцены Lumen получает только один Box.
 
-### Задача 0 — инвентаризация (сначала, быстро)
+### 2.5 Доставка поля
 
-1. Три документа лежат в корне репозитория; старый kickoff удалён.
-2. Состояние репозитория: `git status`, список worktree, любые следы прошлой сессии (недописанный код, черновики). **Ничего не удаляй без вопроса** — перечисли в отчёте.
-3. Сверь с исходниками 8 критичных анкеров (номера строк — для CL 56702186): (а) ветка directional и фаза, usf 943–989; (б) usf 1161 / 1169 / 1177–1179; (в) плотность usf 169–178; (г) привязка `VBufferA` cpp:1795 и `Fog` UB в структуре параметров; (д) потребление `RaytracedShadowsVolume` usf 962–967; (е) include `HeightFogCommon.ush` в `VolumetricFog.usf`; (ж) `GeneralPurposeTweak`; (з) `MultiLobeShaderPatcher.h:67–98`. Статус каждого: VERIFIED / MISMATCH.
-4. Прочитай патчер MultiLobeSpec и опиши в 5 строк: как объявляется патч (анкер → вставка), как доставляются defines, как работает Apply.
-5. Короткий отчёт заказчику + подтверждение размещения FogMS-файлов (§3).
-
-Если MISMATCH нет — **не жди ответа, продолжай** с задач 1–3.
-
-### Задача 1 — гигиена документов
-
-Выполни заметку §9: критерии A1 в аудите §13 заменить на критерии из заметки §3.7; риск №3 в аудите §12 исправить по заметке §2.1; оценку патча в аудите §8.6 — по §2.4. Без зачёркиваний и «устарело, см. ниже» — просто актуальный текст.
-
-### Задача 2 — этап A1
-
-Спецификация — **заметка §3 целиком** (модель, марш τ_in, аналитика τ_out, переключатель глобального слоя, правила §3.8). Критерии приёмки — **заметка §3.7** (7 штук). Ограничение объёма: ≤6 файлов.
-
-Перед кодом напиши в отчёт план: какие файлы, какие анкеры, какие defines. После кода приложи **протокол проверки для заказчика**: пошагово — что открыть в редакторе, какие консольные команды ввести, что он должен увидеть в каждом debug-виде и что считать провалом. Он не программист; протокол должен исполняться без догадок.
-
-### Задача 3 — мини-аудит №2 (read-only)
-
-Вопросы Q1–Q8 — **заметка §7**. Результат — `FogMS_Audit2_UE58.md` в формате первого аудита. Удобно раздать параллельным суб-агентам с требованием файл:строка и **выборочно сверить их цитаты самому** — прошлая сессия так делала, это сработало.
-
-### Точка остановки
-
-Исходная точка остановки пройдена: заказчик проверил A1, затем Box/TextureDensity и разрешил следующий срез. Разбор A1/Audit2 выполнен исполнителем в разрешённой роли исследователя до начала A1b; receipt — `FogMS_A1b_Report.md`. Будущую ветку B это не подтверждает.
-
----
-
-## 7. Карта этапов
-
-| Этап | Статус | Содержание |
+| Путь | Условия | Как |
 |---|---|---|
-| Аудит движка | **готово** | `FogMS_Audit_UE58.md` |
-| A0 — baseline FSSS | за заказчиком, не блокирует | vanilla vs FSSS(туман) vs FSSS(туман+сцена) |
-| **A1** | **проверен заказчиком без замеченных дефектов** | самозатенение directional + продолжение за сеткой; пределы проверки `FogMS_A1_Report.md` |
-| **Мини-аудит №2** | **готово** | Q1–Q8, `FogMS_Audit2_UE58.md`; compile/link/GPU будущего B не доказаны |
-| A1b | реализован, проверен, установлен; ожидается визуальная приёмка | directional source-only октавы; Off/Octaves live, `FogMS_A1b_Report.md` |
-| A2 | опционально, time-box | пространственный gather из истории, только g = 0 |
-| Локальный Box Volume | установлен; визуальная цель не принята | заказчик видит исчезновение дымки; только локальное ослабление directional, не локальная плотность/MS; `FogMS_Box_Report.md` |
-| TextureDensity | установлен, визуально принят | локальная плотность через native Volume material и Perlin 64³; `FogMS_TextureDensity_Report.md` |
-| B1 — World | опубликован в main; сохранён для сравнения | фиксированная сетка Box, собственный primary source, 3 текущих дополнительных порядка, HWRT; `FogMS_B1_Report.md` |
-| B2 — Transport | реализован; перечисленные CPU/GPU проверки пройдены, полевая приёмка владельцем ожидается | формальный перенос + PCG, взаимные грани, общий Box source; `FogMS_B2_Report.md` |
-| После B2 | сделано частично | угловая сходимость (16/24/48/96, sun-aligned), анимация плотности (Motion/Edge Flow); native coupling — через Emissive Injection (этап C) |
-| **C — продукт** | **в работе (23.09.2026)** | warm start, пресеты, пер-Box tolerance, Emissive Injection, SweepThreads; `FogMS_Prod_Report.md` |
-| Позже | — | самозатенение локальных источников, MegaLights, мягкие RT-тени в тумане (заметка §6) |
+| **Cloud Host** (`Render Path` по умолчанию) | Transport + `Emissive Injection`, в уровне есть рендерящийся хост, полоса плотности Box выше земли SkyAtmosphere | Volumetric Cloud с материалом на основе `M_FogMS_Cloud` рисует Box попиксельно: плотность на каждом шаге луча, свой марш к солнцу, фаза `Phase G`; поле — через Emissive (всегда гибрид, кроме `Field Only`), небо — в поле (AO 0). Фроксельная копия выключена (`FogMS_FroxelWeight` 0), `Sun Detail Shadow` не строится. Один Box на хост. Хост создают кнопка Box **Create Cloud Host**, `FogMS.CloudHost.Create` и актёр погоды; Box сам хост не создаёт |
+| **Froxel Fog** (и откат хоста) | Transport + `Emissive Injection` | штатный Volumetric Fog вокселизирует `M_FogMS_Density`: режим материала 1 — полное поле, 2 — гибрид (штатный туман считает прямое солнце с тенями движка и фазой тумана, поле — остальное), 3 — отладка `Field Only`; Emissive = valid·J·Albedo·σt |
+| **Legacy-оверлей** | только редактор и только UE 5.8.2 CL 56702186; режимы Box — `-BindlessAll` и один Box (глобальный A1 без Box `-BindlessAll` не требует) | пакет Box и атлас читаются патченными шейдерами движка через bindless-дескрипторы: A1, Octaves, Spatial, World, доставка Transport без инъекции, `Authored/Cast Sun Shadow`, кэш теней, A1c `Indirect Shadowing`, View Integration, диск солнца для SSFS, debug-виды `FogMS.Debug`. В игре выключен всегда (`FogMS_IsBindlessAll`, `MLS/FogMS_BoxRuntime.cpp:207–216`) |
 
----
+Причины отказа видны в статусе Box (`Spatial Status`): требования к виду и cvar, источники, атлас, хост
+(`[cloud host: …, froxel fallback]`), небо (`[sky: …]`), отражённый свет (`bounce: …`). Перечень — `FogMS_UserGuide.md`.
 
-## 8. Правила работы
+### 2.6 Погода и небо
 
-- **Не заявляй «работает».** Ты можешь сказать «написано» и «сверено с файл:строка». «Работает» говорит заказчик после компиляции и просмотра.
-- **Не подменяй задачу.** Если требование невыполнимо — скажи прямо; не закрывай соседнюю задачу с отчётом об успехе.
-- Каждое утверждение о движке: **VERIFIED (файл:строка) / NOT FOUND / ASSUMED.** Оценки помечай как оценки.
-- Анкеры патчей — только по реальным файлам 5.8.2. Совпала строка ≠ понят смысл данных.
-- Задачи ограниченные: **≤7 критериев приёмки, ≤6 файлов.**
-- **Гигиена документов:** изменилась модель — обнови или удали устаревший текст сразу. Следующий агент придёт без контекста и поверит тому, что написано.
-- Правки делай атомарно и перечитывай файл после изменения: в истории плагина уже была оборванная правка с рассинхроном header/cpp.
-- До проектирования C++ проверяй экспорт символов (`RENDERER_API` / `ENGINE_API`): в истории плагина уже упирались в неэкспортированный класс движка.
+`AFogMSWeather` (один на мир; без актёра ничего не меняется) смешивает состояние во времени, рисует карту погоды
+`RT_FogMS_WeatherMap` (512² RGBA16F: R покрытие нижнего слоя, G тип, B шторм — пока 0, A дека) только при смене состояния и
+отдаёт её подсистеме хоста. Материал хоста добавляет плотность погоды **только в проходе теней облака** (Shadow Pass Switch):
+штатная карта теней облака затеняет землю, туман, Lumen и атмосферу облаками погоды, а видимый проход рисует только Box. Слой
+`Thin` (по умолчанию): столб погоды вдоль солнца (`RT_FogMS_WeatherSun`) размазан по слою Box; `Extended`: слой хоста растёт до
+верха погоды (раунд 48: около +1 мс видимого прохода). Если хоста нет, актёр создаёт его сам (галка `Create Cloud Host`, по
+умолчанию вкл.; и в состоянии Clear) — хост вытесняет облака неба уровня. Купол-небо (раунд 49): transient-сфера 1000 км с
+материалом `M_FogMS_WeatherSky` (Unlit, Is Sky) рисует видимые облака погоды той же функцией плотности; захват SkyLight
+(Real Time Capture) рисует купол, и авто-источник неба решателя берёт его SH. Солнце решателя и солнце облака хоста погоду
+пока не видят (W50).
 
----
+## 3. Модули и файлы
 
-## 9. Инварианты системы
+`MultiLobeSpec.uplugin`: `EngineVersion` 5.8.0, `VersionName` 0.15.3, `CanContainContent`, только Win64; зависимость от
+плагина `EditorScriptingUtilities` (только цели Editor).
 
-1. Все новые эффекты выключены → рендер побитно как vanilla; патч компилируется во всех пермутациях (включая MegaLights, Ubershader).
-2. При σs = 0 **вклад MS равен нулю** (штатный emissive — отдельный законный источник; в тестовой сцене он = 0).
-3. Удвоение источника удваивает линейный HDR-вклад (до tonemap, фиксированная экспозиция).
-4. Тиры качества — одна модель, разная выборка; occlusion есть во всех тирах; рост выборок сходится к одному эталону в пределах допуска.
-5. Поворот камеры в статичной сцене не меняет освещение тумана сверх допуска.
-6. Временная реакция измерена; учесть два каскада истории с весом 0.9 (Lumen Translucency Volume → туман).
-7. Октавы и пространственный перенос никогда не включены одновременно.
+| Модуль (тип, фаза) | Файлы | Роль |
+|---|---|---|
+| **FogMSRender** (Runtime, `PostConfigInit`) | `FogMSRender.cpp` | старт модуля: защита D3D12, ремап `/Plugin/FogMS` → `Shaders/`; кэш тени солнца legacy (128×128×65); GPU-копия атласа плотности |
+| | `FogMS_Transport.cpp/.h` | граф RDG решателя B2/B3, флаги теней из публичных привязок, проход 17 (публикация поля) |
+| | `FogMS_WorldLighting.cpp`, `Public/FogMS_WorldLighting.h` | запуск решения (и legacy World), состояние по (вид, Box), warm start, `SolveInterval`, поздняя публикация, `FogMS.DumpSpatial`; публичные структуры запроса |
+| | `FogMS_WorldSources.cpp/.h` | список источников из сцены, солнце атмосферы, выбор источника неба, пометка о чужих облаках |
+| | `FogMS_LumenSource.cpp/.h` | чтение Lumen surface cache (только UE 5.8.2) и заглушки для остальных версий |
+| | `FogMS_SunDetail.cpp` | карта `Sun Detail Shadow` (3 прохода) |
+| | `FogMS_Spatial.cpp`, `Public/FogMS_Spatial.h` | legacy `Spatial (Experimental)` по истории тумана (только `-BindlessAll`) |
+| | `FogMS_ScreenScattering.cpp`, `Public/FogMS_ScreenScattering.h` | SSFS-постфильтр (по умолчанию выкл.) |
+| | `FogMS_RHICompatibility.cpp/.h` | защита D3D12 при `-BindlessAll` (раздел 4) |
+| **MultiLobeSpec** (Runtime, `PostEngineInit`) | `FogMS_BoxVolume.cpp/.h` | актёр Box: свойства, `UpdateDensity`, MID, поле и карты, привязка к хосту, автозапуск и `Apply Required Render Settings`, пресеты, анимация, `FogMS.CloudHost.Create`, `r.FogMS.SunMap.*` |
+| | `FogMS_BoxRuntime.cpp/.h` | runtime и view extension (раздел 2.2), пакет, планировщик, legacy-предпросмотр Lumen |
+| | `FogMS_DensityAtlas.cpp/.h` | атлас плотности |
+| | `FogMS_CloudHost.cpp/.h` | подсистема хоста, `FogMS.CloudHost.SetupShadows` |
+| | `FogMS_Weather.cpp/.h` | погода, `FogMS.Weather.*`, `r.FogMS.Weather.SkyDome` |
+| | `MultiLobeShaderPatcher.cpp/.h`, `FogMS_ShaderPatcher.h`, `MultiLobeSpec.cpp`, `MLSRawMaterialVisibilityOverlay.*`, `MultiLobeSpecSettings.*`, `MultiLobeSpecViewExtension.*`, `MLSShaderConfigValidation.cpp` | общий оверлей шейдеров движка (MLS и legacy FogMS), команды `MLS.*` и `FogMS.Apply/Status/Debug`, настройки MLS, автотесты MLS — всё под `WITH_EDITOR` и `GIsEditor`; в игре — заглушки |
+| **MultiLobeSpecEditor** (Editor) | `MLSBaker*`, `MLSConeEnvBRDFGenerator.*`, `MLSMicroShadowLUT*`, `MultiLobeSpecEditorModule.cpp` | только MLS: бейкер AO, генераторы и проверки LUT (к FogMS не относится) |
 
-Тестовая сцена: локальный объём, одна лампа, непрозрачная перегородка с обходным путём. Для A1 достаточно: чистый height fog + directional light.
+Шейдеры (`SH/`, путь `/Plugin/FogMS/Private/…`): `FogMS_Transport.usf` (проходы решателя), `FogMS_WorldLighting.usf`
+(legacy World), `FogMS_WorldSources.ush` (источники, небо), `FogMS_LumenSource.ush` (обёртка Lumen или заглушка),
+`FogMS_Indirect.ush` (функция плотности и помощники), `FogMS_SunDetail.usf`, `FogMS_DensityAtlas.usf`,
+`FogMS_ScreenScatteringPost.usf` (SSFS); только для оверлея — `FogMS_Common.ush`, `FogMS_Reconstruction.ush`,
+`FogMS_Spatial.usf`, `FogMS_ShadowCache.usf`, `FogMS_ScreenScattering.ush`. Материалы (`.uasset`) строят скрипты `PP/matedit_*.py`
+(раздел 6). `Config/DefaultMultiLobeSpec.ini` — `[CoreRedirects]` переименований W38; `Config/FilterPlugin.ini` включает его в
+пакет плагина.
+
+## 4. Что плагин меняет в настройках движка
+
+Всё — через консольные переменные и свойства актёров; файлы движка не правятся, ini не пишутся.
+
+| Кто | Что ставит | Приоритет, возврат |
+|---|---|---|
+| Box, `Apply Required Render Settings` (по умолчанию вкл.) | `r.RayTracing.Culling 0`, `r.Lumen.AsyncCompute 0` (требования решателя; в движке 3 и 1) — в игре в `BeginPlay` включённого Box Transport/World; в редакторе, PIE и Simulate при самозапуске Box Transport с инъекцией (в редакторском мире только без `-BindlessAll`) | `SetByGameSetting`, раз на экземпляр актёра; значение из ini, профиля, командной строки или консоли сильнее — тогда Transport не запускается и статус это называет; не возвращаются (`MLS/FogMS_BoxVolume.cpp:206–241`) |
+| Облачный хост, пока через него рисуется Box | `r.VolumetricCloud.DistanceToSampleMaxCount`, `.ViewRaySampleMaxCount`, `.SampleMinCount`, `r.VolumetricRenderTarget.Mode`, `.UpsamplingMode`, `.ReprojectionBoxConstraint`, `.MinimumDistanceKmToEnableReprojection`; при тенях облаков солнца (и при погоде без Box) — `r.VolumetricCloud.ShadowMap.SpatialFiltering`, `.SnapLength`, `.SnapToPixelGrid`; при слое погоды Extended — `r.VolumetricCloud.StepSizeOnZeroConservativeDensity` (11 cvar, `MLS/FogMS_CloudHost.cpp:133–146`; значения — `r.FogMS.CloudHost.*`, `r.FogMS.Weather.SkipSteps`) | `SetByGameSetting`, явное значение сильнее («kept» в статусе); прежние значения возвращаются, когда хост больше не нужен |
+| Облачный хост, свойства компонента | слой (`Layer Bottom Altitude` / `Layer Height`: полоса плотности Box ±10 м, гистерезис 5 м; `r.FogMS.CloudHost.FitLayer 0` — только проверка), `View Sample Count Scale`; у хоста погоды без Box — `Tracing Start Distance` = `Tracing Max Distance`; хост поднимается над другими облаками сцены | прямо в уровне, без транзакции; хост погоды без Box получает прежние слой и дистанцию, когда погода уходит; помечается ли уровень изменённым — не проверено |
+| Кнопки и команды по запросу | `FogMS.CloudHost.SetupShadows`, `FogMS.Weather.SetupShadows`, кнопка погоды `Setup Sun Shadows`: солнцу `Cast Cloud Shadows`, `Cloud Shadow Extent`, масштабы разрешения и выборок | одна строка лога с прежними значениями, один шаг Undo; ничего не сохраняют; сам плагин солнце и SkyLight не трогает |
+| Защита D3D12 (`FR/FogMS_RHICompatibility.cpp`) | `r.RHICmd.ParallelTranslate.Enable 0` и однократная подготовка bindless-куч контекста — только UE 5.8.2 + D3D12 SM6 + один GPU + bindless `All` (`-BindlessAll`); применяется снова при любом изменении консольных переменных | до конца процесса (редактор и игра), одна строка Warning; при отсутствии cvar — `checkf` (причина защиты — `docs/archive/FogMS_Crash_Report.md`) |
+| MLS-оверлей (редактор) | при каждом старте редактора копирует `Engine/Shaders` в `<Project>/Saved/MultiLobeSpec/`, патчит, ремапит `/Engine` и перекомпилирует изменённые шейдеры, если настройки MLS его включают — **по умолчанию включают** (`Micro Shadow Mode` = Activision WWII, `MLS/MultiLobeSpecSettings.h:102`, `MLS/MultiLobeSpec.cpp:202–203`); нужны `r.Substrate 0` и `r.AllowStaticLighting 0`, иначе уведомление «Apply FAILED»; тот же оверлей несёт legacy FogMS | только редактор; `MLS.Disable` возвращает штатные шейдеры |
+| Legacy: `Enable Live Box`, `Use Global A1`, `Enable Indirect Preview`, `FogMS.Debug` | `r.FogMS.Enable`, `r.FogMS.BoxMode`; набор из 12 cvar Lumen/TLV/RT предпросмотра (`MLS/FogMS_BoxRuntime.cpp:157–177`); `r.GeneralPurposeTweak` и `r.VolumetricFog.TemporalReprojection` для debug-видов | `SetByConsole`; `Restore Standard Lumen` возвращает набор предпросмотра, `FogMS.Debug 0` — debug; только редактор |
+| Атлас плотности в игре | `SetForceMipLevelsToBeResident` на Volume Texture автора (продлевается каждые 5 с), пока идёт GPU-копия | пока нужен атлас |
+
+## 5. Ключевые консольные переменные и команды
+
+Полный список с описаниями и диапазонами — `FogMS_UserGuide.md`, раздел 5 (сверен с кодом).
+
+| Группа | Cvar (умолчание) |
+|---|---|
+| Решатель | `r.FogMS.Transport.SolveInterval` (2), `.AsyncCompute` (0), `.DirectSamples` (4), `.WarmStart` (1), `.Tolerance` (1e-14), `.SweepThreads` (1024), `.SunAligned` (1), `.SkipConverged` (1), `.DirectSkipEmpty` (0), `.Test*` (0; `TestTau` 4, `TestAlbedo` 1); `r.FogMS.MaxBoxesPerFrame` (4); `r.FogMS.SunMap.Resolution` (256), `.Steps` (64); `r.FogMS.DensityAtlas.ForceGPUCopy` (0) |
+| Источники | `r.FogMS.World.SkySource` (0), `.SkyLutSamples` (5), `.SunExcludeDegrees` (3), `.SkyMipBias` (0), `.FallbackMedium` (1), `.Indirect` (1) |
+| Хост | `r.FogMS.CloudHost.StepSettings` (1), `.FitLayer` (1), `.ViewSampleScale` (8), `.RTMode` (3), `.FarRTMode` (1), `.SampleMinCount` (32), `.FarSampleMinCount` (8), `.NearDistanceKm` (1), `.UpsamplingMode` (2), `.ReprojectionBoxConstraint` (1), `.ReprojectionMinKm` (4), `.ShadowSpatialFiltering` (2), `.ShadowSnapFraction` (0.25) |
+| Погода | `r.FogMS.Weather.SkipSteps` (8), `r.FogMS.Weather.SkyDome` (1) |
+| SSFS | `r.FogMS.SSFS` (0), `.Amount` (0.5), `.Radius` (24) — постфильтр, работает с любой доставкой Transport |
+| Legacy-оверлей | только редактор (`MLS/MultiLobeShaderPatcher.cpp:486–491`): `r.FogMS.Enable` (0), `.Steps` (16), `.MarchDistance` (0), `.MaxDistance` (2000000), `.ExcludeGlobalLayer` (0), `.DebugViews` (1); только с оверлеем: `r.FogMS.BoxMode` (0), `r.FogMS.ViewIntegration` (0), `r.FogMS.ScreenScatteringSun` (1) |
+
+Команды: `FogMS.CloudHost.Create [Box]`, `FogMS.CloudHost.SetupShadows [ExtentKm] [ResolutionScale]`,
+`FogMS.Weather.Set <пресет|путь> [сек]`, `FogMS.Weather.SetupShadows [ExtentKm] [ResolutionScale] [RaySampleScale]`,
+`FogMS.Weather.Status`, `FogMS.DumpSpatial <префикс>`; только редактор — `FogMS.Apply`, `FogMS.Status`, `FogMS.Debug 0…4`.
+
+## 6. Ассеты Unreal
+
+С коммита `083341c` в репозитории нет `.uasset`/`.umap` (`.gitignore`: `Content/**/*.uasset`, `Content/**/*.umap`). Плагин
+ожидает в `/MultiLobeSpec/FogMS/`: `M_FogMS_Density` (Volume-материал Box; жёсткая ссылка из конструктора Box),
+`T_FogMS_DefaultVolume` (заглушка текстурных параметров материалов), `M_FogMS_Cloud` + `MI_FogMS_Cloud` (хост; ищутся по пути) и в
+`/MultiLobeSpec/FogMS/Weather/`: `T_FogMS_WeatherPattern`, `T_FogMS_Curl2D`, `T_FogMS_CloudTypeLUT`, `M_FogMS_WeatherCompose`,
+`M_FogMS_WeatherSun`, `M_FogMS_WeatherSky`, `DA_FogMS_Weather_Clear/_Scattered/_Broken/_Overcast` (ищутся по пути). Скрипты
+`PP/matedit_weather.py` и `PP/matedit_cloud.py` создают материалы хоста и погоды, текстуры (из `PP/texgen/gen_weather_textures.py`)
+и пресеты с нуля; `PP/matedit_injection.py` и `PP/matedit_density.py` только **правят существующий** `M_FogMS_Density`.
+**`M_FogMS_Density` (базовый граф и промежуточные версии контракта поля) и `T_FogMS_DefaultVolume` ни один скрипт репозитория
+не создаёт** (исходный генератор материала лежал вне репозитория, в `.codex-build`). Для чистого клона их нужно восстановить из
+истории git: `git restore --source=201f33f --worktree -- Content/FogMS` (13 ассетов раунда 48, `M_FogMS_Density` — в состоянии
+W41; `M_FogMS_WeatherSky` в истории нет — его строит `matedit_weather.py`). Без ассетов плагин не падает, а пишет статус
+(плотность выключена, Box во фрокселях, погода `Inactive`, купол скрыт). Таблица, порядок, упаковка —
+`FogMS_UserGuide.md`, раздел 9. Процедура чистого клона целиком не прогонялась (не проверено).
+
+## 7. Сборка, установка, проверка
+
+**Конвейера сборки в репозитории нет.** Рабочие скрипты лежат вне репозитория, в `E:/GITHUB/MultiLobeSpec/.codex-build/
+FogMS_Prod_20260922/` на машине разработчика; в репозитории — только копия `PP/build_plugin.sh` (путь к рабочей копии в ней
+захардкожен на старый worktree).
+
+| Шаг | Скрипт (вне репозитория) | Что делает |
+|---|---|---|
+| Сборка раунда N | `build.sh <N>` (`FOGMS_W=<рабочая копия>`) | копирует `Source`, `Shaders`, `Content` (локальная, игнорируемая git), `Config`, `Resources`, `*.uplugin`, `*.md` в `Source<N>/MultiLobeSpec` и запускает `RunUAT.bat BuildPlugin -Plugin=… -Package=Package<N> -TargetPlatforms=Win64 -StrictIncludes`; проверяет наличие трёх editor-DLL |
+| Установка + запуск | `cycle.sh <N> <LogName> [launch.ps1\|launch_nobindless.ps1]` | при закрытом редакторе: резервная копия установленного плагина и карты в `<Project>/Saved/FogMS_Backups/`, замена `Binaries`, `Content`, `Config`, `Resources`, `Shaders`, `Source` и `.uplugin` в `<Project>/Plugins/MultiLobeSpec`, запуск редактора |
+| Запуск редактора | `launch.ps1` / `launch_nobindless.ps1` | `UnrealEditor.exe <Project>.uproject /Game/FogMS_Test/FogMS_Box -d3d12 -sm6 [-BindlessAll] -ExecutePythonScript=<Project>/Saved/FogMS/start_box.py -abslog=<LogName>.log`; стартовые скрипты `Saved/FogMS/*.py` — в проекте заказчика |
+| Выход без сохранения | `quit.sh` | через мост: список изменённых пакетов, `QUIT_EDITOR` |
+| (не используется) | `install.ps1` | установка по квитанциям сборки, которые `build.sh` не пишет |
+
+Последняя сборка (раунд 49): BUILD PASS, цели UnrealEditor + UnrealGame Development/Shipping, 9 известных предупреждений C4701
+(журнал, «Раунд 49»). Установка в проект заменяет папку `Content` плагина содержимым пакета, поэтому ассеты, изменённые скриптами
+в проекте, перед следующей сборкой копируются обратно в локальную `Content/` рабочей копии (подкоманды `copyback`, не для git).
+
+**Проверка.** Автотестов UE Automation у FogMS нет (они есть только у MLS: `MLS/MLSShaderConfigValidation.cpp`,
+`Source/MultiLobeSpecEditor/Private/MLS*Validation.cpp`, `MLSBakerSelectionValidation.cpp`). FogMS проверялся: (1) в редакторе
+скриптами `PP/` через мост UE-MCP (плагин `UE_MCP_Bridge` проекта, `ws://127.0.0.1:9877`, в репозиторий не входит): снимок сцены,
+изменение, статусы и лог, `ProfileGPU`, дамп поля `FogMS.DumpSpatial`, кадры; с раунда 45 — облегчённый протокол «статусы и лог
++ одна цифра», облик оценивает владелец; (2) CPU-проверками без редактора (`PP/fwd_lobe_check.py`, эталоны и контракты
+`Tools/FogMSEnergyValidation/*.py` этапов B1–B3); (3) smoke-тестами `-game` с редакторными бинарниками (раунды 20, 45).
+Правила прогонов и группы скриптов — `PP/README.md`.
+
+## 8. Приватные зависимости от движка (техдолг)
+
+`FogMSRender.Build.cs:13` добавляет `Engine/Source/Runtime/Renderer/Private` в пути include; модуль `MultiLobeSpec` заголовков
+Renderer не включает. Используются:
+
+| Файл | Приватный заголовок | Что берётся |
+|---|---|---|
+| `FR/FogMS_WorldSources.cpp` | `LightSceneInfo.h`, `ScenePrivate.h`, `VolumetricCloudRendering.h` (с W47) | `FScene::Lights`, `AtmosphereLights[0]`, `VolumetricCloud`, `FLightSceneInfo::Proxy`/`bVisible`, `FVolumetricCloudRenderSceneInfo::GetVolumetricCloudSceneProxy()` — список источников, солнце атмосферы, «чужое» облако |
+| `FR/FogMS_LumenSource.cpp` | `Lumen/LumenSceneData.h` (только под гейтом 5.8.2), `SceneRendering.h` | `FViewInfo::ViewLumenSceneData`, атласы и буферы карточек Lumen, **захардкоженные страйды буферов** — отражённый свет по граничным лучам; шейдерная обёртка включает приватный `LumenSurfaceCacheSampling.ush` |
+| `FR/FogMS_Spatial.cpp` (legacy) | `SceneRendering.h`, `SceneViewState.h`, `RayTracing/RayTracingScene.h` | `FViewInfo`, история Volumetric Fog, TLAS — режим `Spatial (Experimental)` |
+| `FR/FogMS_ScreenScattering.cpp` | `SceneRendering.h`; `PostProcess/PostProcessInputs.h` (Renderer/Internal) | `FViewInfo`, `VolumetricFogResources.IntegratedLightScatteringTexture` — SSFS |
+
+Решатель (`FogMS_Transport.cpp`, `FogMS_WorldLighting.cpp`) приватных заголовков не включает (публичные `FXRenderingUtils`,
+`SceneRendererInterface`, `RayTracingMeshDrawCommands`). Другие связи с внутренностями движка:
+- **Точные версии:** источник Lumen и защита D3D12 компилируются только для 5.8.2 (`ENGINE_*_VERSION`); legacy-оверлей FogMS
+  принимает только 5.8.2 CL 56702186 (`MLS/MultiLobeShaderPatcher.cpp:658–664`); `.uplugin` при этом объявляет 5.8.0.
+- **Анкеры оверлея** (только редактор): побайтовые вставки в `VolumetricFog.usf` (15), `HeightFogPixelShader.usf` (2),
+  `DeferredLightPixelShaders.usf` (2), `LumenTranslucencyVolumeLighting.usf` (4); каждый анкер должен встретиться ровно один раз,
+  иначе применение отменяется и остаётся прежнее отображение. MLS-патчи сверены с UE 5.7 и гейта версии не имеют.
+- **Шейдеры движка:** решатель включает `RayTracingCommon`, `TraceRayInline`, `SkyAtmosphereCommon`; упаковка SH неба
+  (`SkyIrradianceEnvironmentMap`) переписана вручную (`SH/FogMS_WorldSources.ush`); бит CastShadow в пользовательских данных
+  hit group Lumen (бит 29) повторён в плагине.
+- **D3D12RHI** (`ID3D12DynamicRHI`, собственные committed-ресурсы) — только под `-BindlessAll`: пакет Box, резидентные атласы,
+  кэш тени; проверки имени RHI «D3D12».
+- **Ассеты по пути** (не жёсткие ссылки): материал хоста и все ассеты погоды — для упаковки нужны ссылки из уровня или настройки
+  кука (не проверено).
+
+## 9. Известные ограничения и открытые задачи
+
+**Ограничения текущего кода** (подробности — `FogMS_UserGuide.md`, разделы 4, 4а, 4б, 7):
+- Только UE 5.8.2, Win64, D3D12 SM6, inline hardware ray tracing, deferred; Lumen GI на виде обязателен даже при
+  `Lumen Bounce` Off; один вид реального времени (Scene Capture, ортогональные и многовидовые семьи Transport не решает).
+- Решатель изотропный, сетка 32³ на Box: свет мельче ячейки не разрешается (для солнца это частично компенсируют `Sun Detail
+  Shadow` во фрокселях и собственный марш к солнцу облачного хоста); анизотропия — только поверх поля (лепесток в материале,
+  фаза тумана или облака для прямого солнца).
+- Box не видят плотность друг друга, перекрытые Box складывают свет; legacy-оверлей обслуживает один Box.
+- Облачный хост: один Volumetric Cloud на сцену (хост вытесняет облака неба); один Box на хост; Box виден только в пределах
+  трассы хоста (2 км); полоса плотности ниже земли SkyAtmosphere — откат во фроксели (обрезка вместо отката не сделана);
+  RT-тени солнца не затеняют собственное солнце облака (вывод дизайна, не проверено); фроксельная копия при весе 0 всё ещё
+  вокселизируется.
+- Погода: решатель и солнце облака хоста погоду не видят (W50), тумана по погоде нет (W51); фаза 2 раунда 49 (проверки купола,
+  оценка владельцем) не выполнена — `M_FogMS_WeatherSky` собран, проверки `d49_sky.py check/cost` не запускались.
+- Упаковка: собираются UnrealGame Development/Shipping, пройдены smoke-тесты `-game` с редакторными бинарниками; настоящая
+  упаковка (`BuildCookRun`, кук ассетов по пути, GPU-копия атласа в куке) не проверена.
+- В тонкой среде многократного рассеяния мало (физика, не дефект); толщину оценивает статус `[tau core ~X, upper bound]`.
+
+**Замечания по коду** (выведены из чтения кода, в работе не проверены):
+- Три правила «солнца атмосферы»: направление решателя — первый `ADirectionalLight` с индексом 0 (`MLS/FogMS_BoxVolume.cpp:279–290`),
+  хост и команды теней — самый яркий (`MLS/FogMS_CloudHost.cpp:413–437`), render thread — `Scene.AtmosphereLights[0]`; при нескольких
+  таких светах они могут разойтись.
+- Облачный хост читает поле через MID без зависимости RDG: при `r.VolumetricRenderTarget.PreferAsyncCompute 1` облако движка
+  рисуется до `PostTLASBuild` и видит поле прошлого кадра (как и при `r.FogMS.Transport.AsyncCompute 1` по замыслу).
+- Scene Capture, ортогональные и многовидовые семьи в режиме «без задержки» очищают общее поле Box и перезаписывают его статус,
+  что сбивает удержание `SolveInterval`.
+- Хост всегда включает гибридное поле, даже если галка `Hybrid Single Scattering` снята.
+- Проверка записи RGBA карты погоды один раз читает пиксель с GPU на game thread.
+- В упакованной игре с bindless `All` путь GPU-копии атласа отклоняется (`MLS/FogMS_DensityAtlas.cpp:27–31, 374–378`) и Transport
+  не стартует — «density atlas GPU upload failed» (не проверено в упаковке).
+- Тултип `Render Path` в коде говорит «the plugin never creates it itself», но актёр погоды хост создаёт (с раунда 48).
+
+**Открытые срезы и решения** (статусы — в шапках дизайн-документов):
+- Погода (`FogMS_Weather_Design.md`, раздел 6): **W49 фаза 2** (проверка купола); **W50** погода внутри героических облаков
+  (солнце решателя и хоста × пропускание погоды); **W51** туман и атмосфера по погоде, `MPC_FogMS_Weather`; **W52** грозы и
+  молнии; **W53** переходы, остальные пресеты, `GetWeatherAt`, `Weather Influence`. Решения владельца 3–7 (кроме принятых 1 —
+  купол и 2 — слой Thin по воротам раунда 48) открыты, в том числе 4 — масштаб погоды.
+- Облачный хост (`FogMS_PerPixelClouds_Design.md`, раздел 4): **P3** несколько Box на хост; **P4** остаток — видимость геометрии
+  для RT-солнца в облаке; **P5** уровни детализации и дальние Box; **P6** облегчение фроксельной сетки; обрезка Box у земли.
+- Плотность и LOD: S3–S5 (`FogMS_DensityAuthoring_Design.md`) и тиры/планировщик (`FogMS_LOD_Research.md`) не начаты.
+- Готовность к Fab (`FogMS_Fab_Readiness.md`): сделаны Runtime-модули и allow-list, публичные замены P2–P7/P10, удаление приватного
+  неба и флагов теней, необязательный источник Lumen; остаются приватные заголовки (раздел 8), сбор источников на game thread,
+  описание в `.uplugin`, проверка упаковки.
+- MLS (BRDF-оверлей) на UE 5.8.2 по коду и журналам проекта применяется, но корректность затенения не проверена; режим Generic
+  VNDF LUT в установке из git не проходит проверку квитанции (см. `README_RU.md`).
+
+## 10. Где хронология и доказательства
+
+- `docs/history/FogMS_Prod_Report.md` — журнал этапа C по раундам 1–49: что поменяли, как проверяли, числа, решения владельца.
+  Числа сняты на одной тестовой сцене и относятся к сборке своего раунда.
+- `PP/results/diagNN/` — JSON-итоги и листы кадров, на которые ссылается журнал (часть файлов, например `results/diag49/`, в
+  репозиторий не добавлена). Кадры (`PP/measure/`), логи редактора и сборок (`Main*.log`, `Build*.log`) и пакеты раундов лежат
+  вне репозитория (`E:/GITHUB/MultiLobeSpec/.codex-build/…`, `D:/FogMS_ProbeFrames`).
+- `docs/archive/` — отчёты этапов A1–B3 с протоколами, доказательства среза B1 (`evidence_B1_20260921/`);
+  `Tools/FogMSEnergyValidation/Results/*.summary.json` — сводки GPU-проб B2/B3.
+- История git: коммиты с префиксом `FogMS` описывают каждый срез и раунд; `083341c` — вывод ассетов из репозитория.

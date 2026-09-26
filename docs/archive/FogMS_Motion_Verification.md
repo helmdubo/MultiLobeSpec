@@ -34,7 +34,7 @@ Use `Tools/FogMSEnergyValidation/MotionProbe` with a fresh immutable run ID and 
 | Game View | `force_game_view=true`; record, guard and restore exactly |
 | Density | Frozen at the same phase; no lighting/exposure/quality changes |
 
-Each delay repeats the movement independently. Start the hidden capture worker and invoke `motion_probe.py` through the existing bridge as described in [MotionProbe/README.md](Tools/FogMSEnergyValidation/MotionProbe/README.md). Native regular editor screenshots are used, not HighResShot or SceneCapture. Camera/Game View deviation aborts with an explicit error; it does not by itself identify whether the editor or a user caused the change.
+Each delay repeats the movement independently. Start the hidden capture worker and invoke `motion_probe.py` through the existing bridge as described in [MotionProbe/README.md](../../Tools/FogMSEnergyValidation/MotionProbe/README.md). Native regular editor screenshots are used, not HighResShot or SceneCapture. Camera/Game View deviation aborts with an explicit error; it does not by itself identify whether the editor or a user caused the change.
 
 Completion requires `status=COMPLETED`, all 18 PNGs with matching hashes and `restoration.ok=true`. Bridge dispatch success alone is insufficient. Then run:
 

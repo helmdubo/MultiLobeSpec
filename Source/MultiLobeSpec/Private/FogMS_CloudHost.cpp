@@ -95,7 +95,7 @@ namespace
 		TEXT("distance (FogMS_CloudSkipMargin = value x the host step), so a skip never jumps over the Box's entry and its samples stay on the ")
 		TEXT("same grid. Default 8. 1 or less = leave the engine cvar alone (engine default 1: every empty step is visited)."), ECVF_Default);
 
-	// P1 host settings (round 39, FogMS_Prod_Report.md 'Раунд 39'): trace 2 km from the camera, view samples x8 (768), sun march 0.25 km
+	// P1 host settings (round 39, docs/history/FogMS_Prod_Report.md 'Раунд 39'): trace 2 km from the camera, view samples x8 (768), sun march 0.25 km
 	// with 32 samples, stop at transmittance 0.005, layer = the Box's density band +-10 m (at least 0.1 km).
 	constexpr float FogMS_HostTraceKm = 2.0f;
 	constexpr float FogMS_HostViewSampleScale = 8.0f;

@@ -1,5 +1,7 @@
 # Offline verification receipt
 
+> Статус (2026-09-27): исторический документ инструмента этапа B3 (21.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](../README.md).
+
 - Four Python files compile successfully.
 - Entry/implementation import does not load `unreal` or begin a capture.
 - Nine synthetic CPU-generated cases pass the analyzer, including RGB and the

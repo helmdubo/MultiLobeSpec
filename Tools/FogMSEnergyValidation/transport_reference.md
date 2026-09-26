@@ -1,5 +1,7 @@
 # Six-ordinate conservative reference
 
+> Статус (2026-09-27): исторический документ инструмента этапа B2 (CPU-эталон шести направлений, 21.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](README.md).
+
 `transport_reference.py` implements exact cell-average full-line transport along
 the six Cartesian directions. It is an independent CPU reference for B2, not a
 measurement of Unreal Engine or proof of angular accuracy.

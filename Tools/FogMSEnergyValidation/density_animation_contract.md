@@ -1,5 +1,7 @@
 # FogMS world-space density animation
 
+> Статус (2026-09-27): исторический документ инструмента этапа B3 (контракт анимации плотности, 21.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](README.md).
+
 Animation is opt-in (`Animate Density = false` by default). No authored asset, texture or default density changes. It requires an enabled, visible density source, world-aligned texture coordinates and World or Transport scattering. Unsupported scattering modes, local coordinates or invalid animation values retain the original static mapping and report the reason in `Density Animation Status`. Animation is not fluid simulation or a mass-conserving density evolution.
 
 ## Coordinates and time

@@ -1,8 +1,10 @@
 # FogMS Box — руководство пользователя
 
-Для технических художников: как поставить Box с многократным рассеянием в проект UE 5.8. Все цифры взяты из
-`FogMS_Prod_Report.md` и измерены на одной тестовой сцене (RTX 3070, Box 32³, UE 5.8.2). В вашей сцене они будут другими.
-Помечено «(не проверено)» то, что не подтверждается кодом или отчётом.
+Для технических художников: как поставить Box с многократным рассеянием в проект UE 5.8. Состояние на 2026-09-27: свойства,
+умолчания, диапазоны, cvar и команды сверены с кодом коммита `083341c`. Все цифры взяты из журнала
+`docs/history/FogMS_Prod_Report.md` и измерены на одной тестовой сцене (RTX 3070, Box 32³, UE 5.8.2). В вашей сцене они будут
+другими. Помечено «(не проверено)» то, что не подтверждается кодом или журналом. Архитектура и техдолг — `FogMS_HANDOVER.md`;
+ассеты Unreal в репозиторий не входят — раздел 9.
 
 ## 1. Что это и как работает
 
@@ -32,10 +34,16 @@ J минус нерассеянное солнце, то есть небо с е
 **Контракт материала (для тех, кто делает свой материал).** Box задаёт в MID параметры плотности (`FogMS_Noise`,
 `FogMS_ChannelMask`, `FogMS_TileScale`, `FogMS_WorldAligned`, `FogMS_WorldFrequencies`, `FogMS_WorldPhase0..2`,
 `FogMS_Threshold`, `FogMS_Softness`, `FogMS_DetailStrength`, `FogMS_DetailScale`, `FogMS_DetailSecondOctave`,
-`FogMS_Density`, `FogMS_Albedo`, `FogMS_WorldExtent`, `FogMS_DensityFeather`; с раунда 36 ещё `FogMS_DepthPrefilter` и
+`FogMS_Density`, `FogMS_Albedo`, `FogMS_WorldExtent`, `FogMS_DensityFeather`; эрозия и профиль высоты `FogMS_ErosionStrength`,
+`FogMS_ErosionDepth`, `FogMS_ErosionMask`, `FogMS_HeightProfile`, `FogMS_HeightBottom`, `FogMS_HeightTop`,
+`FogMS_HeightBottomSoftness`, `FogMS_HeightTopSoftness`, `FogMS_HeightAnvilStrength`; с раунда 36 ещё `FogMS_DepthPrefilter` и
 `FogMS_PrefilterWavelengths`, префильтр по глубине, раздел 4; с раунда 37 — `FogMS_ForwardStrength`, `FogMS_ForwardG`,
 `FogMS_ForwardDepth`, `FogMS_ForwardFloor`, с раунда 38 ещё `FogMS_ForwardEcc`, прямой лепесток, раздел 4
-«Multiple Scattering Look») и два параметра доставки:
+«Multiple Scattering Look»; с раунда 41 — `FogMS_SunDetail`, `FogMS_SunMap`, `FogMS_SunMapCell`, `FogMS_SunMapU/V/W`
+(`Sun Detail Shadow`); с раунда 45 — `FogMS_FroxelWeight` (1 — Box во фрокселях, 0 — его рисует облачный хост)) и два
+параметра доставки (запись — `FogMS_BoxVolume.cpp`, `WriteDensityParameters`). В MID облачного хоста Box пишет те же
+параметры плотности, но вместо префильтра по глубине — `FogMS_CloudPrefilter`, без `FogMS_SunDetail`/`FogMS_SunMap*`/
+`FogMS_FroxelWeight`, плюс положение куба `FogMS_CloudBoxCenter`, `FogMS_CloudWorldToLocal0..2`:
 
 - `FogMS_InjectionMode`: 0 — без инъекции, 1 — полное поле, 2 — гибрид, 3 — отладка «только поле» (`Field Only (Debug)`);
 - `FogMS_TransportField`: текстура поля, uvw = (Local + Extent) / (2·Extent) в осях Box. Alpha 0 — поля нет,
@@ -44,9 +52,10 @@ J минус нерассеянное солнце, то есть небо с е
 
 Материал должен считать так: valid = (A ≥ 0,5), Emissive = valid·RGB·Albedo·σt. Режим 1: BaseColor = Albedo·(1 − valid).
 Режим 2: BaseColor = Albedo·lerp(1, saturate(2A − 1), valid), где saturate(2A − 1) = T_sun·k. Режим 3 (контракт v4):
-поле полное, как в режиме 1, BaseColor = 0 всегда (и без валидного поля), Emissive как в режиме 1. В комплектном
-`M_FogMS_Density` это узлы `FogMS_InjectionAlbedo` (BaseColor) и `FogMS_EmissiveInjection` (Emissive); режим 3 в нём
-появляется только после `matedit_density.py` (раздел 4, «Отладка»). С раунда 37 между `FogMS_EmissiveInjection` и
+поле полное, как в режиме 1, BaseColor = 0 всегда (и без валидного поля), Emissive как в режиме 1. С раунда 41 при `Sun Detail
+Shadow` в режиме 2 вместо S = saturate(2A − 1) берётся S_hi узла `FogMS_SunDetail` (перераспределение внутри ячейки). В
+`M_FogMS_Density` плагина (ассет в репозиторий не входит, раздел 9) это узлы `FogMS_InjectionAlbedo` (BaseColor) и
+`FogMS_EmissiveInjection` (Emissive); режим 3 в нём появляется только после `matedit_density.py` (раздел 4, «Отладка»). С раунда 37 между `FogMS_EmissiveInjection` и
 выходом Emissive стоит узел `FogMS_ForwardLobe`: в режиме 2 при `FogMS_ForwardStrength` > 0 он умножает Emissive на
 лепесток, иначе возвращает его без изменений (раздел 4, «Multiple Scattering Look»; с раунда 38 — узел v2).
 
@@ -55,11 +64,12 @@ J минус нерассеянное солнце, то есть небо с е
 | Требование | Где проверяется / что будет без него |
 |---|---|
 | Windows (Win64), D3D12, Shader Model 6, одна видеокарта | Иначе статус «Live FogMS Box requires single-GPU D3D12/SM6» |
-| Аппаратный ray tracing с inline RT (`r.RayTracing=1`) | Иначе «FogMS Box transport requires inline hardware ray tracing…» |
+| Аппаратный ray tracing с inline RT (`r.RayTracing=1`, в проекте включён Support Hardware Ray Tracing), deferred shading (не Forward) | Иначе «FogMS Box transport requires inline hardware ray tracing…» или «World lighting requires single-GPU deferred D3D12/SM6 with inline hardware ray tracing…» |
 | Lumen Global Illumination на виде | Иначе «World requires Lumen global illumination for this view.» |
 | UE 5.8, проверено только на **5.8.2** | Lumen surface cache читается только на 5.8.2; иначе `Lumen Bounce` уходит в откат, решатель работает. Работа на других патчах (не проверено). В `.uplugin` стоит `EngineVersion 5.8.0` |
 | `r.RayTracing.Culling 0` (по умолчанию в движке 3) и `r.Lumen.AsyncCompute 0` (по умолчанию 1) | Иначе «World requires r.RayTracing.Culling=0 (now 3)…». Box ставит их сам, см. «Кто ставит cvar» |
 | `r.LumenScene.GPUDrivenUpdate 0` (так по умолчанию в 5.8) | Проверяется |
+| `r.RDG.AsyncCompute` не больше 1 (2 — принудительный async — не поддержан) | Иначе «Forced RDG async compute is unsupported by World.» |
 | `r.RayTracing.Nanite.Mode 0` (так по умолчанию) | Нужен только для `bounce: Lumen`, иначе откат |
 | Exponential Height Fog с Volumetric Fog | **Ненулевая `Scattering Distribution` тумана требует `Emissive Injection`.** Без инъекции (overlay) нужна 0, иначе поле Box выключается целиком: статус «Overlay scattering requires fog Scattering Distribution=0 (now 0.7): enable Emissive Injection to use a non-zero fog phase.» |
 | Один вид реального времени: не Scene Capture, не стерео | Иначе «World lighting requires one real-time perspective view…» |
@@ -75,10 +85,11 @@ J минус нерассеянное солнце, то есть небо с е
 Значение, заданное явно (ini проекта, device profile, командная строка, консоль; в редакторе также значение, которое
 вернула **Restore Standard Lumen**), сильнее: Box его не трогает, в логе «kept… Transport stays off», в статусе
 «World requires r.RayTracing.Culling=0 (now 3). A higher-priority value (SetByConsole) was kept…». Поставьте 0 сами.
-Значения остаются до конца процесса/сессии редактора и после выключения Box. В редакторском мире с `-BindlessAll`
-(там Box запускает кнопка **Enable Live Box**), для overlay-Box и режима World по-прежнему нужна **Enable Indirect
-Preview** (она меняет и настройки Lumen Translucency Volume до конца сессии; вернуть — **Restore Standard Lumen**) или
-оба cvar в `DefaultEngine.ini`.
+Значения остаются до конца процесса/сессии редактора и после выключения Box. В редакторском мире с `-BindlessAll` Box
+сам не запускается и cvar не ставит (его запускает кнопка **Enable Live Box**, которая cvar тоже не ставит): **любому** Box —
+и overlay, и Transport с инъекцией — там нужна **Enable Indirect Preview** (она меняет и настройки Lumen Translucency Volume
+до конца сессии; вернуть — **Restore Standard Lumen**) или оба cvar в `DefaultEngine.ini`. В PIE/Simulate их ставит
+`BeginPlay` (`FogMS_BoxVolume.cpp`, `AutoStartRuntime` / `BeginPlay`).
 
 **Translucency Volume и Transport (раунд 35).** Для Box в режиме Transport кнопка **Enable Indirect Preview** больше
 не ставит `r.Lumen.TranslucencyVolume.SpatialFilter 0` и `r.Lumen.TranslucencyVolume.Temporal.Jitter 0`: остаются
@@ -111,7 +122,8 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
 ## 3. Быстрый старт
 
 1. Проверьте требования раздела 2. В логе при старте должна появиться строка
-   `FogMS: bindless configuration …, inline RT yes; available modes: injection-only …`.
+   `FogMS: bindless configuration …, inline RT yes; available modes: injection-only …` (её печатает только сборка под
+   UE 5.8.2).
    Если режимы `all`, редактор запущен с `-BindlessAll`, и тогда после настройки нужна кнопка **Enable Live Box**.
 2. Поставьте в уровень **FogMS Box Volume** и задайте размер через масштаб или Box Extent. Box с `Emissive
    Injection` может быть несколько (раздел 7, «Несколько Box»); без инъекции (overlay) — только один.
@@ -122,7 +134,8 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
      LOD bias или группой текстур;
    - `Density Channel` — канал с шумом. `Density` — пиковая экстинкция в 1/м (по умолчанию 0,1).
      `Density Albedo` — цвет рассеяния, каждый канал в пределах 0…1;
-   - формат `T_FogMS_DefaultVolume` из комплекта и то, подходит ли он как стартовая текстура, (не проверено).
+   - `T_FogMS_DefaultVolume` плагина — заглушка текстурных параметров материалов (линейная копия штатной Volume Texture
+     движка), а не стартовая текстура плотности; свою Volume Texture нужно назначить (без неё добавка плотности выключена).
 4. `Scattering Mode` = **Transport (B3 Angular)**, `Transport Preset` = **Production**.
 5. `Emissive Injection` = вкл. (с раунда 36 это умолчание). Без `-BindlessAll` Box запускается сам: в редакторе на
    первом тике, в игре в `BeginPlay`. Нажимать ничего не нужно.
@@ -140,7 +153,10 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
    scattering; solve every 2 frames; bounce: Lumen; see convergence diagnostics) (injection-only: no BindlessAll;
    overlay features off) [sky: Sky View LUT, 5-tap sector average]`.
    На кадрах удержания вместо `solve every 2 frames` стоит `hold 1/2`; с async-решателем добавится `; one frame late`.
-   В конце статуса Transport-Box — `[tau core ~X, upper bound]`, оценка оптической толщины (раздел 7).
+   После скобки `[sky: …]` идут `[tau core ~X, upper bound]` (оценка оптической толщины, раздел 7), затем, если действуют,
+   `[debug: field only, …]`, `[sun softness …]`, `[forward lobe …]` (при умолчаниях — `[forward lobe 0.50 g 0.60]`),
+   `[sun detail …]`, `[Hybrid Single Scattering is ignored: …]`, статус `Render Path` (`[render: cloud host] […]` или
+   `[cloud host: …, froxel fallback]`) и при нескольких Box — `[Box #N]` (`FogMS_BoxRuntime.cpp`, конец сборки статуса).
 10. Плотное облако попиксельно: `Render Path` = `Cloud Host` (с раунда 46 — умолчание). Один раз на уровень нажмите на Box
    **Create Cloud Host** (статус без хоста это и подсказывает). Хост вытесняет облака неба; дымку и низкий туман над землёй
    оставляйте в `Froxel Fog` (раздел 4, «Render Path»).
@@ -148,27 +164,33 @@ shadow cache), `r.FogMS.ViewIntegration`, SSFS sky disk, отладочные в
    солнцу `Cast Cloud Shadows`, охват 5 км и разрешение ×2), затем сохраните уровень. Подробности — раздел 4, «Мягкая тень
    облака на земле».
 12. Тени облаков погоды (раунд 48): **Place Actors → FogMS Weather**, `Weather State` = `DA_FogMS_Weather_Scattered` (или
-   Broken / Overcast), кнопка актёра **Setup Sun Shadows**. Смена погоды — `FogMS.Weather.Set Overcast 10`. Раздел 4а.
+   Broken / Overcast; ассеты строит `matedit_weather.py`, раздел 9), кнопка актёра **Setup Sun Shadows**. Смена погоды —
+   `FogMS.Weather.Set Overcast 10`. Раздел 4а.
 
 ## 4. Настройки Box
+
+Новый Box — куб 20 м (`Box Extent` 1000 см). Значения по умолчанию ниже — умолчания класса `AFogMSBoxVolume`
+(`Source/MultiLobeSpec/Private/FogMS_BoxVolume.h`).
 
 **Основные (категории FogMS и FogMS|Scattering):**
 
 | Свойство | Что делает | Цена / рекомендация |
 |---|---|---|
 | `Enabled` | Включает Box | С `Emissive Injection` включённых Box может быть несколько; без инъекции (overlay) — один |
-| `Scattering Mode` | Для продукта — `Transport (B3 Angular)`. `Transport (B2)` — 6 осевых направлений | B2 ≤8 итераций ≈ 1,04 мс, но J ярче эталона на ~11 % (ошибка 16 %): кандидат в «Economy», в пресеты не входит |
-| `Transport Preset` | Записывает три поля ниже. Если поправить любое из них вручную, пресет станет `Custom` | Production по умолчанию |
+| `Scattering Mode` | По умолчанию `Off (A1 Only)`. Для продукта — `Transport (B3 Angular)`; `Transport (B2)` — 6 осевых направлений. Остальные режимы (`Octaves (Legacy, overlay)`, `Spatial (Experimental)`, `World (Current Frame)`) — legacy-оверлей, только редактор с `-BindlessAll` | B2 ≤8 итераций ≈ 1,04 мс, но J ярче эталона на ~11 % (ошибка 16 %): кандидат в «Economy», в пресеты не входит |
+| `Transport Preset` | Записывает три поля ниже: Production 16 направлений / 16 итераций / 1e-6 (по умолчанию), High 48 / 16 / 1e-8, Cinematic 96 / 64 / 1e-14, Custom. В Details эти поля доступны только при `Custom`; запись любого из них из Python/Blueprint сама переключает пресет на `Custom`; Box, сохранённый с другими значениями, загружается как `Custom` | Production по умолчанию |
 | `Angular Quality` | Число направлений переноса: 16/24/48/96 | Цена растёт линейно. Ошибка поля J к эталону 96/64: 16 → 2,2–2,5 %, 24 → 1,2 %, 48 → 0,8 %. Время решателя: 2,26 / 2,75 / 3,94 мс |
 | `Transport Iterations` | До N итераций решателя за кадр (1…64). Благодаря warm start решение продолжается между кадрами | 2–4 уже рабочий бюджет. 96 направлений: 4 ит. — 11,1 мс, 16 ит. — 28,1 мс |
-| `Transport Tolerance` (Advanced) | Порог сходимости: когда он достигнут, оставшиеся итерации кадра пропускаются. −1 — взять из `r.FogMS.Transport.Tolerance` | 1e-4 слишком грубо (тусклые ячейки до 3–8 %), 1e-6 рабочий, 1e-8 для High. 16 направлений: 2,3 / 3,4 / 5,2 мс |
+| `Transport Tolerance` (Advanced) | Порог сходимости: когда он достигнут, оставшиеся итерации кадра пропускаются (пропуск по допуску действует в B3). −1 — взять из `r.FogMS.Transport.Tolerance`, 0 — выполнять все итерации, диапазон −1…1 | 1e-4 слишком грубо (тусклые ячейки до 3–8 %), 1e-6 рабочий, 1e-8 для High. 16 направлений: 2,3 / 3,4 / 5,2 мс |
 | `Emissive Injection` | Доставляет J через Volume-материал Box (раздел 1). **По умолчанию вкл. (раунд 36)** | На ~0,7 мс дешевле overlay в `LightScattering` (1,575 → 0,870 мс). Единственный путь без `-BindlessAll`. Убирает дрожание при движении вперёд/назад (тест «сдвиг слоёв», раунд 35: 0,189 → 0,042; Box выкл. 0,035) |
 | `Hybrid Single Scattering` | Прямое солнце рендерит штатный туман, остальное идёт через поле. **Только с `Emissive Injection`**, без неё игнорируется (статус и лог это говорят). **По умолчанию вкл. (раунд 36)** | +0,02 мс к полной инъекции. Внутри Box на 1,5–2 % ярче overlay |
 | `Lumen Bounce` | Свет поверхностей, в которые упираются граничные лучи решателя. Auto — Lumen surface cache (сборка 5.8.2, кэш готов), иначе откат. Off — всегда откат: `Fallback Ground Albedo` × (солнце × тень × пропускание среды Box + SH-небо) | Откат против Lumen: в облаке на 3–5 % светлее (раунд 25, до ослабления средой) |
 | `Fallback Ground Albedo` | Линейный цвет земли для отката, по умолчанию серый 0,3. Не действует при `bounce: Lumen` | По локации: снег ~0,8, трава ~0,15, почва/камень 0,2–0,3. Правка пересчитывает поле и один раз сбрасывает историю тумана |
 | `Apply Required Render Settings` | Ставит два обязательных cvar: в игре в `BeginPlay`, в редакторе/PIE/Simulate при самозапуске Box с инъекцией (раздел 2) | Держать вкл., если проект сам не задаёт эти cvar |
 | `Field Only (Debug)` (FogMS\|Debug) | Отладка инъекции: вклад решателя без штатного однократного рассеяния. Материал получает режим 3: BaseColor 0, экстинкция прежняя, Emissive = σs·J полного поля (гибрид на это время выключается, поле пересчитывается как полное). Box без текущего поля чёрный | По умолчанию выкл. Нужен материал с контрактом v4: один раз запустите `matedit_density.py` в редакторе, со старым материалом Box светится дважды |
-| `Feather Distance`, `Density Edge Feather` | Мягкий край Box и край плотности, см | — |
+| `Feather Distance` (FogMS, 200 см) | Край области A1 / legacy-оверлея; в пути инъекции и у облачного хоста не действует | — |
+| `Density Edge Feather` (FogMS\|Density, 100 см) | Мягкий край плотности внутри Box, см | — |
+| `Spatial Strength` (0,35, 0…0,5), `Spatial Distance` (500 см, 10…2000) | Только legacy-режимы `Spatial` и `World` | — |
 
 **Новые умолчания и уже сохранённые Box (раунд 36).** UE пишет в уровень только значения, отличные от умолчаний класса.
 Box, сохранённые до раунда 36 с выключенными `Emissive Injection` и `Hybrid Single Scattering` (тогдашнее умолчание),
@@ -190,9 +212,10 @@ Box, сохранённые до раунда 36 с выключенными `Em
 | High | 48 / ≤16 / 1e-8 | 5–8 мс (оценка тира в отчёте) |
 | Cinematic | 96 / 64 / 1e-14 | 40–78 мс (в разных сессиях); это эталон |
 
-**Плотность (FogMS|Density):** `Density Texture`, `Density Channel`, `World Aligned Texture` + `World Texture Size`
-(размер повтора в см), `Texture Offset (World)`, `Tile Scale` (только без World Aligned), `Threshold`/`Softness`,
-`Detail Strength`/`Detail Scale`/`Detail Second Octave`, `Density`, `Density Albedo`, `Depth Prefilter`. Правки видны сразу.
+**Плотность (FogMS|Density):** `Density Enabled` (выкл.), `Density Texture`, `Density Channel` (R), `World Aligned Texture`
+(выкл.) + `World Texture Size` (размер повтора, 2000 см, 1…1e8), `Texture Offset (World)`, `Tile Scale` (только без World
+Aligned), `Threshold` (0,5) / `Softness` (0,1), `Detail Strength` (0) / `Detail Scale` (4, 0,1…32) / `Detail Second Octave`
+(0,5), `Density` (0,1 1/м), `Density Albedo` (белый), `Density Edge Feather` (100 см), `Depth Prefilter` (0). Правки видны сразу.
 
 **Префильтр по глубине (`Depth Prefilter`, FogMS|Density, раунд 36; с раунда 37 по умолчанию 0 — выключен, опция).**
 Это обмен облика на стабильность. Замер раунда 36 (реальный проезд вперёд у края облака, разница кадров `d2_blur`,
@@ -209,7 +232,8 @@ Box, сохранённые до раунда 36 с выключенными `Em
 - ширина фильтра w = `Depth Prefilter` · max(dz, dxy). dz — толщина слоя на глубине d по распределению движка: слой
   Z(d) = S·log2(d·B + O), (B, O, S) = `View.VolumetricFogGridZParams`, отсюда dz = ln2·(d·B + O)/(S·B); dxy = 2d/(P00·GridSizeX)
   — ширина фрокселя (P00 = `ViewToClip[0][0]`). Материал читает это из View во время вокселизации, cvar в C++ не нужны;
-- масштаб полосы шума λ = период тайла / 4 (у комплектного Perlin-Worley 4 ячейки на тайл): база, detail 0, detail 1 —
+- масштаб полосы шума λ = период тайла / 4 (код предполагает 4 ячейки шума на тайл, как у Perlin-Worley из
+  `ProdProbe/gen_perlin_worley.py`; для других текстур не проверено): база, detail 0, detail 1 —
   `World Texture Size`, он же / `Detail Scale`, / (2·`Detail Scale`); без `World Aligned Texture` период базы — среднее
   геометрическое 2·Extent/`Tile Scale` по трём осям Box. Снятая доля полосы r = saturate(w/λ);
 - (a) амплитуда detail-октав × (1 − r), узор эрозии стремится к 0,5; (b) база читается из mip со смещением
@@ -226,7 +250,8 @@ detail-октавы и 50–100 % базы), при `World Texture Size` 20000 �
 плотность материала у него 0.
 
 **Как обновить материал.** Нужен `M_FogMS_Density` с узлом `FogMS_Extinction_v3`; со старым материалом `Depth Prefilter`
-ни на что не влияет. Один раз в редакторе, когда материал никто не редактирует: Python-консоль,
+ни на что не влияет. Скрипт только правит уже существующий материал (создать его с нуля не может, раздел 9). Один раз в
+редакторе, когда материал никто не редактирует: Python-консоль,
 `py "<репо>/Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py"`. Скрипт идемпотентный: если нужно, сначала
 поднимает экстинкцию v1 → v2 и BaseColor до контракта v4, затем v2 → v3 (новые узлы `FogMS_DepthFootprint`, PixelDepth,
 параметры `FogMS_DepthPrefilter`/`FogMS_PrefilterWavelengths` с умолчанием 0; выборке базового шума ставится Mip Bias).
@@ -253,13 +278,14 @@ detail-октавы и 50–100 % базы), при `World Texture Size` 20000 �
 | `Anvil Strength` | Расширяет покрытие в верхней половине профиля (наковальня), [0, 1] | 0 |
 | `Height Profile Preset` | Только редактор: пишет пять значений (Stratus, Cumulus, Cumulonimbus, Valley Fog) и включает профиль. Правка любого из пяти значений вручную ставит None | None |
 
-**Multiple Scattering Look (FogMS|Multiple Scattering Look, раунд 38, в редакторе ещё не проверено).** Один набор свойств
+**Multiple Scattering Look (FogMS|Multiple Scattering Look, раунд 38; в редакторе проверено в раунде 40).** Один набор свойств
 для обоих путей, которые добавляют «октавы» многократного рассеяния (Wrenninge 2013), с именами и смыслом, как у материала
 UE Volumetric Cloud (узел Volumetric Advanced Material Output). До раунда 38 это были два набора с разными именами:
 `Extra Octaves`/`MS Contribution`/`MS Occlusion`/`MS Eccentricity` в FogMS|Scattering (только Octaves) и
 `Forward Scattering`/`Forward Anisotropy`/`Forward Depth`/`Back Floor` в FogMS|Look (только лепесток Transport). Набор
 редактируется, когда `Scattering Mode` = `Octaves (Legacy, overlay)` или Transport с `Emissive Injection` +
-`Hybrid Single Scattering`; в остальных режимах он серый и ни на что не влияет.
+`Hybrid Single Scattering`, кроме `MS Back Floor` (только лепесток Transport) и `Extra Octaves` (только Octaves); в остальных
+режимах он серый и ни на что не влияет. В той же категории — `Sun Detail Shadow` / `Sun Detail Strength` (ниже).
 
 | Свойство | Transport: лепесток (инъекция + гибрид) | Octaves (Legacy, overlay) | По умолчанию | Цена |
 |---|---|---|---|---|
@@ -323,8 +349,8 @@ Distribution` тумана не 0,6. Чтобы вернуть прежний в
 только значения, отличные от умолчаний класса: Box, у которого `Forward Scattering` в раунде 37 остался 0 (умолчание),
 загрузится с `MS Contribution` 0,5 — **лепесток включится сам** (так задумано). Вид без лепестка — `MS Contribution` 0.
 Python-имена: `phase_g`, `ms_contribution`, `ms_occlusion`, `ms_eccentricity`, `ms_back_floor`, `extra_octaves`. UE Python
-регистрирует старые имена из CoreRedirects как устаревшие псевдонимы (в редакторе не проверено); скрипты раунда 37
-(`d37_lobe.py`, `d35_dolly.py`, снимок свойств в `diag35lib.py`) лучше перевести на новые имена.
+регистрирует старые имена из CoreRedirects как устаревшие псевдонимы (в редакторе не проверено); скрипты `ProdProbe`
+(`d37_lobe.py`, `d35_dolly.py`, `diag35lib.py`) уже используют новые имена.
 
 **Как включить (раунд 38).** Нужна сборка 38 и материал с узлом `FogMS_ForwardLobe` v2: один раз в редакторе, когда
 материал никто не редактирует, `py "<репо>/Tools/FogMSEnergyValidation/ProdProbe/matedit_density.py"`. Если узла нет,
@@ -340,10 +366,12 @@ Python-имена: `phase_g`, `ms_contribution`, `ms_occlusion`, `ms_eccentricit
 
 **Исправление раунда 40: лепесток читает альфу поля.** В материалах, пропатченных в раундах 37–39, вход `FieldA` узла
 лепестка был подключён к RGB поля, а не к A: S = saturate(2·J_ms.R − 1) вместо T_sun·k, лепесток работал в полную силу
-на всей освещённой части облака, `MS Occlusion` ни на что не влиял. `M_FogMS_Density.uasset` в репозитории исправлен;
-в проекте то же делает `matedit_density.py` (шаг проверки пинов поля, запускается и на уже пропатченном материале):
+на всей освещённой части облака, `MS Occlusion` ни на что не влиял. Исправленный `M_FogMS_Density.uasset` лежал в
+репозитории до коммита `083341c` (теперь — локальный ассет, раздел 9); в проекте то же делает `matedit_density.py` (шаг
+проверки пинов поля, запускается и на уже пропатченном материале):
 `FIELD_PIN … WRONG` → `FIELD_WIRING repaired: FogMS_ForwardLobe.FieldA <- …A (was …RGB)`, `COMPILE field wiring: shader
-compiled`, `PATCHED saved=True`; повтор — `FIELD_WIRING ok (4 pins)`, `ALREADY_PATCHED`. После исправления лепесток
+compiled`, `PATCHED saved=True`; повтор — `FIELD_WIRING ok (5 pins)` (4 — у материала без узла `FogMS_SunDetail`),
+`ALREADY_PATCHED`. После исправления лепесток
 действует там, куда проникает солнце, и слабее прежнего: при 0,4 / 0,5 вместо +11–13 % против солнца теперь +3 %;
 близко к прежнему — `MS Contribution` 0,8 и `MS Occlusion` 0,2 (+8 %). `MS Occlusion` теперь работает: меньше — сильнее.
 
@@ -366,9 +394,16 @@ compiled`, `PATCHED saved=True`; повтор — `FIELD_WIRING ok (4 pins)`, `A
 При `Sun Softness` 0 остаётся дешёвое чередование 4 точек. В ProfileGPU имя прохода показывает выбор:
 `FogMS B2 direct cell average … [sun 8 points]` или `… [sun 4 points, alternating]`.
 
-**Анимация (FogMS|Density Animation):** `Animate Density`, `Wind Speed`, `Edge Flow Speed`; кнопки
-`FreezeDensityAnimation`/`ResumeDensityAnimation`, `ResetMotionOrigin`; `Use Manual Animation Time` + `Manual Animation Time`
-дают воспроизводимый кадр.
+**Анимация (FogMS|Density Animation):** `Animate Density` (выкл.; нужна `World Aligned Texture`, режимы World или Transport),
+`Wind Speed` и `Edge Flow Speed` (см/с, по умолчанию 0; видны в режиме Directional Wind), направление — поворот стрелки
+`WindDirectionComponent`. `Density Motion Mode` (только чтение): новые Box — `Directional Wind`, сохранённые до него —
+`Legacy Velocity Vectors`; кнопка **Use Directional Motion** переводит их без скачка фазы. Advanced: `Density Wind Velocity`
+(Legacy), `Relative Detail Velocity`, `Relative Second Detail Velocity`, `Use Manual Animation Time` + `Manual Animation Time`
+(воспроизводимый кадр), `Animation Time Offset`; только для чтения — `Density Animation Time`, `Density Animation Status`
+(там же причина, например «Static: animation requires World Aligned Texture»). Кнопки **Freeze Density Animation** /
+**Resume Density Animation**; `Reset Motion Origin`, `Use Legacy Motion`, `Restore Density Motion Reference` — только
+Blueprint/Python. Каждое перемещение, поворот или изменение размера Box сбрасывает историю тумана и запускает решение с
+холодного старта (warm start привязан к границам Box).
 
 **Sun Detail Shadow (раунд 41; с раунда 45 по умолчанию включено — просьба владельца).** Точная тень солнца внутри облака
 для пути инъекции с гибридом. Каждый кадр со стороны солнца строится карта Box (`r.FogMS.SunMap.Resolution` 256,
@@ -399,21 +434,24 @@ Box (плотность, анимация, решатель 32³ — как ра
         сдвиг, поворот, масштаб, правки Box доходят до хоста сразу) + FogMS_CloudPrefilter / FogMS_PrefilterWavelengths (раунд 46)
 подсистема хоста (каждый тик, CPU): слой хоста = полоса плотности Box ±10 м (перестраивается, когда Box уехал больше чем
   на 5 м), View Sample Count Scale, FogMS_CloudStep (шаг), cvar рендер-таргета облака (ниже), вблизи / вдали от Box
-облачный хост (актёр Volumetric Cloud): луч на пиксель (у камеры, Mode 3) или на 1/2 пикселя (вдали, Mode 1), шаг ≈ 2,6 м;
+облачный хост (актёр Volumetric Cloud): луч на пиксель (у камеры, Mode 3) или один луч на блок 2×2 пикселя (вдали, Mode 1),
+  шаг ≈ 2,6 м;
   на шаге: плотность Box (тот же HLSL FogMS_Extinction_v3, что у решателя, с префильтром хоста) → σt; марш к солнцу
   0,25 км × 32 → HG(Phase G Box); Emissive = σs·J·лепесток (из поля), AO 0 (небо уже в поле) → поверх тумана
 ```
 
 **Новое умолчание и сохранённые уровни (раунд 46).** UE пишет в уровень только отличия от умолчания класса, поэтому Box,
-сохранённые, пока умолчанием был `Froxel Fog`, без явной правки загрузятся с `Cloud Host`. Хост плагин **сам не создаёт**
-(он вытеснил бы облака неба): если хоста в уровне нет, Box остаётся во фрокселях, картинка прежняя, а статус подсказывает
+сохранённые, пока умолчанием был `Froxel Fog`, без явной правки загрузятся с `Cloud Host`. Box хост **сам не создаёт** (он
+вытеснил бы облака неба; создаёт его только актёр погоды, раздел 4а): если хоста в уровне нет, Box остаётся во фрокселях,
+картинка прежняя, а статус подсказывает
 `[cloud host: none: click 'Create Cloud Host' on this Box (or console FogMS.CloudHost.Create) to render it per pixel, froxel
 fallback]`. Чтобы оставить Box во фрокселях без этой строки, поставьте `Render Path` = `Froxel Fog` и сохраните уровень.
 
 Как включить (шаги):
-1. Box: `Scattering Mode` Transport + `Emissive Injection` (умолчания). Материалы `M_FogMS_Cloud` и `MI_FogMS_Cloud` уже в
-   комплекте (`Content/FogMS`); если их нет, один раз в редакторе `py "<репо>/Tools/FogMSEnergyValidation/ProdProbe/matedit_cloud.py"`
-   (идемпотентный; повтор печатает `ALREADY_PATCHED`).
+1. Box: `Scattering Mode` Transport + `Emissive Injection`. Материалы `M_FogMS_Cloud` и `MI_FogMS_Cloud` в репозиторий не
+   входят: их один раз строит в редакторе `py "<репо>/Tools/FogMSEnergyValidation/ProdProbe/matedit_cloud.py"` (идемпотентный,
+   повтор печатает `ALREADY_PATCHED`; нужны `T_FogMS_DefaultVolume` и текстуры погоды от `matedit_weather.py`, раздел 9). Без
+   материала статус Box — `[cloud host: none (M_FogMS_Cloud is missing: run matedit_cloud.py), froxel fallback]`.
 2. На Box кнопка **Create Cloud Host** (категория FogMS). Она создаёт актёр `FogMS Cloud Host` (Volumetric Cloud с
    `MI_FogMS_Cloud` и настройками раунда 39: слой = полоса плотности Box ±10 м над землёй SkyAtmosphere, трасса 2 км от
    камеры, выборки ×8, марш к солнцу 0,25 км × 32, порог прозрачности 0,005, без захвата неба) и ставит Box
@@ -444,7 +482,9 @@ ground, fitted to Box '…'`. Текущий слой — в статусе (`la
 | Статус Box | Что значит (Box остаётся во фрокселях, кроме первой строки) |
 |---|---|
 | `[render: cloud host] [...]` | Box рисует хост; фроксельная копия выключена |
-| `[cloud host: none: click 'Create Cloud Host' on this Box …, froxel fallback]` | в уровне нет хоста: нажмите кнопку (с раунда 46 `Cloud Host` — умолчание, хост плагин сам не создаёт) |
+| `[cloud host: none: click 'Create Cloud Host' on this Box …, froxel fallback]` | в уровне нет хоста: нажмите кнопку (с раунда 46 `Cloud Host` — умолчание, Box хост сам не создаёт) |
+| `[cloud host: none (M_FogMS_Cloud is missing: run matedit_cloud.py), froxel fallback]` | материала хоста нет в проекте (раздел 9) |
+| `[cloud host: no cloud host subsystem in this world, froxel fallback]` | мир без подсистемы хоста (подсистема есть в мирах Editor, PIE и Game) |
 | `[cloud host: '<хост>' exists but does not render (hidden or not visible) …]` | хост есть, но скрыт или невидим: покажите его |
 | `[cloud host: needs Transport with Emissive Injection, froxel fallback]` | хосту нужно поле этого Box |
 | `[cloud host: '<хост>': layer X–Y km does not cover the Box's density band A–B km above the ground …]` | только при `r.FogMS.CloudHost.FitLayer 0`: слой ведёте вы, поправьте `Layer Bottom Altitude` / `Layer Height` (при 1 плагин подгоняет слой сам) |
@@ -469,7 +509,8 @@ ground, fitted to Box '…'`. Текущий слой — в статусе (`la
 0 — облик раунда 45.
 Только материал хоста: освещение решателя не меняется, пересчёта нет. Нужен материал `M_FogMS_Cloud` v2 (`matedit_cloud.py`,
 узел `FogMS_CloudFootprint`); со старым материалом свойство ничего не делает. Цена — несколько десятков ALU на шаг луча,
-без новых чтений текстуры (не измерено; в фазе проверки раунда 46 снимается одна цифра хоста с префильтром).
+без новых чтений текстуры; отдельной цифры префильтра нет (хост целиком с префильтром 1 у камеры владельца — 2,9 мс в
+режиме 3, раунд 46).
 
 **Настройки хоста, которые ставит плагин (cvar, раунд 46).** Пока хостом рисуется хотя бы один Box, подсистема каждый тик
 держит у движка значения ниже с приоритетом game setting (одна строка в логе на каждое изменение
@@ -485,7 +526,7 @@ ground, fitted to Box '…'`. Текущий слой — в статусе (`la
 | `r.VolumetricCloud.ViewRaySampleMaxCount` | 96 × `ViewSampleScale`, если больше 768 (`StepSettings` 1) | иначе `ViewSampleScale` > 8 упирается в 768 выборок |
 | `r.VolumetricRenderTarget.Mode` | вблизи `RTMode` **3**, вдали `FarRTMode` **1** | 3 — трасса в полном разрешении, без реконструкции: резко, без шлейфа, дороже всего; 1 — половинное разрешение |
 | `r.VolumetricCloud.SampleMinCount` | вблизи `SampleMinCount` **32**, вдали `FarSampleMinCount` **8** | минимум шагов на луч: короткие лучи (круто сквозь тонкий слой, камера в облаке) шагают мельче |
-| `r.VolumetricRenderTarget.UpsamplingMode` | `UpsamplingMode` **2** | ближайший + тест глубины (в режимах 2/3 движок ставит 2 сам) |
+| `r.VolumetricRenderTarget.UpsamplingMode` | `UpsamplingMode` **2** | ближайший + тест глубины (что движок в режимах 2/3 ставит 2 сам — не проверено) |
 | `r.VolumetricRenderTarget.ReprojectionBoxConstraint` | `ReprojectionBoxConstraint` **1** | зажим истории окрестностью кадра; действует только в режимах 0/2 (с реконструкцией) |
 | `r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection` | `ReprojectionMinKm` **4** | ближе 4 км — без истории; только режимы 0/2 |
 
@@ -500,7 +541,7 @@ ground, fitted to Box '…'`. Текущий слой — в статусе (`la
 шлейф (раунд 39; зажим истории `ReprojectionBoxConstraint` его укорачивает). Режимы 1/3 историю не копят: шлейфа нет, но
 видно зерно каждого кадра — его уменьшают полное разрешение (3), `SampleMinCount` 32, меньший шаг (`ViewSampleScale` 16) и
 `Host Prefilter`. Цена по лучам: режим 3 трассирует в 4 раза больше лучей, чем 1, и в 16 раз больше, чем 0 (раунд 45: хост в
-режиме 0 — 0,38 мс в окне проб 894 × 813); цифра режима 3 у камеры владельца — замер раунда 46 (фаза 2). Если режим 3 дорог,
+режиме 0 — 0,38 мс в окне проб 894 × 813); режим 3 у камеры владельца — 2,9 мс (2,55–3,56; раунд 46). Если режим 3 дорог,
 оставьте `NearDistanceKm` ~1 км (дальние Box — режим 1) или поставьте `r.FogMS.CloudHost.RTMode 1`.
 
 **Мягкая тень облака на земле (раунд 47, срез W47, P4 часть 1).** Хост — штатный Volumetric Cloud, поэтому движок умеет
@@ -581,7 +622,7 @@ game setting, как настройки хоста выше; одна строк
 логе `FogMS cloud host '…' (Box '…'): [cloud shadow: …]`.
 
 *Чужие облака.* Если сцену рисует не хост FogMS, а обычный Volumetric Cloud (облака неба UE; например, хост скрыт), и
-солнце бросает тени облаков, Box работает, а статус предупреждает:
+солнце бросает тени облаков, Box работает, а статус предупреждает (пометка идёт внутри скобки `[sky: …]`):
 `[sun cloud shadows: Volumetric Cloud '<материал>' is not a FogMS cloud host: its shadow darkens the ground and the fog,
 not this Box's solver field]` (и одна строка Warning в логе): земля и туман, включая штатное однократное рассеяние
 фроксельного Box, в тени этих облаков, а поле решателя — нет. Второй Box, которому досталось «busy», пишет то же про тень
@@ -595,40 +636,49 @@ not this Box's solver field]` (и одна строка Warning в логе): з
   дальше Box не виден. Для далёких Box увеличьте дистанцию (шаг вырастет) или оставьте их во фрокселях (уровни детализации —
   срез P5).
 - **Тени геометрии на солнце облака** — только из CSM/VSM: при RT-тенях солнца колонны не затеняют собственное солнце облака
-  (в поле решателя их тень есть). Решение 2 дизайна (P4).
+  (в поле решателя их тень есть; вывод дизайна, в редакторе не проверено). Решение 2 дизайна (P4) открыто.
 - **Быстрый Edge Flow**: в режиме 0 кромка облака «кипела» (реконструкция обновляет тексель раз в 4 кадра), история фрокселей
   то же движение размазывала (раунд 39). В режимах 1/3 (умолчания раунда 46) истории нет: каждый кадр трассируется заново,
   зерно гасят `Host Prefilter`, `SampleMinCount` и шаг. Сглаживание во времени без шлейфа — открыто.
 - Облако не пишет скорость (TSR переносит его по глубине фона); полупрозрачное за Box рисуется поверх облака без
-  `Apply Cloud Fogging`; в Real Time Capture неба Box хоста не попадает.
+  `Apply Cloud Fogging` (оба пункта — поведение движка по дизайну, не проверено); в Real Time Capture неба Box хоста не
+  попадает (хост создаётся с `Visible In Real Time Sky Captures` выкл.).
 - Фроксельная копия при весе 0 всё ещё вокселизируется (экономия сетки тумана — срез P6).
 
-**FogMS|Sun** (`Authored Sun Shadow`, `Cast Sun Shadow`, `Filtered Sun Shadow`) и **FogMS|Indirect** работают только
-с overlay. Transport не использует `Indirect Shadowing`, `Spatial Strength` и `Spatial Distance`.
+**FogMS|Sun** (`Authored Sun Shadow`, `Cast Sun Shadow`, `Surface Shadow Strength` 1, `Surface Shadow Steps` 32,
+`Filtered Sun Shadow`, `Shadow Filter Sigma` 100 см, `Filter Sun Inside Volume`) и **FogMS|Indirect** (`Indirect Shadowing`,
+`Indirect Shadow Strength` 1, `Indirect Shadow Steps` 16, кнопки **Enable Indirect Preview** / **Restore Standard Lumen**)
+работают только в редакторе с `-BindlessAll` у Box, который владеет пакетом оверлея, независимо от галки `Emissive
+Injection`. Transport не использует `Indirect Shadowing`, `Spatial Strength` и `Spatial Distance`. Кнопка **Use Global A1**
+(FogMS) включает A1 для всего тумана через оверлей (компиляция шейдеров, только редактор).
 
 ## 4а. Погода: актёр FogMS Weather (раунд 48, срез W48 из `FogMS_Weather_Design.md`)
 
 **Что это.** Актёр уровня `FogMS Weather` (один на уровень) держит состояние погоды — слои облаков, их покрытие, тип, высоты,
 плотность и ветер — и отдаёт его облачному хосту. С W48 погода видна по теням: движок строит по материалу хоста штатную карту
-теней облака, и тени облаков погоды плывут по земле, по туману (лучи в разрывах), по Lumen и по атмосфере. С W49 облака погоды
-видны и на небе (купол-небо, раздел 4б), а небесный свет мира и решателя темнеет при пасмурности. Чего ещё нет: влияния погоды
-на героические облака Box и на солнце решателя (W50: под пасмурной декой героическое облако пока освещено солнцем как в ясную
-погоду, небо в нём уже пасмурное), гроз и молний (W52), тумана и MPC по погоде (W51). Без актёра в уровне ничего не меняется.
+теней облака, и тени облаков погоды плывут по земле и туману у земли, по Lumen и по атмосфере; лучи в воздухе под облаками —
+только при `Shadow Layer` = Extended (ниже). С W49 облака погоды видны и на небе (купол-небо, раздел 4б), а небесный свет мира
+и решателя темнеет при пасмурности (раздел 4б в редакторе ещё не проверен). Чего ещё нет: влияния погоды на героические облака
+Box и на солнце решателя (W50: под пасмурной декой героическое облако пока освещено солнцем как в ясную погоду, небо в нём уже
+пасмурное), гроз и молний (W52), тумана и MPC по погоде (W51). Без актёра в уровне ничего не меняется. Ассеты погоды в
+репозиторий не входят, их строит `matedit_weather.py` (раздел 9).
 
 **Как поставить (один раз на уровень):**
 1. **Place Actors → FogMS Weather** — поставьте актёр в центр уровня: он центр домена погоды (квадрат `Domain Size Km`, 20 км;
    за его краями узор погоды повторяется).
 2. В **Weather State** выберите состояние: `DA_FogMS_Weather_Clear`, `_Scattered`, `_Broken`, `_Overcast` из
    `/MultiLobeSpec/FogMS/Weather` (или свой ассет: Content Browser → Miscellaneous → Data Asset → FogMS Weather State, или копия
-   готового). Пусто = Clear.
+   готового). Пусто = Clear. Если ассетов пресетов нет, `FogMS.Weather.Set <пресет>` берёт встроенные значения из C++.
 3. Кнопка **Setup Sun Shadows** на актёре (или консоль `FogMS.Weather.SetupShadows`): солнцу — `Cast Cloud Shadows` вкл.,
    `Cloud Shadow Extent` 10 км, разрешение ×2 (1024 текселя по 19,5 м), выборок луча тени ×1 при `Shadow Layer` = Thin (16
    движка на полосу Box) или ×4 при Extended (64 на высокий слой; проход теней дороже пропорционально). Одна строка лога с
    прежними значениями, Ctrl+Z. Сам актёр солнце не трогает.
 4. Облачный хост: если в уровне уже есть `FogMS Cloud Host` (кнопка Box **Create Cloud Host**), погода работает через него. Если
    хоста нет, актёр создаёт его сам тем же путём, что `FogMS.CloudHost.Create` (галка **Create Cloud Host** на актёре, по умолчанию
-   вкл.; один раз за сессию), — **хост вытесняет облака неба** (в сцене рисуется один Volumetric Cloud). Без Box такой хост работает
-   «только для теней»: видимая трасса пустая. Созданный актёром хост удаляется вместе с актёром, если через него не рисуется Box.
+   вкл.; один раз за сессию) — в любом состоянии, **и в Clear тоже**, — и **хост вытесняет облака неба** (в сцене рисуется один
+   Volumetric Cloud). Без Box такой хост работает «только для теней»: видимая трасса пустая. Созданный актёром хост удаляется
+   вместе с актёром, если через него не рисуется Box. Чтобы хоста не было: снимите галку `Create Cloud Host` и удалите
+   созданный хост (повторно в этой сессии актёр его не создаёт).
 5. Сохраните уровень, если нравится (актёр, состояние и настройки солнца сохраняются с уровнем).
 
 **Смена погоды.** Из Blueprint — `Set Weather (State, Seconds)` / `Set Weather Immediate`; из консоли —
@@ -642,7 +692,7 @@ Details — поле Weather State (переход длится `Editor Transiti
 
 | Состояние | Нижний слой L0 | Дека L1 (As) | Перистые L2 (W49, только купол) | Ветер |
 |---|---|---|---|---|
-| Clear (SKC) | нет | нет | нет (купола нет: небо уровня как без актёра) | 5 м/с |
+| Clear (SKC) | нет | нет | нет (купола нет; небо уровня как без актёра, если актёр не создал хост — см. п. 4) | 5 м/с |
 | Scattered (SCT) | Cu mediocris: покрытие 0,40, тип 0,50, 1,0–2,5 км, σ 0,05 1/м | нет | Ci 0,30 на 8 км, τ 0,4 | 8 м/с |
 | Broken (BKN) | Sc / Cu congestus: 0,75, тип 0,60, 0,8–3,0 км, σ 0,07 | 0,30, 2,5–3,5 км, σ 0,03 | Cs 0,30 на 7 км, τ 0,6 | 10 м/с |
 | Overcast (OVC) | St / Sc: 1,0, тип 0,15, 0,5–1,2 км, σ 0,07, деталь 0,6 | 0,80, 2,0–3,5 км, σ 0,03 | нет (за декой не видно) | 10 м/с |
@@ -650,7 +700,20 @@ Details — поле Weather State (переход длится `Editor Transiti
 Тип облака: 0 St, 0,25 Sc, 0,5 Cu, 0,75 Cong, 1 Cb. σ физических облаков 0,02–0,3 1/м: через километр облака оптическая
 толщина десятки, прямое солнце под облаком закрыто полностью (рассеянный свет неба остаётся). Направление ветра — куда плывут
 облака (yaw вокруг +Z). Значения пресета правятся в ассете (выбор `Preset` пишет значения, правка значения переключает на
-Custom); числа встроенных пресетов — в C++ (`FogMS_Weather.cpp`, `GetPresetValues`).
+Custom); числа встроенных пресетов — в C++ (`FogMS_Weather.cpp`, `GetPresetValues`). Направление ветра всех пресетов — 30°.
+
+Свойства состояния (ассет FogMS Weather State, `FFogMSWeatherValues`; в скобках — умолчания структуры, их получает новый
+Custom-ассет): **Low Layer (L0)** — `Coverage` (0), `Cloud Type` (0,5), `Base` (1 км), `Top` (2 км), `Extinction` (0,05 1/м),
+`Detail Strength` (1); **Middle Deck (L1)** — `Deck Coverage` (0), `Deck Base` (2,5 км), `Deck Top` (3,5 км), `Deck Extinction`
+(0,03); **Wind** — `Wind Speed` (5 м/с), `Wind Direction` (30°); **High Layer (L2)** — раздел 4б. Поле `Preset` ассета по
+умолчанию `Custom`.
+
+Свойства актёра (категория FogMS Weather): `Enabled`, `Weather State`, `Editor Transition Seconds` (0), `Shadow Layer` (Thin),
+`Weather Scale` (1, 0,01…10), `Create Cloud Host` (вкл.); Advanced — `Domain Size Km` (20, 2…64), `Detail Tile Km` (2,5,
+0,2…20), `Curl Strength` (0,05, 0…0,5), `Coverage Edge` (0,04, 0,005…0,2), `Shadow Extent Km` (10, 1…200); группа Assets
+(Advanced) — свои `Compose Material`, `Sun Material`, `Pattern Texture`, `Curl Texture`, `Type LUT`, `Sky Material` вместо
+ассетов плагина; только для чтения — `Weather Status`, `Current Values`, Advanced `Wind Offset`, `Map Draw Count`, `Weather Map`,
+`Weather Sun Map`, `Created Cloud Host`. Blueprint: `Set Weather`, `Set Weather Immediate`, `Get Weather Status`.
 
 **Weather Scale (решение владельца 4 открыто).** 1 — физический масштаб. Меньше 1 — «диорама» для тестовой сцены и изометрии:
 все длины (высоты, толщины, домен, тайл детали, скорость ветра) умножаются на него, экстинкция делится — оптические толщины и
@@ -670,7 +733,8 @@ AFogMSWeather (тик, редактор и игра)
     ← M_FogMS_WeatherSun (24 выборки той же функции плотности), при смене карты или повороте солнца > 0,05°
   → подсистема хоста (после тиков актёров): MID хоста ← FogMS_Weather* (текстуры, домен, ветер, слои, солнце)
 КАДР ДВИЖКА (без правок движка)
-  M_FogMS_Cloud v3: Shadow Pass Switch — в проходе теней облака (и sky AO) экстинкция = Box + погода, в видимом проходе — только Box
+  M_FogMS_Cloud v4 (Shadow Pass Switch — с v3): в проходе теней облака (и sky AO) экстинкция = Box + погода, в видимом проходе —
+    только Box
   карта теней облака (Beer shadow map) → земля, Volumetric Fog, Lumen scene, атмосфера, полупрозрачность
 ```
 
@@ -696,21 +760,25 @@ AFogMSWeather (тик, редактор и игра)
 `FogMS.CloudHost.SetupShadows`), погоде нужен охват 10–20 км. С погодой ставьте 10 км / ×2 (`Setup Sun Shadows`): тексель 19,5 м,
 тень Box в 200+ м — ещё около 10 текселей; ×4 (2048) вернёт 9,8 м ценой ~×4 текселей. Карта следует за камерой шагами
 `Extent/4`; за её краем тени погоды нет. Выборок на луч тени движок берёт 16 × `Cloud Shadow Ray Sample Count Scale` на весь
-слой (у горизонта до ×2): при Thin слой — полоса Box, хватает ×1; при Extended слой высокий (до 3,5 км), кнопка ставит ×4 (64),
+слой (у горизонта до ×2, не проверено): при Thin слой — полоса Box, хватает ×1; при Extended слой высокий (до 3,5 км), кнопка
+ставит ×4 (64),
 иначе тень Box в высоком слое может «теряться» между выборками — ценой прохода теней.
 
 **Статус актёра** (`Weather Status` в Details, `FogMS.Weather.Status` в консоли), например:
-`Active: 'Scattered' -> 'Overcast' 42 % (4.2 of 10.0 s): L0 coverage 0.66 type 0.33 0.79-1.99 km sigma 0.060/m; deck 0.34 …; wind
-9.0 m/s toward 30 deg | map 512^2 over 20.0 km (39 m/texel), drawn 57 x | shadow layer: thin (…) | host 'FogMS Cloud
-Host' (also renders Box 'FogMS - Live Box'): layer 0.109-0.209 km, thin layer: the weather column is spread over it in the shadow
-pass | cloud shadow extent 10 km, texel 19.5 m`. Подсказки: нет хоста / хост скрыт, материал хоста старше W48
+`Active: 'Scattered' -> 'Overcast' 42 % (4.2 of 10.0 s): L0 coverage 0.66 type 0.33 0.79-1.99 km sigma 0.060/m; deck 0.34 …;
+cirrus 0.17 at 8.0 km tau 0.23; wind 9.0 m/s toward 30 deg | map 512^2 over 20.0 km (39 m/texel), drawn 57 x | shadow layer: thin
+(…) | host 'FogMS Cloud Host' (also renders Box 'FogMS - Live Box'): layer 0.109-0.209 km, thin layer: the weather column is spread
+over it in the shadow pass | cloud shadow extent 10 km, texel 19.5 m | sky dome on (…)` (цифры примера условные; первое слово —
+`Active`, `Cirrus only` или `Clear`). Подсказки: нет хоста / хост скрыт, материал хоста старше W48
 (`run matedit_cloud.py`), нет ассетов погоды (`run matedit_weather.py`), солнце без `Cast Cloud Shadows`, охват солнца меньше
 нужного, `Inactive: FogMS Weather '…' drives this world` (второй актёр), проверка RGBA не прошла (ниже).
 
-**Что меняется и что возвращается.** Пока актёр активен (есть слой с покрытием > 0): в MID хоста — параметры погоды; слой хоста
-расширен (Extended); `r.VolumetricCloud.StepSizeOnZeroConservativeDensity` (пока через хост рисуется Box); cvar карты теней раунда 47
-(и без Box); у хоста без Box — `Tracing Start Distance` = `Tracing Max Distance` (пустая видимая трасса; Box, привязавшись, вернёт
-0). **Clear** (все покрытия 0) — ветка погоды выключена, слой и cvar как без актёра. **Удаление актёра** (или `Enabled` выкл.):
+**Что меняется и что возвращается.** Пока актёр активен (есть нижний слой или дека с покрытием > 0, экстинкцией > 0 и верхом
+выше основания): в MID хоста — параметры погоды; при **Extended** слой хоста расширен до слоёв погоды и, пока через хост рисуется
+Box, ставится `r.VolumetricCloud.StepSizeOnZeroConservativeDensity`; при **Thin** (по умолчанию) слой — полоса Box (без Box —
+0,1 км под основанием погоды); cvar карты теней раунда 47 (и без Box); у хоста без Box — `Tracing Start Distance` = `Tracing Max
+Distance` (пустая видимая трасса; Box, привязавшись, вернёт 0). **Clear** (все покрытия 0) — ветка погоды выключена, слой и cvar
+как без актёра; но если актёр создал хост (п. 4), тот остаётся и вытесняет облака неба. **Удаление актёра** (или `Enabled` выкл.):
 ветка выключается сразу, слой хоста с Box подгоняется к Box на следующем обновлении, хост без Box получает прежние слой и
 стартовую дистанцию, cvar возвращаются на следующем тике — строки лога `FogMS Weather '…' stopped …`, `FogMS Weather leaves cloud
 host …`, `FogMS cloud host settings …`.
@@ -718,7 +786,8 @@ host …`, `FogMS cloud host settings …`.
 **Ограничения W48.**
 - Один актёр на уровень; второй пишет `Inactive` и ничего не делает.
 - Погода ездит через облачный хост: хост вытесняет облака неба (раздел 4, «Ограничения хоста»).
-- Героические облака Box и поле решателя погоду пока не видят (W50): под декой облако Box освещено солнцем, как без погоды.
+- Солнце решателя и героические облака Box погоду пока не видят (W50): под декой облако Box освещено солнцем, как без погоды.
+  Небо в поле решателя погоду видит, пока показан купол W49 (авто-источник неба — SH захвата, раздел 4б).
 - Видимые облака погоды и небесный свет — купол-небо (раздел 4б, W49); цвет и плотность тумана по погоде — W51.
 - Проверка RGBA: карта пишется материалом в режиме Alpha Composite (альфа = 1 − Opacity поверх очищенной карты). Если рендерер
   пишет каналы иначе (например, проект с Substrate), статус `Inactive: RT_FogMS_WeatherMap RGBA write check failed …` и погода
@@ -728,10 +797,14 @@ host …`, `FogMS cloud host settings …`.
   есть ссылка) или добавьте `/MultiLobeSpec/FogMS/Weather` в `Additional Asset Directories to Cook` (не проверено в упаковке).
 - Ассеты генерируются воспроизводимо: `python Tools/FogMSEnergyValidation/ProdProbe/texgen/gen_weather_textures.py` (numpy +
   Pillow, seed 11, выход на `D:/FogMS_ProbeFrames/texgen`), затем в редакторе `matedit_weather.py` (импорт текстур без сжатия, sRGB
-  выкл., wrap/clamp, материалы композиции и солнца, пресеты), затем `matedit_cloud.py` (материал хоста v3). Оба скрипта
-  идемпотентны (`ALREADY_PATCHED`), связи проверяются по T3D, при ошибке ничего не сохраняется.
+  выкл., wrap/clamp, материалы композиции, солнца и купола, пресеты), затем `matedit_cloud.py` (материал хоста v4). Оба
+  скрипта идемпотентны (`ALREADY_PATCHED`), связи проверяются по T3D, при ошибке ничего не сохраняется. Сами ассеты в
+  репозиторий не входят (раздел 9); выходную папку генератора для импорта задаёт `FOGMS_TEXGEN_DIR` в окружении редактора.
 
 ## 4б. Видимое небо погоды: купол-небо (раунд 49, срез W49 из `FogMS_Weather_Design.md`)
+
+> **В редакторе ещё не проверено.** Раунд 49 установлен и материал `M_FogMS_WeatherSky` собран (`d49_sky.py matedit`), но
+> проверки среза (`d49_sky.py check/cost`) и оценка владельцем не выполнены. Раздел описывает код и дизайн.
 
 **Что это.** Актёр `FogMS Weather` сам держит **купол-небо**: сферу радиусом 1000 км вокруг себя (компонент `SkyDome`) с материалом
 `M_FogMS_WeatherSky` (Unlit, **Is Sky**). Купол рисует видимые облака погоды — нижний слой L0, деку L1 и перистые L2 — **той же
@@ -758,7 +831,8 @@ AFogMSWeather (тик): смешанное состояние погоды -> т
   SkyAtmosphere: видит Is Sky-меш и свои пиксели неба не рисует; перспективу на «дальние» пиксели купола не накладывает
   Height Fog / Volumetric Fog: на небо как раньше (пиксели купола для них — небо)
   облачный хост (героические Box): компонуется поверх неба как раньше -> без шва и ореолов вокруг героя
-  Real Time Capture у SkyLight: рисует купол (дешёвая ветка: Reflection Capture Pass Switch -> 6 + 4 шага, 1 выборка к солнцу)
+  Real Time Capture у SkyLight: рисует Is Sky-меши, т. е. купол (дешёвая ветка: Reflection Capture Pass Switch -> 6 + 4 шага,
+    1 выборка к солнцу)
     вместо атмосферы -> кубмапа и SH неба -> свет неба на поверхностях, Lumen, Volumetric Fog, решатель FogMS
   решатель FogMS: авто-источник неба при куполе = SH захвата, статус Box `[sky: SH (Real Time Capture, weather clouds)]`
 ```
@@ -784,8 +858,9 @@ Scale) растворяются; перистые — до 120 км.
 | `Sky Dome Radius Km` | 1000 | Радиус сферы; должен охватывать все камеры и всю геометрию (на картинку не влияет) |
 
 Перистые — в состоянии погоды (ассет FogMS Weather State, группа High Layer (L2)): `Cirrus Coverage`, `Cirrus Altitude` (км),
-`Cirrus Optical Depth` (0,1–3), `Cirrus Streak Direction` (направление полос). Ассеты-пресеты W48 получают новые поля при загрузке
-(пресет пишет свои числа), свои Custom-ассеты — нули (перистых нет).
+`Cirrus Optical Depth` (0…5 в Details, физически 0,1–3), `Cirrus Streak Direction` (направление полос). Ассеты-пресеты W48
+получают новые поля при загрузке (пресет пишет свои числа), свои Custom-ассеты — умолчания структуры (`Cirrus Coverage` 0 —
+перистых нет; высота 8 км, τ 0,5, полосы 30°).
 
 **Статус актёра** получает часть `sky dome on (1000 km, 20/8 steps, 4 sun samples; clouds within 60 km): sky light: Real Time
 Capture holds the dome; the FogMS solver takes its SH` или `sky dome off: <причина>` (`no visible layer (Clear)`, `Sky Dome unticked`,
@@ -795,26 +870,30 @@ matedit_weather.py)`). Подсказки: SkyLight без Real Time Capture; о
 Лог: одна строка `sky dome on (...)` при появлении и `sky dome off (...)` при исчезновении.
 
 **Цена.** Купол считается только на пикселях неба, один раз за кадр (в профиле `ProfileGPU` — событие `SkyPassParallel` в
-`BasePass`); в захвате неба — `CaptureSkyMeshReflection` (128² на грань, дешёвая ветка). Ворота среза — ≤ 1 мс на 1080p у камеры
-владельца; цифра — в `FogMS_Prod_Report.md`, раздел «Раунд 49». Если дороже — следующий срез: панорама в render target (как Sky View
-LUT), купол читает её вместо луча.
+`BasePass`); в захвате неба — `CaptureSkyMeshReflection` (128² на грань, дешёвая ветка; имена событий и размер — не проверено).
+Ворота среза — ≤ 1 мс на 1080p у камеры владельца; **цифры пока нет**: проверка раунда 49 не выполнена (не измерено). Если
+дороже — следующий срез: панорама в render target (как Sky View LUT), купол читает её вместо луча.
 
 **Ограничения W49.**
 - Купол всегда **за** геометрией: гора не «входит» в деку, низкая облачность не обнимает вершину. Облака у рельефа — героические
   Box; «горы в облаках» — второй слой Height Fog (W51).
 - Сам купол теней не отбрасывает: тени от тех же облаков даёт проход теней хоста (раздел 4а) — одна плотность, поэтому совпадают.
-- Солнечный диск рисует купол; его яркость ограничена движком для эмиссии (32256 предэкспонированных единиц) — блум от диска может
-  быть слабее, чем у атмосферы без купола.
+- Солнечный диск рисует купол; его яркость ограничена движком для эмиссии (32256 предэкспонированных единиц, не проверено) —
+  блум от диска может быть слабее, чем у атмосферы без купола.
 - Небесный свет — один захват у позиции SkyLight, без пространственных вариаций (решение 6 дизайна): под одиночной тучей и в ясном
   месте того же кадра амбиент одинаковый, различает их только солнце (карта теней).
 - Облака купола перерисовываются каждый кадр со сдвигом шагов (джиттер, сглаживает TSR); при быстром полёте камеры возможен лёгкий
-  шлейф на облаках, как у неба вообще.
+  шлейф на облаках, как у неба вообще (не проверено).
 - Цвет дальнего тумана и туман по погоде — W51; погода внутри героических облаков и солнце решателя — W50.
 - Упакованная игра: `M_FogMS_WeatherSky` грузится по пути, как остальные ассеты погоды: назначьте его в `Sky Material` (Assets
   актёра) или добавьте `/MultiLobeSpec/FogMS/Weather` в `Additional Asset Directories to Cook` (не проверено в упаковке).
-- Материал создаётся скриптом `matedit_weather.py` (тот же, что для W48; идемпотентный, связи по T3D, HLSL проверен DXC).
+- Материал создаётся скриптом `matedit_weather.py` (тот же, что для W48; идемпотентный, связи по T3D, HLSL проверен DXC); в
+  репозиторий он не входит и в истории git его нет (раздел 9).
 
 ## 5. Консольные переменные
+
+Все `r.FogMS.*` и команды `FogMS.*` кода перечислены ниже (сверено с `Source/**`, коммит `083341c`). Команды `MLS.*` относятся к
+BRDF-части плагина (`README_RU.md`).
 
 **Решатель и источники:**
 
@@ -829,7 +908,7 @@ LUT), купол читает её вместо луча.
 | `r.FogMS.Transport.DirectSkipEmpty` | 0 | Только диагностика: 1 затемняет края тумана |
 | `r.FogMS.World.SkySource` | 0 | 0 авто: Real Time Capture + SkyAtmosphere → Sky View LUT; **с W49: Real Time Capture + купол-небо погоды → SH захвата** (статус `[sky: SH (Real Time Capture, weather clouds)]`: облака погоды есть только в захвате, в LUT их нет); статический захват → публичная кубмапа; иначе SH. 2/3/4 — принудительно LUT/кубмапа/SH (недоступный → SH; LUT при куполе — с подсказкой, что облаков в нём нет). 1 = 0 с предупреждением в логе. Источник — в статусе `[sky: …]` |
 | `r.FogMS.World.SkyLutSamples` | 5 | Выборок Sky View LUT на сектор (1…13) |
-| `r.FogMS.World.SunExcludeDegrees` | 3 | Только кубмапа: вырезает солнечный диск, чтобы не считать солнце дважды |
+| `r.FogMS.World.SunExcludeDegrees` | 3 | Только кубмапа: вырезает солнечный диск, чтобы не считать солнце дважды (не больше 30°) |
 | `r.FogMS.World.SkyMipBias` | 0 | Только кубмапа: больше — небо размытее, меньше — резче |
 | `r.FogMS.World.FallbackMedium` | 1 | Откат `Lumen Bounce`: 1 — солнце на земле ослаблено средой Box (под плотным облаком темнее), 0 — только тень геометрии |
 | `r.FogMS.World.Indirect` | 1 | Диагностика: 0 — только прямые источники, без неба и отражённого света |
@@ -838,9 +917,10 @@ LUT), купол читает её вместо луча.
 
 | Cvar | По умолчанию | Когда трогать |
 |---|---|---|
-| `r.FogMS.Transport.AsyncCompute` | 0 | 1 вместе с Emissive Injection: решатель уходит в async-очередь, J приходит в туман на кадр позже. Нужны `r.RDG.AsyncCompute` > 0 и async в RHI, иначе проходы тихо остаются на графике |
+| `r.FogMS.Transport.AsyncCompute` | 0 | 1: решатель (кроме проходов 0/1/2/14) уходит в async-очередь, J приходит на кадр позже (и для инъекции, и для overlay). Нужны `r.RDG.AsyncCompute` = 1 (значение 2 — принудительный async — Transport отклоняет) и async в RHI, иначе проходы тихо остаются на графике |
 | `r.FogMS.Transport.SolveInterval` | 2 | Решать раз в N кадров (1…8), между решениями держать прошлый результат. 4 — для дальних Box, 1 — каждый кадр. Изменение Box, настроек или солнца пересчитывает сразу |
-| `r.FogMS.MaxBoxesPerFrame` | 4 | Сколько Box решается за кадр на вид (1…16). Остальные держат прошлое решение, а если держать нечего — ждут (статус `Queued`, поле не очищается). Порядок: камера внутри Box → Box, ждавший 8 кадров подряд → крупнее на экране → ближе. Удержания в лимит не входят |
+| `r.FogMS.MaxBoxesPerFrame` | 4 | Сколько Box решается за кадр на вид (1…16). Остальные держат прошлое решение, а если держать нечего — ждут (статус `Queued: r.FogMS.MaxBoxesPerFrame (N) reached in this view; …`, поле не очищается). Box пакета (overlay-Box, иначе Box с инъекцией с наименьшим номером) решается всегда и входит в лимит; дальше порядок: Box, ждавший ≥ 8 кадров (решается даже сверх лимита, не больше одного лишнего решения на вид и кадр) → камера внутри Box → крупнее на экране → ближе → меньший номер. Удержания в лимит не входят |
+| `r.FogMS.SunMap.Resolution` / `.Steps` | 256 / 64 | Размер карты `Sun Detail Shadow` на Box: поперёк лучей солнца (кратно 8, 64…512) и число слоёв вдоль луча (кратно 8, 16…256). Память на Box — Resolution² × Steps × 4 байта + 256 КБ (16,25 МБ при умолчаниях); изменение пересоздаёт карту |
 | `r.FogMS.DensityAtlas.ForceGPUCopy` | 0 | A/B-проверка пути упакованной игры в редакторе |
 | `r.FogMS.CloudHost.StepSettings` | 1 | Облачный хост (раунд 45): пока Box рисуется хостом, ставит `r.VolumetricCloud.DistanceToSampleMaxCount` = Tracing Max Distance хоста (шаг 2,6 м при 2 км) и, если нужно, `r.VolumetricCloud.ViewRaySampleMaxCount` = 96 × `ViewSampleScale`; потом возвращает прежние. 0 — не трогать эти cvar. `SampleMinCount` с раунда 46 — свои ручки (ниже) |
 | `r.FogMS.CloudHost.FitLayer` | 1 | Раунд 46: слой хоста следует за Box (полоса плотности ±10 м, гистерезис 5 м). 0 — слой ведёте вы |
@@ -859,15 +939,34 @@ LUT), купол читает её вместо луча.
 
 | Команда / cvar | Что делает |
 |---|---|
-| `FogMS.DumpSpatial <путь>` | Выгружает атлас поля. Без `-BindlessAll` поле **не** выгружается: резидентного атласа нет |
-| `FogMS.CloudHost.Create [Box]` | То же, что кнопка Box **Create Cloud Host** (в игре тоже): создаёт хост, если его нет, и ставит Box `Render Path = Cloud Host`. Ничего не сохраняет |
-| `FogMS.CloudHost.SetupShadows [км] [масштаб]` | Раунд 47: солнцу атмосферы — `Cast Cloud Shadows` вкл., `Cloud Shadow Extent` (по умолчанию 5 км), `Cloud Shadow Map Resolution Scale` (по умолчанию 2); одна строка лога с прежними значениями, в редакторе — шаг Ctrl+Z. Ничего не сохраняет (раздел 4, «Мягкая тень облака на земле») |
-| `FogMS.Weather.Set <пресет или путь> [сек]` | Раунд 48: актёр FogMS Weather этого мира переходит к состоянию Clear / Scattered / Broken / Overcast (ассеты `DA_FogMS_Weather_*`; без ассета — встроенные значения) или к ассету FogMS Weather State за указанное время; строка лога `weather: A -> B (N s)`. Ничего не сохраняет |
-| `FogMS.Weather.SetupShadows [км] [масштаб] [выборки]` | Раунд 48: солнцу — `Cast Cloud Shadows`, `Cloud Shadow Extent` (по умолчанию `Shadow Extent Km` актёра, 10), `Cloud Shadow Map Resolution Scale` (2) и `Cloud Shadow Ray Sample Count Scale` (4); как кнопка актёра Setup Sun Shadows; строка лога, Ctrl+Z |
+| `FogMS.DumpSpatial <абсолютный префикс пути>` | Выгружает атлас поля Box пакета (ровно один аргумент). Без `-BindlessAll` поле **не** выгружается: резидентного атласа нет |
+| `FogMS.CloudHost.Create [Box]` | То же, что кнопка Box **Create Cloud Host** (в игре тоже): создаёт хост, если его нет, и ставит Box `Render Path = Cloud Host`. Без аргумента — первый включённый Box, иначе имя или метка Box. Ничего не сохраняет |
+| `FogMS.CloudHost.SetupShadows [км] [масштаб]` | Раунд 47: солнцу атмосферы — `Cast Cloud Shadows` вкл., `Cloud Shadow Extent` (по умолчанию 5 км, 1…10000), `Cloud Shadow Map Resolution Scale` (по умолчанию 2, 0,25…16); одна строка лога с прежними значениями, в редакторе — шаг Ctrl+Z. Ничего не сохраняет (раздел 4, «Мягкая тень облака на земле») |
+| `FogMS.Weather.Set <пресет или путь> [сек]` | Раунд 48: актёр FogMS Weather этого мира переходит к состоянию Clear / Scattered / Broken / Overcast (или SKC / SCT / BKN / OVC, регистр не важен; ассеты `DA_FogMS_Weather_*`, без ассета — встроенные значения) или к ассету FogMS Weather State за указанное время (по умолчанию 0 с); строка лога `weather: A -> B (N s)`. Ничего не сохраняет |
+| `FogMS.Weather.SetupShadows [км] [масштаб] [выборки]` | Раунд 48: солнцу — `Cast Cloud Shadows`, `Cloud Shadow Extent` (по умолчанию `Shadow Extent Km` актёра, 10), `Cloud Shadow Map Resolution Scale` (2) и `Cloud Shadow Ray Sample Count Scale` (по умолчанию 1 при `Shadow Layer` = Thin, 4 при Extended); диапазоны 1…10000 км, 0,25…16, 0,25…16; как кнопка актёра Setup Sun Shadows; строка лога, Ctrl+Z |
 | `FogMS.Weather.Status` | Раунд 48: строка статуса каждого актёра FogMS Weather в лог |
-| `FogMS.Status` | Печатает состояние overlay и запрошенные настройки. Только редактор; что он показывает для инъекции, (не проверено) |
-| `r.FogMS.Transport.Test*` | Синтетические тестовые входы. После проверки верните 0 |
-| `r.FogMS.ViewIntegration`, `r.FogMS.SSFS*`, `r.FogMS.BoxMode`, `r.FogMS.ScreenScatteringSun` | Advanced-режимы, требуют `-BindlessAll`/overlay |
+| `FogMS.Status` | То же, что `MLS.Status`: состояние engine-shader overlay, запрошенные cvar A1 (`r.FogMS.Enable`/`Steps`/…), отображение `/Engine` и настройки MLS. О Box и инъекции ничего не выводит. Только редактор |
+| `r.FogMS.Transport.Test*` | Синтетические тестовые входы. После проверки верните умолчания: `Test`, `TestGeometry`, `TestBoundary`, `TestReconstruction` = 0; `TestTau` = 4; `TestAlbedo` = 1 |
+| `r.FogMS.SSFS` (0), `.Amount` (0,5), `.Radius` (24 px, 1…128) | Экранное рассеяние FogMS (постфильтр, без истории); работает и без `-BindlessAll`, с любой доставкой Transport; по решению владельца выключено |
+
+**Legacy-оверлей (только редактор; A1 и режимы этапов A–B):**
+
+| Команда / cvar | По умолчанию | Что делает |
+|---|---|---|
+| `FogMS.Apply` | — | Собирает и применяет overlay шейдеров движка (общий с MLS); нужен после смены cvar A1. Только редактор |
+| `FogMS.Debug 0…4` | — | Debug-виды overlay: 0 обычный, 1 экстинкция, 2 пропускание, 3 ошибка шва, 4 авторская плотность Box. На время выключает `r.VolumetricFog.TemporalReprojection` и ставит `r.GeneralPurposeTweak`; `FogMS.Debug 0` возвращает. Нужен overlay с `r.FogMS.DebugViews 1` |
+| `r.FogMS.Enable` | 0 | A1: самозатенение солнца в штатном тумане (оверлей `VolumetricFog.usf`); кнопки Box **Enable Live Box** / **Use Global A1** ставят его сами |
+| `r.FogMS.BoxMode` | 0 | 0 — A1 для всего тумана, 1 — живой Box (нужен `-BindlessAll`; без него остаётся 0, а Box работает по пути инъекции) |
+| `r.FogMS.Steps` | 16 | Интервалов марша A1 (1…64); нужен `FogMS.Apply` |
+| `r.FogMS.MarchDistance` | 0 | Предел марша плотности, см; 0 — дальняя граница сетки тумана |
+| `r.FogMS.MaxDistance` | 2000000 | Полная длина луча к солнцу, см, с аналитическим продолжением |
+| `r.FogMS.ExcludeGlobalLayer` | 0 | Вычитать оптическую толщину высотного тумана (0 — физично) |
+| `r.FogMS.DebugViews` | 1 | Компилировать debug-виды для `FogMS.Debug` |
+| `r.FogMS.ViewIntegration` | 0 | Интеграция Box по лучу камеры 0…3 (отклонена владельцем в пакете 6; только overlay) |
+| `r.FogMS.ScreenScatteringSun` | 1 | Диск солнца для штатного FSSS в оверлее высотного тумана (только overlay) |
+
+`r.FogMS.Enable`, `.Steps`, `.MarchDistance`, `.MaxDistance`, `.ExcludeGlobalLayer`, `.DebugViews` регистрируются только в
+редакторе (`MultiLobeShaderPatcher.cpp`). Overlay принимает только UE 5.8.2 CL 56702186 (анкеры патчей сверены с этой версией).
 
 ## 6. Стоимость и производительность
 
@@ -897,7 +996,8 @@ LUT), купол читает её вместо луча.
   При 0° — прежние 4 точки с чередованием.
 - **Облачный хост (`Render Path = Cloud Host`):** раунд 45, режим рендер-таргета 0 — 0,38 мс в окне проб 894 × 813
   (трасса 0,30 + реконструкция + наложение). Умолчания раунда 46 у камеры — режим 3 (трасса в полном разрешении: в 16 раз
-  больше лучей, чем режим 0) и `SampleMinCount` 32; цифра у камеры владельца — замер фазы 2 раунда 46. Рычаги цены:
+  больше лучей, чем режим 0) и `SampleMinCount` 32: у камеры владельца облако (трасса режима 3 + наложение) **2,9 мс**
+  (2,55–3,56; раунд 46; FogMS на кадре решения 3,65 мс, на кадре удержания 0,70). Рычаги цены:
   `r.FogMS.CloudHost.RTMode` (1 — вчетверо дешевле 3), `NearDistanceKm`, `ViewSampleScale`. `Host Prefilter` — только ALU.
 - **Карта теней облака** (раунд 47, `FogMS.CloudHost.SetupShadows`: 5 км, 1024², фильтр 2): проход `VolumetricCloudShadow`
   у камеры владельца **0,14 мс** (трасса карты 0,117 + фильтр 0,020; медиана трёх ProfileGPU). Решатель от галки не дорожает.
@@ -918,9 +1018,11 @@ LUT), купол читает её вместо луча.
 
 ## 7. Известные ограничения и типичные проблемы
 
-- **Несколько Box (раунд 29, в редакторе ещё не проверено).** Любое число включённых Box с `Emissive Injection`
+- **Несколько Box (раунд 29; в редакторе частично проверено в раунде 32: три Box активны, выключение и удаление без ошибок,
+  коммит `1d3aef2`; `Queued` и суффикс статуса не наблюдались).** Любое число включённых Box с `Emissive Injection`
   работает одновременно: у каждого своё поле 32³, свой warm start и своё удержание; в статусе появляется суффикс
-  `[Box #N]`. Без инъекции (overlay) допустим один Box; если таких два, отключаются они оба, Box с инъекцией
+  `[Box #N]` (у Box с инъекцией, не владеющих пакетом, — `[Box #N, injection]`). Без инъекции (overlay) допустим один Box;
+  если таких два, отключаются они оба, Box с инъекцией
   продолжают работать. Ограничения: лучи и солнечная прозрачность Box не видят плотность других Box; в
   перекрытии Box их свет складывается (двойная подсветка — перекрытий лучше избегать); overlay и его функции
   (тень авторской плотности, кэш теней, SSFS-диск, `FogMS.DumpSpatial`) обслуживают один Box (overlay-Box, иначе
@@ -931,7 +1033,8 @@ LUT), купол читает её вместо луча.
   подсвечивать Box (как и штатный туман). Для смены дня и ночи включите у SkyLight Real Time Capture.
   С ним в сумерках Box отличался от штатного освещения на 5–7 % (замер до перехода на Sky View LUT).
 - **Небо при Real Time Capture** берётся из Sky View LUT: в нём нет облаков и HDRI, поэтому под облачным небом
-  Box светлее захвата. Со статическим захватом публичная кубмапа тождественна прежнему пути (раунд 25).
+  Box светлее захвата (кроме купола погоды W49: тогда авто-источник — SH захвата, в нём облака погоды есть). Со статическим
+  захватом публичная кубмапа тождественна прежнему пути (раунд 25).
 - **Задержка.** При `AsyncCompute 1` поле приходит на кадр позже. При `SolveInterval N` изменения, не запускающие
   пересчёт (локальные источники, небо, Lumen, фаза анимации плотности), приходят с задержкой до N−1 кадров
   (по умолчанию один). Движение солнца пересчитывается каждый кадр. При инъекции J ещё проходит через штатную
@@ -956,11 +1059,12 @@ LUT), купол читает её вместо луча.
   (×1,10–1,17 к Lit) и плоское, без тёмного самозатенённого ядра; поле решателя (Emissive) при этом прежнее. Статус Box
   этого пока не сообщает. В сессии с `-BindlessAll` солнечный член гибрида ещё затеняет `Authored Sun Shadow` (A1d)
   поверх T_sun: −1…−2 % яркости облака, с фазой тумана 0,8 против солнца −4 %.
-- **Движение Box:** по замыслу, пока Box перетаскивают, он откатывается к штатному освещению и сбрасывает историю
-  тумана (не проверено).
-- **`[tau core ~X, upper bound]`** — оптическая толщина среды Box по хорде через центр вдоль самой короткой оси Box:
-  Density × (затухание `Density Edge Feather`) × (профиль высоты и полоса `Threshold`/`Softness` при шуме = 1), считается
-  на CPU раз в секунду. Шум текстуры и эрозия толщину только уменьшают, поэтому это верхняя граница: реальная τ ниже
+- **Движение Box:** отдельной обработки перетаскивания нет. Каждое перемещение, поворот или изменение размера меняет ревизию
+  плотности: история тумана сбрасывается, решение начинается с холодного старта (warm start привязан к границам Box);
+  отката к штатному освещению нет (по коду: `FogMS_BoxVolume.cpp`, `FogMS_WorldLighting.cpp`).
+- **`[tau core ~X, upper bound]`** — оптическая толщина среды Box: минимум τ по трём осевым хордам через центр Box,
+  Density × (затухание `Density Edge Feather`) × (профиль высоты и полоса `Threshold`/`Softness` при максимальном шуме —
+  профиль + `Detail Strength`), считается на CPU раз в секунду. Шум текстуры и эрозия толщину только уменьшают, поэтому это верхняя граница: реальная τ ниже
   на долю хорды, где шум не дотягивает до порога. X заметно меньше 1 — среда тонкая, многократного рассеяния мало.
 - **Статус «Requires…» / «…requires…»** — не выполнено требование раздела 2.
 - **«Transport needs Emissive Injection or -BindlessAll…»** — включите `Emissive Injection`.
@@ -968,14 +1072,14 @@ LUT), купол читает её вместо луча.
   проверьте, что Box виден, а вьюпорт в режиме realtime (не проверено).
 - **«Waiting for density atlas GPU upload» / «…waiting for … mip 0 to become resident»** — текстура ещё стримится
   или компилируется. Если статус не уходит, проверьте формат (раздел 3).
-- **«Transport unavailable; native lighting with authored density: …»** — решатель отказал, причина после
-  двоеточия. Часто это неподдерживаемый источник света.
+- **«Transport unavailable; native lighting with authored density: …»** (с инъекцией — «…authored density (emissive
+  injection field cleared): …») — решатель отказал, причина после двоеточия. Часто это неподдерживаемый источник света.
 - **`bounce: fallback (<причина>)`** — Lumen-кэш не используется: `Lumen Bounce` Off, сборка не 5.8.2 или
   «Lumen source waiting…» в первые кадры. Box работает; проверьте `Fallback Ground Albedo`.
 - **Облачный хост (`Render Path = Cloud Host`, раунд 45; с раунда 46 — умолчание)**: ограничения, статусы, настройки хоста и
   компромисс «зерно против шлейфа» — раздел 4, «Render Path».
-- **Погода (раунд 48)** — только тени облаков погоды на земле, в тумане, Lumen и атмосфере; облаков на небе, влияния на облака
-  Box и поле решателя пока нет. Ограничения и статусы — раздел 4а.
+- **Погода (раунд 48–49)** — тени облаков погоды на земле, в тумане, Lumen и атмосфере (раздел 4а) и облака на небе (купол,
+  раздел 4б, в редакторе не проверен); солнце решателя и героические облака Box погоду пока не видят (W50).
 - **Нет тени облака на земле (раунд 47).** Проверьте по статусу Box: `[render: cloud host]` (иначе Box во фрокселях — например,
   его полоса плотности задевает землю SkyAtmosphere: поднимите Box), `[cloud shadow: extent …]` без `off` и без `WARNING`
   (иначе `FogMS.CloudHost.SetupShadows`). При низком солнце тень длинная и ложится далеко от облака (высота × 15 при 4°):
@@ -983,11 +1087,13 @@ LUT), купол читает её вместо луча.
 - **Упакованная сборка:** собирается (`UnrealGame` Development/Shipping), smoke-тест в `-game` пройден. Полный
   `BuildCookRun` и GPU-путь атласа плотности в настоящей упаковке (не проверено).
 
-## 8. Что в комплекте для проверки
+## 8. Инструменты проверки (в репозитории)
 
-`Tools/FogMSEnergyValidation/ProdProbe/` — скрипты Python и shell для повтора замеров из отчёта. Они управляют
-запущенным редактором через мост UE-MCP (`ws://127.0.0.1:9877`); нужны Python 3, numpy и Pillow, а редактор во время
-замера должен быть окном на переднем плане.
+`Tools/FogMSEnergyValidation/ProdProbe/` — скрипты Python и shell для повтора замеров из журнала (описание групп и правила —
+`Tools/FogMSEnergyValidation/ProdProbe/README.md`). Они управляют запущенным редактором через мост UE-MCP
+(`ws://127.0.0.1:9877`, плагин `UE_MCP_Bridge` проекта, в репозиторий не входит); нужны Python 3, numpy и Pillow. Вьюпорт
+должен рендериться: новые скрипты на время прогона выключают `bThrottleCPUWhenNotForeground`, старые требовали окна на
+переднем плане.
 
 Замер — `measure.py`, `gpuprofile.py`; A/B — `*ab.sh` и `abinject.sh` (тиры, доставка, гибрид, интервал, async, небо, `Lumen Bounce`,
 проход 2); сравнение — `compare.py`, `fielddiff.py`, `resid_stats.py`; сценарии — `nightcmp.py`, `soak.py`,
@@ -998,7 +1104,6 @@ LUT), купол читает её вместо луча.
 и повтор W36 как шумовой пол; яркость в ROI Box против W36 и мерцание между кадрами; `results/diag37/lobe_sheet.png`)
 и `fwd_lobe_check.py` (без редактора: узел v2 при c = 0/0,5/1 — среднее лепестка по сфере = 1, минимум ≥ пола,
 тождество при s = 0 и S = 0, конечность при `MS Occlusion` 0; v2 при c = 0,5 побитово равен v1; диск конуса солнца).
-`d37_lobe.py` и `d35_dolly.py` задают свойства старыми именами раунда 37 (см. «Старые имена»).
 
 Облачный хост (раунд 45): `matedit_cloud.py` (материал `M_FogMS_Cloud` + `MI_FogMS_Cloud`, связи проверяются по T3D;
 с раунда 46 — v2 с узлом `FogMS_CloudFootprint`: запуск на v1 перестраивает материал на месте, откат при ошибке, повтор
@@ -1013,6 +1118,58 @@ LUT типов; офлайн, воспроизводимо), `matedit_weather.py
 v4 (ветка погоды в проходе теней; Box в проходе теней считается только в своей маске), `d48_weather.py` — смена пресета за 10 с
 (лог, статус, карта, ветер), Clear = без актёра (слой, cvar, пара кадров), удаление актёра возвращает слой и cvar, чистый лог,
 цифры видимого прохода и прохода теней для Extended и Thin (`cost`) и парные чередующиеся замеры для ворот решения 2 (`gate`).
+Раунд 49 (купол-небо): `matedit_weather.py` строит и `M_FogMS_WeatherSky`; `d49_sky.py` — статус источника неба, отсутствие купола
+без актёра и на Clear, зонд амбиента (белая сфера в сцен-захвате), цена прохода купола (выполнена только подкоманда `matedit`).
+`matedit_injection.py` — первая вставка графа инъекции в `M_FogMS_Density` (история; на текущем материале печатает
+`ALREADY_PATCHED`).
 
 Для A/B полей зафиксируйте небо (`r.SkyLight.RealTimeReflectionCapture 0` на время прогона) и сравнивайте
 с шумовым полом одинаковой конфигурации. При Real Time Capture одинаковые прогоны сами расходятся до ~1,4 %.
+
+## 9. Ассеты: что не входит в репозиторий и как их получить
+
+**Политика (с коммита `083341c`).** Репозиторий содержит только код плагина. Ассеты Unreal (`.uasset`, `.umap`) из
+`Content/` в git не хранятся (`.gitignore`: `Content/**/*.uasset`, `Content/**/*.umap`). Они живут локально: в проекте —
+`<Project>/Plugins/MultiLobeSpec/Content/FogMS/…` (путь в движке `/MultiLobeSpec/FogMS/…`), у разработчика — ещё и в
+игнорируемой папке `Content/` рабочей копии, которую сборка плагина копирует в пакет. Создаются и обновляются они в
+запущенном редакторе скриптами `Tools/FogMSEnergyValidation/ProdProbe/matedit_*.py` (Python-консоль редактора:
+`py "<репо>/Tools/FogMSEnergyValidation/ProdProbe/<скрипт>"`, когда эти ассеты никто не редактирует). Скрипты идемпотентны
+(повтор печатает `ALREADY_PATCHED`), связи узлов проверяют по T3D-экспорту и при любой ошибке ничего не сохраняют.
+
+| Ассет (`/MultiLobeSpec/FogMS/…`) | Кто его читает | Кто создаёт / правит | С нуля? |
+|---|---|---|---|
+| `M_FogMS_Density` | Box (`FogMS_BoxVolume.cpp`, конструктор): свой MID, путь Froxel Fog и инъекция | `matedit_injection.py`, затем `matedit_density.py` **правят существующий граф на месте** (им нужны узлы исходного графа: `MaterialExpressionCustom_3`, `MaterialExpressionTransformPosition_0`, параметры `FogMS_Albedo`, `FogMS_ZeroEmission`, `FogMS_Noise`; промежуточные правки инъекции коммитов `6c8e2a6`/`59ac907` делались скриптами вне репозитория) | **нет** |
+| `T_FogMS_DefaultVolume` | заглушка Volume Texture для параметров-текстур материалов (линейная копия штатной текстуры движка) | скрипта нет; `matedit_cloud.py` без неё останавливается (`Missing …`) | **нет** |
+| `M_FogMS_Cloud`, `MI_FogMS_Cloud` | облачный хост (`FogMS_CloudHost.cpp`) | `matedit_cloud.py` (строит граф целиком, версия v4; берёт HLSL из `matedit_density.py` и текстуры погоды) | да |
+| `Weather/T_FogMS_WeatherPattern`, `T_FogMS_Curl2D`, `T_FogMS_CloudTypeLUT` | погода | `matedit_weather.py` импортирует PNG из `texgen/gen_weather_textures.py` (seed 11, SHA-256 сверяется) | да |
+| `Weather/M_FogMS_WeatherCompose`, `M_FogMS_WeatherSun` | погода: карта погоды, столб к солнцу | `matedit_weather.py` | да |
+| `Weather/M_FogMS_WeatherSky` | купол-небо (раунд 49) | `matedit_weather.py` | да (в истории git его нет) |
+| `Weather/DA_FogMS_Weather_Clear` / `_Scattered` / `_Broken` / `_Overcast` | пресеты погоды | `matedit_weather.py` (числа пресетов — в C++) | да; без ассета `FogMS.Weather.Set <пресет>` берёт встроенные значения |
+
+Без ассета плагин не падает, а пишет статус: нет `M_FogMS_Density` — плотность Box выключена («FogMS density cube or additive
+Volume material is unavailable.»); нет `M_FogMS_Cloud` — Box во фрокселях (`[cloud host: none (M_FogMS_Cloud is missing: run
+matedit_cloud.py), froxel fallback]`), кнопка / `FogMS.CloudHost.Create` ничего не создаёт («… are missing … nothing spawned»);
+нет ассетов погоды — актёр `Inactive: weather assets missing … (run texgen/gen_weather_textures.py, then matedit_weather.py in the
+editor)`; нет `M_FogMS_WeatherSky` — купол скрыт («… is missing or older than W49 (run matedit_weather.py)»).
+
+**Чистый клон — порядок.**
+1. Ассеты, которые скрипты не создают, взять из истории git (последний коммит, где они есть, — `201f33f`: 13 ассетов
+   раунда 48, без `M_FogMS_WeatherSky`): `git restore --source=201f33f --worktree -- Content/FogMS`. Файлы попадут только в
+   рабочую копию, индекс не меняется (они игнорируются).
+2. Собрать плагин (`RunUAT BuildPlugin`, папка `Content/` войдёт в пакет) и установить в проект.
+3. Текстуры погоды: `python Tools/FogMSEnergyValidation/ProdProbe/texgen/gen_weather_textures.py --out <папка>` (numpy +
+   Pillow). Папку по умолчанию (`D:/FogMS_ProbeFrames/texgen`) переопределяет переменная окружения `FOGMS_TEXGEN_DIR`
+   **процесса редактора** (скрипт импорта выполняется внутри редактора).
+4. В редакторе по порядку: `matedit_weather.py` (текстуры, материалы погоды, пресеты, `M_FogMS_WeatherSky`; ожидается
+   `WEATHER_OK` или `ALREADY_PATCHED`) → `matedit_cloud.py` (материал хоста; ожидается `MATERIAL_OK` или `ALREADY_PATCHED`) →
+   `matedit_density.py` (на ассете из шага 1 ожидается `ALREADY_PATCHED`).
+5. Чтобы следующая сборка из рабочей копии содержала эти ассеты, скопировать сохранённые `.uasset` из проекта в `Content/`
+   рабочей копии (подкоманды `copyback` в `ProdProbe/d46_host.py`, `d48_weather.py`, `d49_sky.py`). В git их не добавлять.
+
+Процедура чистого клона целиком не прогонялась (не проверено); шаги сверены с кодом скриптов.
+
+**Упаковка игры.** `M_FogMS_Density` — жёсткая ссылка класса Box (`ConstructorHelpers` в конструкторе, свойство
+`DensityMaterial`). `M_FogMS_Cloud` / `MI_FogMS_Cloud` и все ассеты погоды код ищет по пути (`FogMS_CloudHost.cpp`,
+`FogMS_Weather.cpp`): в кук они попадут, только если на них ссылается уровень (сохранённый хост, назначенные ассеты в группе
+`Assets` актёра погоды) или папка добавлена в `Additional Asset Directories to Cook`. Настроек кука в `Config/` плагина нет.
+В упаковке не проверено.

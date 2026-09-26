@@ -1,3 +1,56 @@
+> Порядок записей: новые — сверху до v0.14.2; ниже — вставленный README MVP (UE 5.7) и старые версии от ранних к поздним.
+> Исторические записи не правились, кроме пометки об архиве и одной опечатки.
+
+# Не выпущено — FogMS: многократное рассеяние для тумана и облаков, UE 5.8.2 (этапы A–C, раунды 1–49; 19.09–27.09.2026)
+
+Кратко; подробности — `FogMS_HANDOVER.md`, `FogMS_UserGuide.md`, журнал `docs/history/FogMS_Prod_Report.md`, архив этапов
+A1–B3 `docs/archive/`. Версия в `MultiLobeSpec.uplugin` не менялась (0.15.3).
+
+- Плагин переведён на UE 5.8 (`EngineVersion` 5.8.0, Win64): модули `FogMSRender` (Runtime, `PostConfigInit`),
+  `MultiLobeSpec` (Runtime), `MultiLobeSpecEditor` (Editor); оверлей шейдеров движка (MLS и legacy FogMS) — только
+  `WITH_EDITOR`. Собираются UnrealEditor и UnrealGame Development/Shipping.
+- Актёр `FogMS Box Volume`: авторская плотность из Volume Texture (порог, мягкость, две детальные октавы, мировая привязка,
+  анимация «ветер + Edge Flow»), эрозия краёв и профиль высоты с пресетами (S1/S2), пакет Box 32 строки (S0).
+- Решатель переноса на сетке 32³ Box: `Transport (B2)` (6 направлений) и `Transport (B3 Angular)` (16/24/48/96 направлений),
+  PCG с warm start, пресеты Production/High/Cinematic, `r.FogMS.Transport.SolveInterval` (по умолчанию 2), опциональный
+  async compute с публикацией на кадр позже, квадратура по солнцу; источники — солнце, point/spot, небо из публичных
+  источников (Sky View LUT / обработанный захват / SH; с W49 — SH захвата при куполе погоды), отражённый свет из Lumen surface
+  cache на точной версии 5.8.2 с публичным откатом (`Lumen Bounce`, `Fallback Ground Albedo`). Приватный путь неба и
+  приватный буфер флагов теней удалены (раунд 27).
+- Доставка через Volume-материал Box (`Emissive Injection`, по умолчанию с раунда 36) с гибридом однократного рассеяния
+  солнца (`Hybrid Single Scattering`), отладка `Field Only (Debug)`; работает без `-BindlessAll` и в `-game` (раунды 12–20).
+  Несколько Box с инъекцией одновременно (`r.FogMS.MaxBoxesPerFrame`).
+- Облик: набор `Multiple Scattering Look` (`Phase G`, `MS Contribution/Occlusion/Eccentricity`, `MS Back Floor`; прямой
+  лепесток), `Sun Softness`, `Sun Detail Shadow` (по умолчанию вкл. с раунда 45), `Depth Prefilter` (опция).
+- `Render Path` = `Cloud Host` (по умолчанию с раунда 46): Box рисует штатный Volumetric Cloud с материалом `M_FogMS_Cloud`
+  (кнопка/команда `FogMS.CloudHost.Create`, подсистема `UFogMSCloudHostSubsystem`, cvar `r.FogMS.CloudHost.*`,
+  `Host Prefilter`); тень Box на земле через штатную карту теней облака (`FogMS.CloudHost.SetupShadows`, раунд 47).
+- Погода: актёр `FogMS Weather` и ассеты `FogMS Weather State` (Clear/Scattered/Broken/Overcast), карта погоды, тени облаков
+  погоды через проход теней облачного хоста (слой Thin по умолчанию), команды `FogMS.Weather.*` (раунд 48); купол-небо с
+  видимыми облаками погоды и небесным светом из захвата SkyLight (раунд 49, фаза 1; проверка в редакторе не завершена).
+- Legacy (только редактор с `-BindlessAll`): оверлей A1 (`r.FogMS.Enable`, `FogMS.Apply`), Octaves, Spatial/World,
+  `Authored/Cast Sun Shadow`, фильтрованный кэш тени, `Indirect Shadowing`, SSFS (по умолчанию выкл.), View Integration;
+  защита D3D12 при `-BindlessAll` (`r.RHICmd.ParallelTranslate.Enable 0`).
+- С коммита `083341c` ассеты Unreal (`.uasset`) не хранятся в репозитории; они пересобираются скриптами
+  `Tools/FogMSEnergyValidation/ProdProbe/matedit_*.py`, кроме `M_FogMS_Density` и `T_FogMS_DefaultVolume` (только из истории git;
+  `FogMS_UserGuide.md`, раздел 9).
+- Документация (2026-09-27): `FogMS_HANDOVER.md` переписан как обзор для аудитора, руководство сверено с кодом, журнал этапа C
+  перенесён в `docs/history/`, отчёты этапов A1–B3 и устаревшие документы — в `docs/archive/`.
+
+# v0.15.3 — MLS Baker: композитные актёры и автоматическое назначение AO (2026-09-14, `3b171a4`)
+
+- `Find From Selection` собирает материалы выделенного `MHCompositeActor` (MimirComposite): листья композита, включая
+  ISM-компоненты общего пула уровня; повторяющиеся меши и материалы не дублируются, другие бакеты пула не обходятся.
+  MimirComposite используется только через reflection, зависимости сборки нет.
+- `Master filter` по умолчанию пуст — все master-материалы (было `rendinst_vcolor_layered`); если фильтр исключил материалы,
+  сводка сообщает об этом и перечисляет найденные master-материалы.
+- `AO parameter names` по умолчанию пуст (было `AO1,AO2,AO3`): автоматическое сопоставление `<NormalParam>_ao`
+  (например `tex2 -> tex2_ao`), затем `AO1/AO2/AO3`; явно введённый список сохраняет ручное сопоставление.
+- `Bake + Assign` меняет Material Instance внутри `FMaterialUpdateContext` (живые компоненты обновляются) и сохраняет MI;
+  назначаются только успешно запечённые normal map.
+- Автотест редактора `MultiLobeSpec.Editor.Baker.CompositeSelectionAndAssign` (нужен RHI; без MimirComposite — `NOT RUN`).
+  Шейдеры и оверлей не менялись; `Version` 53 / `VersionName` 0.15.3.
+
 # v0.15.2 — Direct-only cavity depth
 
 - New `Direct Cavity Depth` + advanced `Direct Cavity Power` (Micro Shadowing settings,
@@ -112,7 +165,7 @@
 - AO asset lookup is exact and deterministic from `<normal base> + AO suffix` in the same folder.
 - Normal/AO parameter pairing prefers matching numeric suffixes and preserves Material Layer association/index.
 - Existing assignment path no longer invents missing material parameter infos.
-- Added `MICROVISIBILITY_REVIEW_RU.md` with semantic and calibration guidance.
+- Added `MICROVISIBILITY_REVIEW_RU.md` with semantic and calibration guidance (archived 2026-09-27: `docs/archive/MICROVISIBILITY_REVIEW_RU.md`).
 
 # MultiLobeSpec — dual-lobe cinematic specular для UE 5.7 (legacy path)
 
@@ -607,7 +660,7 @@ InputCore в зависимости editor-модуля (EKeys для SListView)
 2. Indirect diffuse (не-Lumen ветка DiffuseIndirectComposite): Material.MaterialAO
    получает albedo-aware interreflection Чана (V/(1-a(1-V)), a=0.35 в конфиге) вместо
    raw — снят double-occlusion с направленным micro-shadowing; экранный AO не трогается.
-   Lumen SPG применяет材 material AO внутри себя — отдельный анкер (нужны файлы
+   Lumen SPG применяет material AO внутри себя — отдельный анкер (нужны файлы
    LumenScreenProbeGather) — задокументировано.
 3. Микротени остаются свойством направленного света (подтверждено наблюдением по статье):
    в indirect добавляется только корректный подъём, не микротень. PatchVersion=20.

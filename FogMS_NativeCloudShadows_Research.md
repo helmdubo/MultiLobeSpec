@@ -1,5 +1,18 @@
 # FogMS — повторное использование штатных cloud shadows UE 5.8
 
+> **Статус на 2026-09-27 (код — коммит `083341c`): частично устарел.** Факты о Beer shadow map движка (§1–§3) действуют и
+> цитируются в `FogMS_Weather_Design.md` §4.1 и `FogMS_PerPixelClouds_Design.md` §2.5; вывод о неприменимости карты к Box
+> заменён реализацией.
+> - Тень Box в штатной карте теней облака сделана через облачный хост: `M_FogMS_Cloud` с привязкой Box в мировых координатах и
+>   флагом `Used with Volumetric Cloud` (P2, раунд 45, `eeadc37`), тень на мир — W47 (`9d05cbf`); хост вытесняет облако неба
+>   (рисуется один Volumetric Cloud).
+> - Погода — в проходе теней хоста через Shadow Pass Switch (W48, `65a5a74`, `a2a8c90`); режим «только тени» сделан через
+>   `Tracing Start Distance = Tracing Max Distance`, а не `SetRenderInMainPass(false)` / `r.VolumetricRenderTarget 0`.
+> - Двойного затенения нет: решатель карту теней не читает (своя среда — в T_sun), хост маршит своё солнце сам
+>   (`FogMS_WorldSources.cpp`, комментарий W47).
+> - Собственный кэш пропускания в пространстве света для поверхностей (§4) не реализован; `Cast Sun Shadow` (A1e) остаётся только
+>   в legacy-оверлее (`-BindlessAll`). Пути к `.codex-build/…/create_density_material.py` — вне репозитория.
+
 Дата: 2026-09-21. Статус: **исследование исходников; native-cloud GPU comparison НЕ проводился**.
 
 Проверен локальный Engine `D:/PersonalProjects/UE5/UE_5.8/Engine`: UE **5.8.2**, CL **56702186**, ветка `++UE5+Release-5.8` — [Build.version](D:/PersonalProjects/UE5/UE_5.8/Engine/Build/Build.version:1). Engine не изменялся; fork запрещён. Эта записка не означает готовность нового режима или разрешение менять настройки сцены.

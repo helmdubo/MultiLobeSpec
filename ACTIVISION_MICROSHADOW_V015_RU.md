@@ -1,5 +1,22 @@
 # v0.15 — Activision Direct Micro-Shadow
 
+> **Статус на 2026-09-27 (код — коммит `083341c`): частично устарел.** Документ v0.15 (UE 5.7). Расхождения с кодом:
+> - Формула ниже — без множителя v0.15.2: к прямому микрозатенению добавлен `Direct Cavity Depth` (по умолчанию 0,5) /
+>   `Direct Cavity Power` (1): M ×= lerp(1, V^power, depth) (`MLS.CavityDepth`, `MultiLobeShaderPatcher.cpp`).
+> - `r.GBufferDiffuseSampleOcclusion` допускается 0 или 1 (`MultiLobeSpec.cpp`, проверка перед Apply); обязательны только
+>   `r.Substrate 0` и `r.AllowStaticLighting 0`.
+> - Назначение AO в бейкере с 0.15.3: сначала `<NormalParam>_ao` (например `tex2 -> tex2_ao`), затем `AO1..AO3`; пустой
+>   список имён — автоматический режим (`CHANGELOG.md`, v0.15.3).
+> - UE 5.8.2: плагин собирается под UE 5.8; по логам и манифестам оверлеев в проекте заказчика (вне репозитория) все
+>   обязательные анкеры MLS на 5.8.2 находятся, оверлей применяется; корректность затенения на 5.8.2 не проверена. Анкер
+>   тонмаппера `OutDeviceColor / 1.05` в 5.8 не найден (предупреждение, влияние не проверено).
+> - Generic VNDF LUT: квитанция `Resources/Generated/MLS_MicroShadowLUT.validation.json` привязана SHA-256 к точным байтам
+>   манифеста и include. Манифест в git с хешем квитанции не совпадает, include совпадает только без преобразования концов
+>   строк (на Windows с `core.autocrlf` — нет); проверено 2026-09-27 пересчётом SHA-256. Поэтому в установке из git режим 4
+>   не допускается («fail closed»). Инструмента, пишущего эту квитанцию
+>   (`MLSMicroShadowValidationReceiptV1`), в репозитории нет; `MLS.ExportVNDFValidation` пишет отчёт другого формата в тот же
+>   путь и затирает квитанцию.
+
 ## Решение по Generic VNDF
 
 `Generic VNDF LUT` сохранён как **Experimental / Research Only**, но больше не является рекомендуемым production-режимом. На реальных материалах текущая 4D LUT может чрезмерно подавлять direct lighting за пределами самых ярких участков. Reference-integrator остаётся полезен для исследований, однако default v0.15 — `Activision / CoD:WWII`.

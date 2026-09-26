@@ -4,6 +4,28 @@
 
 # FogMS: плотные облачные Box в попиксельном рендере
 
+> **Статус на 2026-09-27 (код — коммит `083341c`): действующий дизайн.** Вариант A (облачный хост на штатном Volumetric
+> Cloud) реализуется срезами; разделы и их номера не менялись (на них ссылается код).
+> - Сделано: **P1** — прототип в редакторе (раунд 39, `f64e6a5`…`62860cc`; критерий 4 в заданной форме не пройден);
+>   **P2** — свойство `Render Path`, подсистема `UFogMSCloudHostSubsystem`, `M_FogMS_Cloud`/`MI_FogMS_Cloud` из
+>   `matedit_cloud.py` (раунд 45, `eeadc37`, `43f8b03`); **W46** (`d542e53`) — хост по умолчанию, слой следует за Box,
+>   настройки против зерна; **P4 часть 1** — тень Box на мир через карту теней облака (раунд 47, `9d05cbf`).
+> - Отличия реализации от текста: `Render Path` по умолчанию `Cloud Host` (в §3.1/§3.11 — `Froxel Fog`); хост создают кнопка
+>   Box `Create Cloud Host`, команда `FogMS.CloudHost.Create` и актёр погоды `AFogMSWeather` (галка `Create Cloud Host`, по
+>   умолчанию вкл.); один Box на хост — таблиц `FogMS_CloudBoxTable` и атласа поля нет. Вместо таблицы §3.9 — cvar
+>   `r.FogMS.CloudHost.*`: ближе 1 км `r.VolumetricRenderTarget.Mode 3` + `SampleMinCount 32`, дальше `Mode 1` + 8,
+>   `UpsamplingMode 2`, зажим репроекции; трасса 2 км, шаг ≈ 2,6 м, марш к солнцу 0,25 км; слой = полоса плотности Box ±10 м.
+>   Для хоста `Depth Prefilter` заменён свойством `Host Prefilter` (по умолчанию 1); фаза облака — `Phase G` Box,
+>   `FogMS_CloudPhaseG2`/`FogMS_CloudPhaseBlend` — параметры инстанса (0); хост не попадает в захват неба
+>   (`bVisibleInRealTimeSkyCaptures = false`), Reflection Capture Pass Switch в `M_FogMS_Cloud` не понадобился.
+> - Не сделано: **P3** (несколько Box на хост); **P4** — канал V_geo (тени геометрии на собственном солнце облака при RT-солнце);
+>   **P5** — LOD (Box дальше 2 км трассы хост не рисует); **P6** — сетка фрокселей (копия Box при весе 0 ещё вокселизируется).
+>   Box, чья полоса плотности уходит ниже земли SkyAtmosphere, хост не рисует (откат во фроксели).
+> - Решения §6: 1 — де-факто (а), облака неба — купол погоды (W49); 3 — настройками W46; 5 — фаза = `Phase G` Box
+>   (один Box на хост); 7 — `Host Prefilter`; 2, 4, 6 — открыты. Журнал — `docs/history/FogMS_Prod_Report.md`, раунды 39,
+>   45–47; использование — `FogMS_UserGuide.md` §4. Ассеты (`.uasset`), упомянутые в списках файлов срезов, с `083341c` в git
+>   не хранятся (`FogMS_UserGuide.md` §9).
+
 Метки, как в `FogMS_ForwardLobe_Design.md` и `FogMS_Cloud_Lighting_Review.md`: **V** — проверено по файлу (путь:строка);
 **A** — вывод или оценка; **M** — нужно измерить в редакторе. Пути движка даны от `Engine/`: `R/` =
 `Source/Runtime/Renderer/Private/`, `S/` = `Shaders/Private/`, `E/` = `Source/Runtime/Engine/`.
@@ -23,7 +45,7 @@
   - нет своей истории (только TSR без скорости);
   - статус Beta.
 
-  Материалом это не лечится (раздел 2.3). Это второй отказ от HV после сравнения 20.09 (`FogMS_A1d_Report.md`).
+  Материалом это не лечится (раздел 2.3). Это второй отказ от HV после сравнения 20.09 (`docs/archive/FogMS_A1d_Report.md`).
 - **Почему не C (свой проход).** Пришлось бы заново написать то, что у движка уже есть: реконструкцию, тени на мир и
   туман, композицию. Публичного хука между туманом и полупрозрачностью нет. C остаётся запасным путём, если P1 провалит A.
 - **Главное ограничение A (V).** В сцене рендерится только один Volumetric Cloud. Шаг луча у него одинаковый вдоль всего
@@ -225,7 +247,7 @@ Box: плотность (атлас шума, Threshold/Softness, деталь, 
 - `PrePostProcessPass` — после полупрозрачности, поздно для правильного порядка (`E/Public/SceneViewExtension.h:190–222`).
 
 Реконструкция облаков, их карта теней и `FViewInfo` приватны (`FogMS_NativeCloudShadows_Research.md` §4). Прецедент —
-свой интегратор фрокселей 22.09 (`FogMS_ViewIntegration_Report.md`) отклонён владельцем: дрожание стало сильнее.
+свой интегратор фрокселей 22.09 (`docs/archive/FogMS_ViewIntegration_Report.md`) отклонён владельцем: дрожание стало сильнее.
 
 Единственное, что C даёт сверх A, — шаг по OBB каждого Box, как у HV, вместо одинакового шага вдоль луча. Смысл в C появится,
 только если P1 покажет, что шаг A у камеры не укладывается в бюджет.
@@ -335,7 +357,7 @@ RENDER THREAD (порядок кадра, DeferredShadingRenderer.cpp)
   Облако рисует Box на любой дальности до `TracingMaxDistance`. Фроксели обрывают Box на `VolumetricFogDistance` с
   кубическим затуханием после 60 % (`S/VolumetricFogVoxelization.usf:330–334`).
 - **Сетка фрокселей.** Когда плотные Box уйдут из фрокселей, сетке не нужны 4 px × 208 слоёв: на 1080p это 27 млн фрокселей,
-  в 6 раз больше замеренных 176×119×208, которые стоили 3,45–4,0 мс (`FogMS_Prod_Report.md`, раунд 7). Кандидаты: 8 px × 128
+  в 6 раз больше замеренных 176×119×208, которые стоили 3,45–4,0 мс (`docs/history/FogMS_Prod_Report.md`, раунд 7). Кандидаты: 8 px × 128
   (4,1 млн) или умолчание движка 16 px × 64 (0,5 млн). Экономия, вероятно, окупает трассу облака (A, замер в P6).
 
 ### 3.6 Несколько Box в одном материале
@@ -503,7 +525,7 @@ RENDER THREAD (порядок кадра, DeferredShadingRenderer.cpp)
 - `ProdProbe/cloudproto_material.py` (новый);
 - `ProdProbe/cloudproto_session.py` (новый);
 - `ProdProbe/d39_cloud.py` (новый: варианты, резюмируемый, атомарная запись);
-- `FogMS_Prod_Report.md` — раздел «Раунд 39».
+- `docs/history/FogMS_Prod_Report.md` — раздел «Раунд 39».
 
 **Приёмка:**
 1. Материал компилируется для облака: в логе нет «Failed to compile Material». Повторный запуск скриптов печатает
@@ -598,7 +620,7 @@ RENDER THREAD (порядок кадра, DeferredShadingRenderer.cpp)
 
 **Файлы:**
 - `ProdProbe/d39_grid.py` (новый: A/B сетки с оставшимися Box-дымкой);
-- `FogMS_Prod_Report.md`, `FogMS_UserGuide.md`, `FogMS_HANDOVER.md`, `CHANGELOG.md`.
+- `docs/history/FogMS_Prod_Report.md`, `FogMS_UserGuide.md`, `FogMS_HANDOVER.md`, `CHANGELOG.md`.
 
 **Приёмка:**
 1. `gpuprofile.py` на 1080p: `VolumetricFog` при 4 px × 208, 8 px × 128, 16 px × 64 — с дымкой и без.

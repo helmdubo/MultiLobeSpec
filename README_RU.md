@@ -1,6 +1,21 @@
-# MultiLobeSpec v0.15.3 — Activision micro-visibility для UE 5.7
+# MultiLobeSpec (MLS) v0.15.3 — BRDF-оверлей и Activision micro-visibility (написан для UE 5.7)
 
-Экспериментальный editor-only плагин для legacy deferred shading (`r.Substrate=0`). Он реализует горизонтальную смесь двух GGX-лобов, Generic VNDF-based direct micro-shadowing и RGB indirect material visibility. CARD-09 cone-aware Environment BRDF для reflection captures/skylight реализован как staging path, но выключен: overlay-only static LUT не прошёл SM6 compile-cost gate. Файлы движка не изменяются: плагин создаёт content-addressed shader overlay в `Saved/MultiLobeSpec` и remap-ит `/Engine` только после успешного transactional patch.
+> **Статус на 2026-09-27 (код — коммит `083341c`).** Этот документ описывает только BRDF-часть плагина (MLS). Репозиторий
+> целиком и основную часть — FogMS — описывают [`README.md`](README.md) и [`FogMS_HANDOVER.md`](FogMS_HANDOVER.md).
+> - Плагин собирается под UE 5.8 (`EngineVersion` 5.8.0); модуль `MultiLobeSpec` стал Runtime (для FogMS), но весь код MLS —
+>   под `WITH_EDITOR` и `GIsEditor`: в игре и `-game` MLS нет. Логика патчей MLS с v0.15.2 не менялась (`PatchVersion` 41:
+>   в build ID добавлена идентичность FogMS, оверлей общий).
+> - UE 5.8.2: по логам и манифестам оверлеев проекта заказчика (вне репозитория) обязательные анкеры находятся и оверлей
+>   применяется («Overlay active … MicroShadow=2»); визуальная и численная корректность MLS на 5.8.2 не проверена; анкер
+>   тонмаппера `OutDeviceColor / 1.05` в 5.8 не найден (предупреждение).
+> - Оверлей строится при **каждом** старте редактора, если настройки его включают — по умолчанию включают (`Micro Shadow Mode` =
+>   Activision / CoD:WWII). Без `r.Substrate=0` и `r.AllowStaticLighting=0` старт показывает «MLS Apply failed» и штатные
+>   шейдеры; тот же оверлей несёт legacy-режимы FogMS.
+> - Generic VNDF LUT (режим 4): квитанция допуска привязана SHA-256 к байтам `Resources/Generated/*`, которые в git не
+>   совпадают с ней (подробно — шапка `SUPPORT_MATRIX_RU.md`); в установке из git режим недоступен. `MLS.ExportVNDFValidation`
+>   перезаписывает квитанцию отчётом другого формата — не запускать без нужды.
+
+Экспериментальная editor-only часть плагина для legacy deferred shading (`r.Substrate=0`). Она реализует горизонтальную смесь двух GGX-лобов, direct micro-shadowing (рекомендуемый режим — Activision / CoD:WWII; Generic VNDF LUT — экспериментальный) и RGB indirect material visibility. CARD-09 cone-aware Environment BRDF для reflection captures/skylight реализован как staging path, но выключен: overlay-only static LUT не прошёл SM6 compile-cost gate. Файлы движка не изменяются: плагин создаёт content-addressed shader overlay в `Saved/MultiLobeSpec` и remap-ит `/Engine` только после успешного transactional patch.
 
 ## MLS Baker: композитники в сцене
 
@@ -25,7 +40,8 @@
 
 ## Обязательный renderer contract
 
-Для непрерывного исходного Material AO нужны все три настройки до запуска редактора:
+Для непрерывного исходного Material AO до запуска редактора обязательны `r.Substrate=0` и `r.AllowStaticLighting=0`;
+`r.GBufferDiffuseSampleOcclusion` может быть 0 или 1 (`MultiLobeSpec.cpp`, проверка перед Apply):
 
 ```ini
 [/Script/Engine.RendererSettings]
@@ -65,7 +81,8 @@ Direct Generic VNDF и cone EnvBRDF генерируются только явн
 ```text
 MLS.RegenerateVNDFLUT
 MLS.ValidateVNDFLUT
-MLS.ExportVNDFValidation
+MLS.ExportVNDFValidation      # пишет в путь квитанции Generic VNDF (см. статус выше)
+MLS.GenerateVNDFCandidate
 MLS.RegenerateConeEnvBRDF
 ```
 
@@ -77,7 +94,8 @@ MLS.RegenerateConeEnvBRDF
 2. Добавить renderer contract выше и перезапустить редактор.
 3. Собрать `UnrealEditor Win64 Development` для проекта.
 4. В `Project Settings → Plugins → MultiLobe Specular` выбрать preset и режимы.
-5. Применить `MLS.Apply` или кнопкой `MLS Apply` на toolbar.
+5. Применить `MLS.Apply` или кнопкой `MLS Apply` на toolbar. При следующих запусках редактора оверлей применяется сам, если
+   включён хотя бы один режим (по умолчанию включён `Micro Shadow Mode` = Activision / CoD:WWII).
 
 Полезные команды:
 
@@ -89,7 +107,9 @@ MLS.Tonemap 0|1|2|3|4
 MLS.MicroShadow 0|1|2|3|4|5
 MLS.IndirectVisibility 0|1|2
 MLS.DebugView 0|1|2|3|4|5
+MLS.CavityDepth <0..1> [power 0.25..4]
 MLS.Capabilities
+MLS.Status
 ```
 
 Каждая конфигурация получает отдельный immutable overlay. Stamp записывается последним; exact-count mismatch оставляет предыдущий overlay активным. Первая компиляция дорогая, дальнейшие сборки переиспользуют DDC.
@@ -102,7 +122,7 @@ layout View uniform и Engine binaries не меняются. Обычные
 scene/reflection/planar/VT/custom captures получают mode 0; realtime skylight capture
 дополнительно закрыт через `RenderingReflectionCaptureMask` в HLSL.
 
-После однократного `MLS.Apply` для версии P39 команда `MLS.DebugView 0..5` меняет
+После однократного `MLS.Apply` (начиная с `PatchVersion` 39; сейчас 41) команда `MLS.DebugView 0..5` меняет
 только атомарный runtime selector, перерисовывает viewport и не вызывает новый overlay,
 remap, shader-cache flush или `RecompileShaders Changed`. То же поведение действует для
 поля Debug View в Project Settings.

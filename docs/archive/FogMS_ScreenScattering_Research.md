@@ -46,7 +46,7 @@ This is not a rigorously energy-normalized extension to B3. There is no geometri
 
 ## Control harness and acceptance
 
-[ScreenScattering/README.md](Tools/FogMSEnergyValidation/ScreenScattering/README.md) documents explicit enable/disable/restore and metadata probing. The original scalar state is stored once; source files, density, camera and maps are not changed by the script. It restores CVar numeric values, not original console SetBy priority. Multiple fog components are rejected because actor enumeration cannot establish the renderer's first fog.
+[ScreenScattering/README.md](../../Tools/FogMSEnergyValidation/ScreenScattering/README.md) documents explicit enable/disable/restore and metadata probing. The original scalar state is stored once; source files, density, camera and maps are not changed by the script. It restores CVar numeric values, not original console SetBy priority. Multiple fog components are rejected because actor enumeration cannot establish the renderer's first fog.
 
 Validation must keep B3, density phase, lights, exposure, camera and resolution fixed. Compare baseline, separate composition without scattering, fog-only FSSS, and fog+scene FSSS. Then compare TAA0/1 independently. Inspect W/S movement and stopping, lateral movement, near/far contours, a thin foreground pillar, emissive behind fog, zero density, absorbing albedo, and the sun with/without a sky material. No zero-density/global fog regression or foreground halo should be hidden by a broad image average. Use native viewport capture; a controls-only receipt cannot establish visible pass execution or quality.
 

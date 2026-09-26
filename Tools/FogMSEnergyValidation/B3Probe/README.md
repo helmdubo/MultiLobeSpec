@@ -1,5 +1,7 @@
 # FogMS B3 GPU numerical probe
 
+> Статус (2026-09-27): исторический документ инструмента этапа B3 (21.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](../README.md).
+
 Explicit, bounded acceptance harness for the existing
 `/Game/FogMS_Test/FogMS_Box` editor world. It neither starts UE nor creates,
 deletes or saves actors, levels or assets. Run it only after installing B3.

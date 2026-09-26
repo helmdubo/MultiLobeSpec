@@ -1,5 +1,7 @@
 # Verification scope
 
+> Статус (2026-09-27): исторический документ инструмента пакета 4 (движение и реконструкция, 21.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](../README.md).
+
 Offline verification on 2026-09-21:
 
 - Python syntax compilation and Node `--check`: passed.

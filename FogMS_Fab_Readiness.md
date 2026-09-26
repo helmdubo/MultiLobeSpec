@@ -1,13 +1,31 @@
 # FogMS — готовность к FAB: зависимости от приватного рендерера и структура плагина
 
+> **Статус на 2026-09-27 (код — коммит `083341c`): частично устарел.** Статусы 23.09 (раунды 18–27) ниже верны, номера
+> строк в §0–§2 устарели, зависимости раундов 45–49 не описаны. Нумерация P1–P12 здесь своя (не срезы
+> `FogMS_PerPixelClouds_Design.md`). Текущий список приватных зависимостей — `FogMS_HANDOVER.md`, раздел 8.
+> - Закрыто: §0 п. 1–2 (модули `Runtime`, `PlatformAllowList: Win64`, `EngineVersion 5.8.0`, `649b8ed`); §0 п. 3 — источник
+>   Lumen необязателен (заглушка вне 5.8.2, `Lumen Bounce` Auto/Off, `478b5bc`, `e66475c`); P2–P7, P10 — публичный API
+>   (`d33f9bf`); P5 — публичные флаги теней, приватный путь удалён (`d4f0083`); P9 — небо из публичных источников (`51066c3`);
+>   инъекция без `-BindlessAll` (`3975e25`); `Config/FilterPlugin.ini` упаковывает `[CoreRedirects]` (W38).
+> - Остаются приватными: P11 (`ScenePrivate.h`, `LightSceneInfo.h`) и с W47 `VolumetricCloudRendering.h` (`FogMS_WorldSources.cpp`);
+>   P8/P12 — Lumen surface cache (только 5.8.2); SSFS и Spatial (`SceneRendering.h`, `SceneViewState.h`,
+>   `RayTracing/RayTracingScene.h`); `FogMSRender.Build.cs` добавляет `Renderer/Private` в пути include; защита D3D12 под
+>   `-BindlessAll` — под гейтом 5.8.2.
+> - Новое для упаковки: `.uasset` с `083341c` не в git; материалы хоста и погоды пересобирают `matedit_cloud.py` и
+>   `matedit_weather.py` (+ `texgen/gen_weather_textures.py`), но базовый `M_FogMS_Density` и `T_FogMS_DefaultVolume` скриптами
+>   репозитория не создаются. Материал хоста и ассеты погоды грузятся по пути — для кука нужны ссылки или `Additional Asset
+>   Directories to Cook` (в куке не проверено).
+> - `Description` в `.uplugin` не упоминает облачный хост и погоду. Не сделано: §3 п. 3 (сбор источников на game thread, P11);
+>   цена хоста в `-game` не замерена; настоящая упаковка (`BuildCookRun`) не проверена.
+
 Дата: 2026-09-23. Источник: read-only аудит (worker Opus 5.5) кода плагина и UE 5.8.2; ссылки VERIFIED файл:строка, кроме
 помеченных ASSUMED. Контекст: с раунда 12 Box в режиме Emissive Injection работает без `-BindlessAll`
-(`FogMS_Prod_Report.md`), поэтому продуктовый путь — «решатель → инъекция → Volume-материал → штатный туман».
+(`docs/history/FogMS_Prod_Report.md`), поэтому продуктовый путь — «решатель → инъекция → Volume-материал → штатный туман».
 Overlay-функции остаются «Advanced, editor + -BindlessAll» и здесь не рассматриваются.
 
 > **Статус 2026-09-23 (вечер), раунды 18–20.** §0 п. 1–2 закрыты: модули `Runtime` + `PlatformAllowList: Win64`, editor-only
 > код под `WITH_EDITOR`, `EngineVersion`, новое описание; `BuildPlugin` собирает `UnrealEditor` и `UnrealGame` (Development,
-> Shipping); smoke-тест `-game` пройден (`FogMS_Prod_Report.md`, «Раунды 19–20»). §0 п. 3 (гейт 5.8.2 источника Lumen) —
+> Shipping); smoke-тест `-game` пройден (`docs/history/FogMS_Prod_Report.md`, «Раунды 19–20»). §0 п. 3 (гейт 5.8.2 источника Lumen) —
 > открыт. §3 п. 1 (P2/P3/P4/P6/P7/P10) — сделано; п. 2 (P5) — сделано: `r.FogMS.Transport.PublicHitFlags` = 1 по умолчанию, диагностика раунда 21
 > показала тождественность публичного и приватного буферов (расхождение 1,3 % было шумом замера при Real Time Capture); п. 4 (атлас без нативного
 > D3D12-ресурса) — сделано для конфигурации без `-BindlessAll`; п. 3 (сбор источников на game thread, P11) — не начат.

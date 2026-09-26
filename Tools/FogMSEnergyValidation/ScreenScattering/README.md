@@ -1,5 +1,7 @@
 # Native UE 5.8 FSSS control probe
 
+> Статус (2026-09-27): исторический документ инструмента пакета 6 (штатный FSSS, отклонён владельцем 22.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](../README.md).
+
 `native_fsss_control.py` imports without executing. Call it explicitly through the existing editor bridge; it performs synchronous control changes/readback only. It does not capture images, run UE, change B3, create actors, touch camera/density, save maps, or claim rendered acceptance.
 
 ```python
@@ -27,6 +29,6 @@ Unreal's exposed console command API restores CVar **values**, not original `Set
 
 The map's on-disk hash, actor transforms/hidden flags, camera/FOV and Game View are checked across each call. These are not a full scene-asset audit; no continuous guard is installed between calls. The caller owns exclusive viewport control, later restoration and any intentional field-state save.
 
-Native algorithm, source order and acceptance matrix: [FogMS_ScreenScattering_Research.md](../../../FogMS_ScreenScattering_Research.md).
+Native algorithm, source order and acceptance matrix: [FogMS_ScreenScattering_Research.md](../../../docs/archive/FogMS_ScreenScattering_Research.md).
 
 Offline harness-safety checks: `python -P Tools/FogMSEnergyValidation/ScreenScattering/test_native_fsss_control.py`. These use a fake Unreal adapter to check immutable snapshots, partial-write rollback and drift refusal; they are not native or visual acceptance.

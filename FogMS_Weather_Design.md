@@ -5,6 +5,27 @@
 
 # FogMS: погода — слои облаков, состояния, тени на земле, влияние на небо
 
+> **Статус на 2026-09-27 (код — коммит `083341c`): действующий план срезов W47–W53; сделаны W47, W48 и фаза 1 W49.**
+> Разделы и их номера не менялись (на них ссылается код).
+> - **W47** (раунд 47, `9d05cbf`): решатель принимает солнце с `Cast Cloud Shadows` (чужое облако — предупреждение в
+>   статусе), плагин держит cvar карты теней (`SpatialFiltering 2`, `SnapLength` = 0,25 × охват, `SnapToPixelGrid 1`),
+>   статус `[cloud shadow: …]`, команда `FogMS.CloudHost.SetupShadows` (5 км, ×2); критерии 1–3, 5, 6 — да, 4 — владелец.
+> - **W48** (раунд 48, `65a5a74`, `b1679d3`, `a2a8c90`): `AFogMSWeather` + `UFogMSWeatherState` (Clear/Scattered/Broken/
+>   Overcast), `RT_FogMS_WeatherMap` 512² через `M_FogMS_WeatherCompose`, погода только в проходе теней хоста
+>   (`M_FogMS_Cloud` v4); решение 2 = `Thin` по воротам (Extended +1,04 мс при пороге 0,3 мс); критерии 1, 2, 4, 5 — да, 3 — владелец.
+> - **W49 фаза 1** (`a0a87a2`): купол-небо `M_FogMS_WeatherSky` (решение 1 = купол); авто-источник неба решателя — SH захвата
+>   при активном куполе. Фаза 2: раунд 49 установлен, `M_FogMS_WeatherSky` собран (локальный `results/diag49/d49.json`, не в
+>   git); критерии W49 не проверены (не проверено).
+> - Отличия от текста: купол — компонент `SkyDome` актёра погоды (сфера 1000 км), а не отдельный `AFogMSWeatherSky`; один ветер
+>   на все слои; 3D-шума нет (деталь — узор погоды в тайле 2,5 км + curl); карта перерисовывается только при смене состояния,
+>   ветер — сдвигом выборки; `RT_FogMS_WeatherSun` сделан уже в W48, только для слоя `Thin`; Clear — без перистых и без купола;
+>   свойство `Weather Scale` есть, решение 4 открыто.
+> - Не сделано: **W50** (погода внутри героических облаков: солнце решателя и хоста × пропускание погоды), **W51** (туман и
+>   атмосфера по погоде, `MPC_FogMS_Weather`, `Setup Scene for Weather`), **W52** (грозы, молнии), **W53** (переходы, пресеты
+>   Fair/Rain/Thunderstorm/Fog/Haze, `GetWeatherAt`, `Weather Influence`). Решения 3, 5, 6, 7 не приняты.
+> - Журнал — `docs/history/FogMS_Prod_Report.md`, раунды 47–49; использование — `FogMS_UserGuide.md` §4а, §4б. Ассеты
+>   (`.uasset`) с `083341c` в git не хранятся: их строят `matedit_weather.py` и `matedit_cloud.py` (`FogMS_UserGuide.md` §9).
+
 Метки, как в `FogMS_PerPixelClouds_Design.md`: **V** — проверено по файлу, странице или слайду (путь:строка, номер
 страницы); **A** — вывод или оценка; **M** — нужно измерить в редакторе. Пути движка даны от `Engine/`:
 `R/` = `Source/Runtime/Renderer/Private/`, `S/` = `Shaders/Private/`, `E/` = `Source/Runtime/Engine/`.
@@ -779,9 +800,9 @@ Thunderstorm; молнии: point light-вспышка, всплеск свеч�
 
 **Плагин (V):** `Source/FogMSRender/Private/FogMS_WorldSources.cpp:30–60, 120–200, 290–340`,
 `Source/MultiLobeSpec/Private/FogMS_CloudHost.cpp:26–80, 740–781`, `Tools/FogMSEnergyValidation/ProdProbe/matedit_cloud.py:17–30, 445–460`,
-`gen_perlin_worley.py`; документы `FogMS_UserGuide.md`, `FogMS_Prod_Report.md` (раунды 45–46), `FogMS_PerPixelClouds_Design.md`,
+`gen_perlin_worley.py`; документы `FogMS_UserGuide.md`, `docs/history/FogMS_Prod_Report.md` (раунды 45–46), `FogMS_PerPixelClouds_Design.md`,
 `FogMS_DensityAuthoring_Design.md`, `FogMS_Cloud_Lighting_Review.md`, `FogMS_LOD_Research.md`,
-`FogMS_NativeCloudShadows_Research.md`, `FogMS_TextureDensity_Plan.md`.
+`FogMS_NativeCloudShadows_Research.md`, `docs/archive/FogMS_TextureDensity_Plan.md`.
 
 **Литература и страницы:**
 - WMO, International Cloud Atlas, Levels — <https://cloudatlas.wmo.int/en/some-useful-concepts-levels.html> (V).

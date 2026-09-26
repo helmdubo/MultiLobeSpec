@@ -81,11 +81,13 @@ Important report semantics:
 
 ## Output schema
 
+> Статус (2026-09-27): этот валидатор пишет отчёт `MLSMicroShadowValidationReportV1`. Квитанцию допуска `Resources/Generated/MLS_MicroShadowLUT.validation.json` (схема `MLSMicroShadowValidationReceiptV1`, её проверяет `Source/MultiLobeSpec/Private/MultiLobeShaderPatcher.cpp`) ни один инструмент репозитория не пишет; её SHA-256-привязка к файлам `Resources/Generated/` в копии из git не выполняется (шапка `SUPPORT_MATRIX_RU.md`).
+
 `report.json` uses schema name `MLSMicroShadowValidationReportV1` and contains the complete configuration, artifact/manifest receipt, metrics, thresholds, qualification flags, worst cases, quantization split, and azimuth statistics. `reference.csv` contains per-case values and raw monotonicity violations suitable for external analysis.
 
 The process exits `2` for malformed or incomplete artifacts. With `--strict`, it exits `1` for qualified numerical failures or an incomplete non-smoke acceptance run, and `0` otherwise. A missing LUT is an immediate error only when `--require-lut` is supplied.
 
 ## Source references
 
-- Repository execution spec: `MultiLobeSpec_v0.14_Generic_VNDF_Execution_Spec_RU.md`, sections 3, 4, and 10.
+- Repository execution spec (historical v0.14 spec, archived 2026-09-27; the code deviates from it in places, see `docs/archive/README.md`): `docs/archive/MultiLobeSpec_v0.14_Generic_VNDF_Execution_Spec_RU.md`, sections 3, 4, and 10.
 - J. Dupuy and A. Benyoub, *Sampling Visible GGX Normals with Spherical Caps*, Computer Graphics Forum 42(8), 2023, DOI `10.1111/cgf.14867`.

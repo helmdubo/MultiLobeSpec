@@ -1,5 +1,7 @@
 # FogMS B3: angular transport reference
 
+> Статус (2026-09-27): исторический документ инструмента этапа B3 (CPU-эталон угловой схемы, 21.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](README.md).
+
 This is a CPU reference for the proposed B3 discretization. It does not certify
 the UE shader, native receiver reconstruction, sky adapter or final image.
 The original `transport_reference.py` is unchanged and supplies its PCG and

@@ -2,6 +2,23 @@
 
 # FogMS: прямой лепесток (forward lobe) и мягкое солнце вместо SSFS
 
+> **Статус на 2026-09-27 (код — коммит `083341c`): частично устарел; F1a и F2 реализованы**, их текущее описание —
+> `FogMS_UserGuide.md` §4 («Multiple Scattering Look», `Sun Softness`).
+> - F1a: узел `FogMS_ForwardLobe` между `FogMS_EmissiveInjection` и Emissive в `M_FogMS_Density` (W37, `5ae9212`), v2 с
+>   эксцентриситетом (W38, `d79180b`); тот же узел стоит на Emissive `M_FogMS_Cloud` (раунд 45). Ошибка W37 (вход `FieldA`
+>   читал RGB поля вместо альфы) исправлена в W40 (`cfd41c5`).
+> - Отличия от текста: свойства переименованы в W38 — `Phase G`, `MS Contribution`, `MS Occlusion`, новые `MS Eccentricity` и
+>   `MS Back Floor` (0,25), категория `FogMS|Multiple Scattering Look`, старые имена загружаются через `[CoreRedirects]` в
+>   `Config/DefaultMultiLobeSpec.ini`; `MS Contribution` по умолчанию 0,5 (лепесток включён), не 0; static switch и
+>   `MI_FogMS_Density_Forward` не делались — узел всегда в графе и при силе 0 пропускает Emissive без изменений; направление на
+>   солнце — `View.AtmosphereLightDirection[0]` в HLSL узла.
+> - F2 `Sun Softness`: 0–15°, по умолчанию 0, строка пакета 29.x = tan θ (W37); с W46 (`d542e53`) при θ > 0 солнце в проходе 2
+>   всегда считается по 8 подточкам, без чередования 4/4.
+> - Не сделано и в текущих планах (W50–W53, P3–P6) нет: F0 (сессия сравнения с Package6), F1b (лепесток в режиме полного поля),
+>   F2b (размытие T_sun). SSFS выключен по умолчанию (`r.FogMS.SSFS 0`).
+> - §1 (диагноз раунда 33) и §5 (решения) — исторические; журнал — `docs/history/FogMS_Prod_Report.md`, «Раунды 36–37»,
+>   «Раунд 40», «Раунд 46».
+
 Метки: **V** — проверено по файлу/логу; **A** — предположение; **M** — нужно измерить (замер в срезе F0).
 Логи — `E:\GITHUB\MultiLobeSpec\.codex-build\`, результаты проб — `Tools/FogMSEnergyValidation/ProdProbe/results/`.
 
@@ -21,7 +38,7 @@
 ### 1.1 Что было 22.09 (эталон)
 
 - **Сборка:** коммит `f65e87e` (22.09, влит в main как `340fa7a`); пакеты `FogMS_ViewIntegration_20260922/Package6` и `FogMS_SSFS_FogLight_20260922/Package1` (SSFS по полному HDR) (V).
-- **Итоговый пресет того дня** (`FogMS_SSFS_FogLight_Fix.md`, V): `r.FogMS.ViewIntegration 0` (режим 3 стоил 16–77 мс), `r.FogMS.SSFS 1`, `Amount 1`, `Radius 24`, штатный FSSS выключен, сетка тумана 4 px × 208 слоёв, история 0,9.
+- **Итоговый пресет того дня** (`docs/archive/FogMS_SSFS_FogLight_Fix.md`, V): `r.FogMS.ViewIntegration 0` (режим 3 стоил 16–77 мс), `r.FogMS.SSFS 1`, `Amount 1`, `Radius 24`, штатный FSSS выключен, сетка тумана 4 px × 208 слоёв, история 0,9.
 - **Решатель:** B3, 96 направлений / 8 итераций, холодный старт (warm start появился 23.09, `eb43a2b`); 96/16 холодный = 26,4 мс только на перенос. Отсюда «20–30 мс» на кадр (A).
 - **Доставка — overlay:** штатное однократное рассеяние в Box заменялось изотропным полем J, поэтому фаза тумана обязана была быть 0 (`FogMS_BoxRuntime.cpp:1186-1198`; снимок сцены `volumetric_fog_scattering_distribution 0.0`, V).
 - **Параметры сцены** (снимок `FogMS_Motion_20260921/scene-inspect-20260921T212216_072687Z-c952cf64.json`): `Density 0.5`, `Threshold 0.5`, `Softness 0.1`, `DetailStrength 0.1`, `DetailScale 8`, `DensityEdgeFeather 2000` см; солнце 120 лк, высота ≈ 25°. Feather именно в момент эталона — (A).
@@ -131,7 +148,7 @@ return 1.0f + f1 * (p1 - 1.0f) + f2 * (p2 - 1.0f);
 ## 3. Рекомендуемые срезы
 
 ### F0 — замер и эталон, без кода плагина
-Файлы: `ProdProbe/refab22.py`, `ProdProbe/refcmp.py`, `ProdProbe/ref22_setup.ps1` (новые), `FogMS_Prod_Report.md`.
+Файлы: `ProdProbe/refab22.py`, `ProdProbe/refcmp.py`, `ProdProbe/ref22_setup.ps1` (новые), `docs/history/FogMS_Prod_Report.md`.
 1. Записаны фаза тумана, SSFS, солнце, авторские параметры против снимка 21.09.
 2. Таблица компонент с повторами: только штатный туман / только прямой свет / гибрид / полное поле / overlay / ± SSFS / плотность как 22.09 / 96/8 холодный + `SkySource 3`.
 3. `mediumcheck.py` для авторского набора и набора 22.09.
@@ -162,7 +179,7 @@ return 1.0f + f1 * (p1 - 1.0f) + f2 * (p2 - 1.0f);
 Выключено — в пределах шума; Σ Direct ±1 %; кромка темнеет ≤ 5 %; ≤ 0,02 мс; нет протечки.
 
 ### F-doc
-`FogMS_UserGuide.md`, `FogMS_Prod_Report.md`, `FogMS_HANDOVER.md`, `CHANGELOG.md`: каждое новое свойство описано (что делает, цена, значение по умолчанию).
+`FogMS_UserGuide.md`, `docs/history/FogMS_Prod_Report.md`, `FogMS_HANDOVER.md`, `CHANGELOG.md`: каждое новое свойство описано (что делает, цена, значение по умолчанию).
 
 ## 4. План проверки
 

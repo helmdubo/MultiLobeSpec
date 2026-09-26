@@ -1,5 +1,7 @@
 # FogMS animation GPU probe
 
+> Статус (2026-09-27): исторический документ инструмента этапа B3 (анимация плотности, 21.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](../README.md).
+
 This suite is explicit and asynchronous. It uses only the existing editor map `/Game/FogMS_Test/FogMS_Box`, outside PIE, and the existing `FogMS - Live Box`. It creates no actors or maps and never saves the scene or camera. It temporarily changes the Box scattering mode, animation controls and transform; switches the two Transport fixture CVars to zero; and disables editor throttling/autosave. Every mutation is restored from a fresh durable snapshot, not from a historical baseline.
 
 ## Run

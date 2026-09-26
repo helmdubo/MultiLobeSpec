@@ -1,5 +1,7 @@
 # Directional density motion contract
 
+> Статус (2026-09-27): исторический документ инструмента этапа B3 (контракт направленного ветра, 21.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](README.md).
+
 New FogMS actors default to Directional Wind. Previously serialized actors with no `FogMSDirectionalMotion` custom version are loaded as Legacy Velocity Vectors. Their three existing vector property names, values and absolute-time animation behavior are retained. Migration is explicit through `Use Directional Motion`; no scene asset is automatically saved or rewritten.
 
 ## Artist controls

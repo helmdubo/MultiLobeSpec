@@ -2,6 +2,22 @@
 
 # FogMS: дизайн плотности Box (эрозия, профили высоты, рельеф, weather map)
 
+> **Статус на 2026-09-27 (код — коммит `083341c`): частично устарел; S0–S2 реализованы.** Раздел 3 цитирует код
+> (`FogMS_BoxVolume.h:36`, `FogMS_BoxVolume.cpp:618`), номера разделов не менялись.
+> - S0 (`c798eda`): пакет Box 24 → 32 строки (`FogMSRender::BoxRowCount`). S1 эрозия (строка 24) и S2 профиль высоты (строки
+>   25–26, пресеты Stratus/Cumulus/Cumulonimbus/Valley Fog) — `4871e1a`; материал: узел `FogMS_Extinction` v2 (раунд 32), затем
+>   v3 с префильтром по глубине (W36).
+> - Отличия от текста (`b2a8912`, раунд 33): `Erosion Depth` по умолчанию 0,15 (не 0,3); Cumulus 0,10/0,80/0,05/0,20/0 (не
+>   0,10/0,70/0,02/0,45/0); Cumulonimbus 0,05/0,98/0,02/0,15/1,0; множителя `Coverage` нет (он относился к S3). Комментарий
+>   `FogMS_BoxVolume.cpp:618` ссылается на таблицу §3, но значения в коде — новые.
+> - §1 устарел: `matedit_density.py` (`ush_sync_check`) сверяет текст `EXTINCTION_CODE_V3` с копией в `FogMS_Indirect.ush`.
+>   Скрипт только правит существующий `M_FogMS_Density`; исходный граф создавал внешний `create_density_material.py`, которого
+>   в репозитории нет, поэтому базовый материал из репозитория с нуля не собирается (`FogMS_UserGuide.md` §9).
+> - S3 (карта `FogMS_BoxMap` на Box) не реализован: строки 27–28 зарезервированы нулями, строку 29 занял `Sun Softness` (W37);
+>   погода сделана глобальным актёром (`AFogMSWeather`, `FogMS_Weather_Design.md`, W48), влияние погоды на Box — `Weather
+>   Influence` в плане W53.
+> - Не сделано и не в текущем плане: S4 (прижатие к рельефу), S5 (альбедо по ячейке, шторм).
+
 Это только дизайн, код не менялся. Ссылки проверены на HEAD `08de197`. Метки: **V** = VERIFIED (проверено по файлу), **NF** = NOT FOUND (не найдено), **A** = ASSUMED (предположение).
 
 ## 1. Как сейчас согласованы материал и `.ush`
@@ -27,7 +43,7 @@ HLSL внутри `M_FogMS_Density.uasset` прочитан как ASCII-стр�
 | `FogMS_WorldExtent` | 2–4.w | `Extent` |
 | `FogMS_Albedo` | 23.rgb | — |
 
-Единицы 1/м → 1/см: штатная вокселизация делит на 100. Это подтверждено калибровкой с отклонением ≤0.147% (`FogMS_TextureDensity_Report.md:71`, V).
+Единицы 1/м → 1/см: штатная вокселизация делит на 100. Это подтверждено калибровкой с отклонением ≤0.147% (`docs/archive/FogMS_TextureDensity_Report.md:71`, V).
 
 **Материал** (`Custom_3`, строка в uasset):
 ```hlsl
@@ -53,7 +69,7 @@ return Data.DensityPerCm * Mask * Fade;
 
 Байты текстуры одни и те же: атлас BGRA8 UNORM, копия mip 0 без конверсии (`FogMS_DensityAtlas.usf:1-4`, V).
 
-**Проверка согласованности существует одна.** Это `FogMS.Debug 1` (σt материала из VBuffer, `MultiLobeShaderPatcher.cpp:829`) против `FogMS.Debug 4` (`FogMS_AuthoredDensity` в центре фроксела, :833). Шкала одна: `σt[1/см]·1e4` (`FogMS_Common.ush:234`). После вычитания фона height fog MAE было: white **1.91e-5**, Perlin **5.96e-5**, повёрнутый/отрицательный масштаб **5.60e-5** (`FogMS_A1c_Report.md:49-53,80`, V). После A1c (detail, world-aligned) замер не повторяли (NF).
+**Проверка согласованности существует одна.** Это `FogMS.Debug 1` (σt материала из VBuffer, `MultiLobeShaderPatcher.cpp:829`) против `FogMS.Debug 4` (`FogMS_AuthoredDensity` в центре фроксела, :833). Шкала одна: `σt[1/см]·1e4` (`FogMS_Common.ush:234`). После вычитания фона height fog MAE было: white **1.91e-5**, Perlin **5.96e-5**, повёрнутый/отрицательный масштаб **5.60e-5** (`docs/archive/FogMS_A1c_Report.md:49-53,80`, V). После A1c (detail, world-aligned) замер не повторяли (NF).
 
 ## 2. (a) Эрозия краёв
 
@@ -150,7 +166,7 @@ Noise *= P * Coverage;   // до ранних выходов
 Критерии S1:
 1. при ES = 0 дамп побитово равен прежнему;
 2. Debug1/4 MAE не хуже **5.96e-5**;
-3. PSNR внутри Box в `abinject.sh` не ниже базы (**37.8 дБ**, `FogMS_Prod_Report.md:131-134`; в HANDOVER 44 дБ для раунда 12);
+3. PSNR внутри Box в `abinject.sh` не ниже базы (**37.8 дБ**, `docs/history/FogMS_Prod_Report.md`, «Раунд 7»; в HANDOVER 44 дБ для раунда 12);
 4. стоимость `transport` в GPU-профиле ±5%;
 5. визуальная оценка за владельцем.
 

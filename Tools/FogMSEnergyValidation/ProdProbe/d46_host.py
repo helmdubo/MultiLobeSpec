@@ -3,7 +3,7 @@
 owner's rule 2026-09-26: no screenshot series; he judges the look by eye). Checks by status strings, engine/host readback and the
 editor log, plus ONE GPU cost number of the host (defaults: render-target mode 3 near the camera, Host Prefilter 1).
 
-What W46 changed (FogMS_UserGuide.md section 4 'Render Path', FogMS_Prod_Report.md):
+What W46 changed (FogMS_UserGuide.md section 4 'Render Path', docs/history/FogMS_Prod_Report.md):
   1. solver: Sun Softness > 0 -> the sun at all 8 subcell points every solve (ProfileGPU pass name '... [sun 8 points]');
   2. Render Path class default Cloud Host; no host -> froxel fallback + status 'click Create Cloud Host';
   3. the host follows the Box: host MID every update, layer refitted to the density band +-10 m with 5 m hysteresis;

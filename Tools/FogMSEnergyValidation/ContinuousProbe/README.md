@@ -1,5 +1,7 @@
 # Continuous native viewport motion probe
 
+> Статус (2026-09-27): исторический документ инструмента пакета 6 (View Integration, 22.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](../README.md).
+
 This records **during** W/S travel, comparing `r.FogMS.ViewIntegration 0` and `2` at identical frozen density. It does not decide image quality. No UE/editor calls have been run as part of developing this harness.
 
 The current viewport is the **near endpoint**. The far endpoint is 20,000 cm behind it along the current camera forward vector; rotation and FOV stay fixed. Each mode warms for 60 engine frames at an endpoint, travels forward over 180 engine frames, warms again, and travels back over 180 frames. Four legs therefore use at least 960 engine frames. There are at most 16 screenshot requests per leg. All native and FogMS SSFS is temporarily disabled, game view enabled, animation frozen with the native phase-preserving API, and background throttling/autosave disabled. No map, level or asset is saved or created.

@@ -1,0 +1,20 @@
+{
+ "matedit": {
+  "lines": [
+   "CREATED /MultiLobeSpec/FogMS/Weather/M_FogMS_WeatherSky",
+   "COMPILE M_FogMS_WeatherSky: shader compiled (log E:\\GITHUB\\MultiLobeSpec\\.codex-build\\FogMS_Prod_20260922\\Main49.log)",
+   "T_FogMS_WeatherPattern current",
+   "T_FogMS_Curl2D current",
+   "T_FogMS_CloudTypeLUT current",
+   "M_FogMS_WeatherCompose current []",
+   "M_FogMS_WeatherSun current []",
+   "M_FogMS_WeatherSky built ['saved=True']",
+   "DA_FogMS_Weather_Clear present (cirrus 0.00 at 8.0 km)",
+   "DA_FogMS_Weather_Scattered present (cirrus 0.30 at 8.0 km)",
+   "DA_FogMS_Weather_Broken present (cirrus 0.30 at 7.0 km)",
+   "DA_FogMS_Weather_Overcast present (cirrus 0.00 at 8.0 km)",
+   "WEATHER_OK /MultiLobeSpec/FogMS/Weather (FogMS_Weather v1, FogMS_WeatherSky v1)"
+  ],
+  "ok": true
+ }
+}

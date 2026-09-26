@@ -1,5 +1,7 @@
 # Receiver reconstruction: отдельный явный запуск
 
+> Статус (2026-09-27): исторический документ инструмента этапа B2 (21.09.2026). В текущий цикл проверки (`ProdProbe/`) не входит; соответствие текущему коду не перепроверялось. Сводка по папке — [`Tools/FogMSEnergyValidation/README.md`](../README.md).
+
 Требуется Package6 с `r.FogMS.Transport.TestReconstruction` и диагностическим проходом, вызывающим тот же `FogMS_TransportFieldIncident`, что штатный приёмник. Открываются уже существующие FogMS_Box и Pillar 1; подготовка/восстановление и шесть случаев совпадают с [Wall](gpu_wall_protocol.md). Ничего не запускается автоматически, новые уровни/акторы не создаются, карта не сохраняется.
 
 Отдельный конфиг `gpu_wall_reconstruction_config.json` содержит `reconstruction_test=true`; задайте новый id, пример — `wall-reconstruction-repro-001`. В консоли/Output Log UE укажите **абсолютный путь своего checkout**:

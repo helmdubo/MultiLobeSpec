@@ -1,5 +1,13 @@
 # FogMS — Литература и референсы (для общего ознакомления)
 
+> **Статус на 2026-09-27: справочник, частично устарел; сами ссылки действуют.**
+> - Деление по этапам A1 / A1b / A2 / B и роли «исполнитель / исследователь» — исторические (этапы завершены, отчёты — в
+>   `docs/archive/`; текущая работа — облачный хост и погода).
+> - Исправленные адреса (Oz 2013, Frostbite 2016) и проверка Kovalovs — в §7, а не в §2 и §5.
+> - Литература по освещению облаков — `FogMS_Cloud_Lighting_Review.md` §5; по погоде (WMO, Stephens AT622, MSFS SDK, Ultra
+>   Dynamic Sky, NOAA/AMS) — `FogMS_Weather_Design.md` §8; сюда не перенесена.
+> - Правило «исходники UE 5.8.2 — источник истины» остаётся в силе.
+
 **Кому:** агенту-исполнителю. **Статус:** справочник, не задание. Ничего из списка не обязательно читать целиком — бери по этапу, на котором работаешь.
 
 Правила пользования:
@@ -121,7 +129,7 @@
 - Lumen Technical Details (surface cache, distance fields, HWRT, ограничения тонких стен): https://dev.epicgames.com/documentation/en-us/unreal-engine/lumen-technical-details-in-unreal-engine
 - Wright и др. — «Lumen: Real-Time Global Illumination in Unreal Engine 5», SIGGRAPH 2022 (Advances) — в т.ч. как Lumen кормит volumetric fog. **[URL не проверен]**
 - Kovalovs — «Volumetric Effects of The Last of Us Part II», SIGGRAPH 2020 — практика froxel-тумана в продакшене: джиттер, temporal, композит. **[URL не проверен]**
-- Bauer — «Creating the Atmospheric World of Red Dead Redemption 2», SIGGRAPH 2019 — [доклад и официальный PPTX](https://www.advances.realtimerendering.com/s2019/index.htm). Проверено 2026-09-21: слайд 35 — фильтрованная cloud ESM; 66–70 — sky irradiance и reflections с scattering/transmittance. Применение к FogMS и границы — `FogMS_A1f_Research.md`.
+- Bauer — «Creating the Atmospheric World of Red Dead Redemption 2», SIGGRAPH 2019 — [доклад и официальный PPTX](https://www.advances.realtimerendering.com/s2019/index.htm). Проверено 2026-09-21: слайд 35 — фильтрованная cloud ESM; 66–70 — sky irradiance и reflections с scattering/transmittance. Применение к FogMS и границы — `docs/archive/FogMS_A1f_Research.md`.
 
 ### Дополнение заказчика: Nubis³ (2026-09-20)
 
@@ -130,7 +138,7 @@
 - Материалы курса: https://www.advances.realtimerendering.com/s2023/index.html
 - PDF: https://d3d3g8mu99pzk9.cloudfront.net/AndrewSchneider/Nubis%20Cubed.pdf
 
-**Проверено:** описание и релевантные разделы PDF, скачанного отдельно после отказа web-fetch. Освещение PDF 126–157 прочитано; формулы/схемы 129/142/150 проверены визуально. Поправки к присланному research и исходники возможностей UE — `FogMS_Nubis_Review.md`. Полное чтение всех 220 страниц не заявляется. Применимость к native UE froxel grid требует проверки; текущий A1b не является реализацией Nubis³.
+**Проверено:** описание и релевантные разделы PDF, скачанного отдельно после отказа web-fetch. Освещение PDF 126–157 прочитано; формулы/схемы 129/142/150 проверены визуально. Поправки к присланному research и исходники возможностей UE — `docs/archive/FogMS_Nubis_Review.md`. Полное чтение всех 220 страниц не заявляется. Применимость к native UE froxel grid требует проверки; текущий A1b не является реализацией Nubis³.
 
 ---
 
