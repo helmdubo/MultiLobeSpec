@@ -235,6 +235,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather|Sky", meta=(DisplayName="Sky Dome", ToolTip="W49: draw the weather clouds (low layer, deck, cirrus) on the sky with an Is Sky dome (M_FogMS_WeatherSky). The SkyLight's Real Time Capture then sees them: the sky light, the fog and the FogMS solver darken with the weather. Needs a SkyAtmosphere. Off (or Clear): the sky is the level's own. r.FogMS.Weather.SkyDome 0 hides it everywhere."))
 	bool bSkyDome = true;
 
+	/** W51 field prototype: show L0/L1 in the existing native cloud host. Off keeps the proven W50 dome. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather|Sky", meta=(DisplayName="Native Weather Preview", ToolTip="Experimental: render the low weather and deck in the same Volumetric Cloud Host as the local Box. The host spans both altitude bands; this can cost more and reduce local detail. Turn off to return to the W50 sky dome."))
+	bool bNativeWeatherPreview = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(EditCondition="bNativeWeatherPreview", ClampMin="1.0", ClampMax="20.0", Units="km", DisplayName="Native Weather Trace Distance"))
+	float NativeWeatherTraceDistanceKm = 6.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="5.0", ClampMax="400.0", Units="km", ToolTip="How far along the view ray the dome marches the low layer and the deck (physical scale, x Weather Scale); the density fades out over the last 40 % (the cirrus reaches twice as far). Beyond it the aerial perspective hides the clouds anyway."))
 	float SkyMaxDistanceKm = 60.0f;
 

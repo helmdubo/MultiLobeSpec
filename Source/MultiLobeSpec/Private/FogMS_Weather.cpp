@@ -336,7 +336,11 @@ bool AFogMSWeather::IsSkyDomeActive(const UWorld* World)
 {
 	if (!World) return false;
 	for (TActorIterator<AFogMSWeather> It(const_cast<UWorld*>(World)); It; ++It)
-		if (!It->IsActorBeingDestroyed() && It->bSkyDomeActive) return true;
+		if (!It->IsActorBeingDestroyed() && (It->bSkyDomeActive ||
+			(It->bNativeWeatherPreview && It->bEnabled && It->bFeeding && It->LightingFedFrame + 1 >= GFrameCounter &&
+			 (It->CurrentValues.HasLowLayer() || It->CurrentValues.HasDeck()) && It->GetWorld() &&
+			 It->GetWorld()->GetSubsystem<UFogMSCloudHostSubsystem>() &&
+			 It->GetWorld()->GetSubsystem<UFogMSCloudHostSubsystem>()->IsWeatherViewActive()))) return true;
 	return false;
 }
 
@@ -765,6 +769,8 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 	FFogMSWeatherFeed Feed;
 	Feed.Owner = this;
 	Feed.bActive = bActive;
+	Feed.bViewWeather = bActive && bNativeWeatherPreview;
+	Feed.ViewTraceDistanceKm = FMath::Clamp(NativeWeatherTraceDistanceKm, 1.0f, 20.0f);
 	bool bSecondAtmosphereLight = false;
 	ForEachObjectOfClass(UDirectionalLightComponent::StaticClass(), [&bSecondAtmosphereLight, World](UObject* Object)
 	{
@@ -776,7 +782,7 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 	// The host's BaseColor modulates native sun scattering: with two atmosphere lights it cannot separate their terms.
 	// Disable both consumers together until there is a per-light native adapter; never silently shade the moon as sunlight.
 	Feed.bLightLocalClouds = bLightLocalClouds && bSunMapValid && Sun && ToSun.Z > 0.0 && !bSecondAtmosphereLight;
-	Feed.bThinLayer = bThin;
+	Feed.bThinLayer = bThin && !Feed.bViewWeather;
 	Feed.BottomCm = bActive ? FMath::Max(0.0, FMath::FloorToDouble(Bottom / Step) * Step) : 0.0;
 	Feed.TopCm = bActive ? FMath::CeilToDouble(Top / Step) * Step : 0.0;
 	Feed.BaseCm = bActive ? Base : 0.0;
@@ -844,10 +850,15 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 	WeatherStatus = FString::Printf(TEXT("%s: %s: %s | map %d^2 over %.1f km (%.0f m/texel), drawn %d x | %s | %s | %s | %s"),
 		bActive ? TEXT("Active") : (V.HasCirrus() ? TEXT("Cirrus only") : TEXT("Clear")), *StateText, *FogMS_ValuesText(V), FogMS_WeatherMapSize,
 		DomainCm * 1.0e-5, DomainCm * 0.01 / FogMS_WeatherMapSize, MapDrawCount,
-		bThin ? TEXT("shadow layer: thin (the weather column spread over the host layer)") : TEXT("shadow layer: extended host layer"),
+		bNativeWeatherPreview && Hosts->IsWeatherViewActive() ? TEXT("shadow layer: physical L0/L1 in native host")
+			: bThin ? TEXT("shadow layer: thin (the weather column spread over the host layer)") : TEXT("shadow layer: extended host layer"),
 		*HostNote, *SunNote, *SkyNote);
 	WeatherStatus += LightingSnapshot.bActive ? TEXT(" | local-cloud sunlight: weather column + MS transport (primary atmosphere sun)")
 		: TEXT(" | local-cloud sunlight: weather attenuation off");
+	if (bNativeWeatherPreview)
+		WeatherStatus += Hosts->IsWeatherViewActive()
+			? TEXT(" | W51 native weather view: physical L0/L1 on the shared cloud host (field prototype)")
+			: TEXT(" | W51 native weather view requested; host unavailable, dome fallback");
 	if (bLightLocalClouds && bActive && bSecondAtmosphereLight) WeatherStatus += TEXT(" (two atmosphere lights are not supported by the local-cloud solar adapter)");
 	else if (bLightLocalClouds && bActive && Sun && ToSun.Z <= 0.0) WeatherStatus += TEXT(" (sun below horizon: local-cloud solar adapter inactive)");
 }
@@ -859,6 +870,14 @@ void AFogMSWeather::UpdateSkyDome(const FFogMSWeatherValues& V, double Scale, co
 	if (!SkyDome || !World) return;
 	if (!bSkyDome) { HideSkyDome(TEXT("Sky Dome unticked")); return; }
 	if (CVarWeatherSkyDome.GetValueOnGameThread() == 0) { HideSkyDome(TEXT("r.FogMS.Weather.SkyDome 0")); return; }
+	const UFogMSCloudHostSubsystem* Hosts = World->GetSubsystem<UFogMSCloudHostSubsystem>();
+	const bool bNativeView = bNativeWeatherPreview && Hosts && Hosts->IsWeatherViewActive();
+	if (bNativeView && !V.HasCirrus())
+	{
+		HideSkyDome(TEXT("L0/L1 are rendered by the native weather cloud host"));
+		SkyNote = TEXT("native weather cloud host visible; sky dome off; SkyLight capture includes weather only");
+		return;
+	}
 	if (!V.HasLowLayer() && !V.HasDeck() && !V.HasCirrus())
 	{
 		HideSkyDome(TEXT("no visible layer (Clear): the sky is the level's own"));
@@ -916,8 +935,10 @@ void AFogMSWeather::UpdateSkyDome(const FFogMSWeatherValues& V, double Scale, co
 	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherOrigin"), Origin);
 	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherDomain"), Domain);
 	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherWind"), Wind);
-	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherL0"), L0);
-	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherL1"), L1);
+	// In the W51 prototype the dome supplies only cirrus and the ordinary atmosphere.
+	// L0/L1 come from the host's real volume and must not be drawn a second time.
+	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherL0"), bNativeView ? FLinearColor::Transparent : L0);
+	SkyMID->SetVectorParameterValue(TEXT("FogMS_WeatherL1"), bNativeView ? FLinearColor::Transparent : L1);
 	// Cirrus (coverage, altitude cm, optical depth, streak direction rad), march (max distance cm, L0 / deck steps, sun samples), light
 	// (phase g forward / back, back weight, sky light at the cloud base).
 	SkyMID->SetVectorParameterValue(TEXT("FogMS_SkyL2"), V.HasCirrus()
@@ -957,14 +978,17 @@ void AFogMSWeather::UpdateSkyDome(const FFogMSWeatherValues& V, double Scale, co
 	FString HeroNote;
 	if (const UMaterial* HostMaterial = UFogMSCloudHostSubsystem::GetCloudHostMaterial())
 	{
-		ForEachObjectOfClass(UVolumetricCloudComponent::StaticClass(), [&HeroNote, World, HostMaterial](UObject* Object)
+		ForEachObjectOfClass(UVolumetricCloudComponent::StaticClass(), [&HeroNote, World, HostMaterial, bNativeView](UObject* Object)
 		{
 			const UVolumetricCloudComponent* Cloud = static_cast<const UVolumetricCloudComponent*>(Object);
 			const UMaterialInterface* CloudMaterial = Cloud->Material.Get();
 			if (!HeroNote.IsEmpty() || Cloud->GetWorld() != World || !Cloud->IsRegistered() || !Cloud->GetVisibleFlag() || !CloudMaterial
 				|| CloudMaterial->GetMaterial() != HostMaterial || !Cloud->bVisibleInRealTimeSkyCaptures) return;
-			HeroNote = FString::Printf(TEXT("; WARNING cloud host '%s' is Visible In Real Time Sky Captures: the hero clouds darken the whole sky light and feed their own sky (untick it)"),
-				Cloud->GetOwner() ? *Cloud->GetOwner()->GetActorNameOrLabel() : *Cloud->GetName());
+			HeroNote = bNativeView
+				? FString::Printf(TEXT("; native weather host '%s' is included in Real Time Sky Captures (W51 material excludes the local Box)"),
+					Cloud->GetOwner() ? *Cloud->GetOwner()->GetActorNameOrLabel() : *Cloud->GetName())
+				: FString::Printf(TEXT("; WARNING cloud host '%s' is included in Real Time Sky Captures without weather-only isolation"),
+					Cloud->GetOwner() ? *Cloud->GetOwner()->GetActorNameOrLabel() : *Cloud->GetName());
 		}, true, RF_ClassDefaultObject | RF_ArchetypeObject, EInternalObjectFlags::Garbage);
 	}
 	SkyNote = FString::Printf(TEXT("sky dome on (%.0f km, %d/%d steps, %d sun samples; clouds within %.0f km): %s%s"), SkyDomeRadiusKm,

@@ -25,6 +25,9 @@ struct FPropertyChangedEvent;
 struct FFogMSWeatherFeed
 {
 	bool bLightLocalClouds = false;
+	/** W51 prototype: sample physical weather in the host's visible cloud pass. Off preserves W50. */
+	bool bViewWeather = false;
+	float ViewTraceDistanceKm = 6.0f;
 	TWeakObjectPtr<const AActor> Owner;
 	/** Some weather density exists (a layer with coverage > 0 and extinction > 0, and the weather map passed its RGBA write check). False
 	 * (Clear, or the map is not usable): the shadow branch is off and nothing of the host changes. */
@@ -199,6 +202,8 @@ public:
 	void StopWeather(const AActor& Owner, const TCHAR* Reason);
 	/** W48: the fed weather found no cloud host in this world (none exists, not even a hidden one). */
 	bool WeatherNeedsHost() const { return bWeatherNeedsHost; }
+	/** True only after a live host has accepted the W51 visible-weather feed. */
+	bool IsWeatherViewActive() const { return bWeatherHostUsable && WeatherFeed.bActive && WeatherFeed.bViewWeather; }
 	/** W48: the host part of the weather actor's status (from the last tick). */
 	const FString& GetWeatherNote() const { return WeatherNote; }
 	/** W48: a Box renders through the cloud component of HostActor (its hero part is in use). */
@@ -232,6 +237,10 @@ private:
 		TWeakObjectPtr<UMaterialInstanceDynamic> WeatherMID;
 		/** A user's replacement suspends automatic weather material acquisition until weather stops/Clear or a Box adopts the host. */
 		bool bWeatherMaterialReplaced = false;
+		/** W51: restore settings borrowed from a host when the visible-weather experiment ends. */
+		bool bWeatherViewSaved = false;
+		bool bSavedCaptureVisibility = false;
+		float SavedViewTraceDistanceKm = 0.0f;
 		float SavedLayerBottomKm = 0.0f;
 		float SavedLayerHeightKm = 0.1f;
 		float SavedStartDistanceKm = 0.0f;

@@ -64,6 +64,15 @@ v4 (W48 phase 2, the round-48 cost measurement): the Hero input of FogMS_CloudSh
   (EXTINCTION_CODE_V3 verbatim as a method, the same inputs, checked pin by pin against FogMS_Extinction_v3) with its three FogMS_Noise
   fetches (a FogMS_Noise texture object: the same parameter) only where FogMS_CloudConservative > 0. v3 ran the hero's fetches and math
   at every weather sample of the shadow pass (thin layer at the owner's low sun: 16 ms). View pass unchanged. v3 -> v4 rebuild in place.
+v5 (W50): shared physical weather-sun transmission modulates hero direct BaseColor when the transport field is valid; the MS solver
+  receives that same weather-attenuated sunlight separately. No visible weather extinction.
+v6 (W51 prototype): FogMS_WeatherViewOn defaults to 0 and the visible view remains exactly v5 until enabled by the host. With the
+  switch on, weather uses physical Sigma in the native cloud view alongside the hero. Extinction adds, conservative density unions,
+  and BaseColor/AO are extinction-weighted. Native per-step weather shadowing replaces the extra W50 direct-sun multiplier while the
+  solver retains its weather-attenuated incident field. Reflection captures keep only the weather medium when enabled, excluding hero
+  extinction and field Emissive. The shadow pass remains the prior hero+weather sum, with no second weather term. This initial
+  prototype shares the host's phase function between hero and weather; spatial sky occlusion remains separate. Thin weather is
+  forcibly bypassed when the visible switch is on. The C++ host must place the layer at its physical altitude.
 Output: MATERIAL_OK saved=<bool> ... | ALREADY_PATCHED ... | TRACE <traceback>."""
 import ast
 import glob
@@ -81,7 +90,7 @@ MATERIAL_NAME = 'M_FogMS_Cloud'
 INSTANCE_NAME = 'MI_FogMS_Cloud'
 MATERIAL_PATH = ASSET_DIR + '/' + MATERIAL_NAME
 INSTANCE_PATH = ASSET_DIR + '/' + INSTANCE_NAME
-MARKER = 'FogMS_Cloud v5'
+MARKER = 'FogMS_Cloud v6'
 DEFAULT_VOLUME = '/MultiLobeSpec/FogMS/T_FogMS_DefaultVolume'
 DENSITY_MATERIAL = '/MultiLobeSpec/FogMS/M_FogMS_Density'
 GROUP = 'FogMS Cloud'
@@ -107,7 +116,8 @@ SCALARS = (('FogMS_WorldAligned', 0.0), ('FogMS_DetailScale', 4.0), ('FogMS_Thre
            # v2 (W46 anti-dither): the Box's Host Prefilter (0 = off, the v1 material) and the host's ray-march step [cm] (subsystem)
            ('FogMS_CloudPrefilter', 0.0), ('FogMS_CloudStep', 0.0),
            # v3 (W48): the weather branch (off), thin layer mode, the Box's conservative margin for the empty-step skip [cm]
-           ('FogMS_WeatherOn', 0.0), ('FogMS_WeatherLightingOn', 0.0), ('FogMS_WeatherThin', 0.0), ('FogMS_CloudSkipMargin', 0.0))
+           ('FogMS_WeatherOn', 0.0), ('FogMS_WeatherLightingOn', 0.0), ('FogMS_WeatherViewOn', 0.0),
+           ('FogMS_WeatherThin', 0.0), ('FogMS_CloudSkipMargin', 0.0))
 VECTORS = (('FogMS_TileScale', (1.0, 1.0, 1.0, 0.0)), ('FogMS_WorldFrequencies', (0.0005, 0.002, 0.004, 0.0)),
            ('FogMS_WorldPhase0', (0.0, 0.0, 0.0, 0.0)), ('FogMS_WorldPhase1', (0.0, 0.0, 0.0, 0.0)),
            ('FogMS_WorldPhase2', (0.0, 0.0, 0.0, 0.0)), ('FogMS_ChannelMask', (1.0, 0.0, 0.0, 0.0)),
@@ -144,12 +154,21 @@ EMISSIVE_CODE = """// Cloud-host copy of FogMS_EmissiveInjection (field contract
 // cloud adds Emissive as luminance per metre (VolumetricCloud.usf), the units of sigma_s[1/m] * J.
 float V = (Mode > 0.5f && FieldA >= 0.5f) ? 1.0f : 0.0f;
 return V * Field * Albedo * max(Extinction, 0.0f) * Gain;"""
-ALBEDO_CODE = """// Cloud host BaseColor: the albedo of the cloud's own sun single scattering (per-step march toward the sun, host phase). Mode 3
-// (Box 'Field Only (Debug)'): 0, the solver's full field alone (Emissive), extinction unchanged, as M_FogMS_Density mode 3.
-return (Mode > 2.5f) ? float3(0.0f, 0.0f, 0.0f) : Albedo * WeatherT;"""
-SKY_AO_CODE = """// Cloud host: the cloud's own sky light is replaced by the field (which carries the sky with the medium's self-shadowing): AO 0 with
-// a valid field, 1 without (then the cloud lights the Box with the unshadowed distant sky, VolumetricCloud.usf DistantLightLuminance).
-return (Mode > 0.5f && FieldA >= 0.5f) ? 0.0f : 1.0f;"""
+ALBEDO_CODE = """// W51: native scattering albedo is sigma_s / sigma_t for the combined hero and weather medium. Weather is near-white
+// (0.98); WeatherT is applied only to hero scattering. In the visible-weather mode WeatherT is 1 because the native
+// per-step sun march traverses weather. With ViewOn=0 return v5 exactly, including Field Only debug.
+float3 HeroAlbedo = (Mode > 2.5f) ? float3(0.0f, 0.0f, 0.0f) : Albedo * WeatherT;
+if (ViewOn < 0.5f) return HeroAlbedo;
+float H = max(Hero, 0.0f);
+float W = max(Weather, 0.0f);
+return (H + W > 1e-6f) ? (H * HeroAlbedo + W * float3(0.98f, 0.98f, 0.98f)) / (H + W) : HeroAlbedo;"""
+SKY_AO_CODE = """// W51: hero sky is carried by its transport field; weather sky uses native volumetric-cloud sky. Mix by extinction.
+// ViewOn=0 returns the v5 AO exactly. This is an initial local approximation, not spatial sky occlusion.
+float HeroAO = (Mode > 0.5f && FieldA >= 0.5f) ? 0.0f : 1.0f;
+if (ViewOn < 0.5f) return HeroAO;
+float H = max(Hero, 0.0f);
+float W = max(Weather, 0.0f);
+return (H + W > 1e-6f) ? (H * HeroAO + W) / (H + W) : HeroAO;"""
 CONSERVATIVE_CODE = """// FogMS_CloudConservative v2 (W48). Cloud host conservative density (Volumetric Advanced Output, x): 1 where the Box can hold density,
 // 0 where it provably cannot, so empty ray-march steps skip the material (VolumetricCloud.usf: conservative density <= 0 -> next step,
 // r.VolumetricCloud.StepSizeOnZeroConservativeDensity steps at once in the view pass). An unfed host (FogMS_Density 0, the material
@@ -172,15 +191,18 @@ return float3((Inside && Band) ? 1.0f : 0.0f, 0.0f, 0.0f);"""
 WEATHER_FN_CODE = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
     '../../../Shaders/Private/FogMS_WeatherLighting.ush'), encoding='utf-8').read()
 WEATHER_LIGHT_CODE = WEATHER_FN_CODE + r"""// W50: primary-sun transmission at the native hero cloud sample.
+// W51 visible weather is already in the native per-step sun march, so skip this extra factor there. The transport field still
+// receives its weather-attenuated incident sun from FogMS_Transport.usf. Without W51 return the v5 result exactly.
 // Only with a valid MS field (native sky is then disabled); never darken the fallback sky through BaseColor.
+if (ViewOn > 0.5f) return 1.0f;
 if (On < 0.5f || Mode < 0.5f || FieldA < 0.5f) return 1.0f;
 FogMSWeatherFn W;
 return W.SunTransmittance(Offset.xy - Wind.xy, Altitude, SunDir.xyz, Domain, L0, L1,
     Map, MapSampler, SunMap, SunMapSampler, TypeLUT, TypeLUTSampler, Pattern, PatternSampler, Curl, CurlSampler, true);
 """
 
-WEATHER_EXTINCTION_CODE = WEATHER_FN_CODE + r"""// FogMS_WeatherExtinction v1 (W48): the weather's sigma_t [1/m] at this sample of the CLOUD SHADOW PASS (it feeds the Shadow input
-// of the extinction's Shadow Pass Switch only; the view pass never evaluates it). Off (On 0: no FogMS Weather, Clear): exactly 0.
+WEATHER_EXTINCTION_CODE = WEATHER_FN_CODE + r"""// FogMS_WeatherExtinction v2 (W51): the weather's sigma_t [1/m] at this sample. The shadow pass
+// always uses it; W51 visible weather reuses the same physical extinction in the view. Off (On 0: no weather, Clear): exactly 0.
 // Extended layer (Thin 0): FogMSWeatherFn.Sigma at the sample. Thin layer (Thin 1): every sample of a shadow texel lies on the same sun
 // line inside the host layer; G = that line's ground point, OD(G) = RT_FogMS_WeatherSun (the whole weather column along the sun), and
 // sigma = OD(G) / (the layer's path along the sun [m]) makes the samples of the texel sum to OD(G): the ground gets exp(-OD).
@@ -189,7 +211,8 @@ WEATHER_EXTINCTION_CODE = WEATHER_FN_CODE + r"""// FogMS_WeatherExtinction v1 (W
 if (On < 0.5f) return 0.0f;
 FogMSWeatherFn W;
 float2 XY = Offset.xy - Wind.xy;
-if (Thin > 0.5f)
+// A visible medium must use the physical layer, never smear a ground-column optical depth through a thin carrier.
+if (Thin > 0.5f && ViewOn < 0.5f)
 {
     float Up = max(SunDir.z, 0.05f);
     float2 G = XY - SunDir.xy * (Altitude / Up);
@@ -199,11 +222,11 @@ if (Thin > 0.5f)
 return W.Sigma(XY, Altitude, Domain, L0, L1, Map, MapSampler, TypeLUT, TypeLUTSampler, Pattern, PatternSampler, Curl, CurlSampler);
 """
 
-WEATHER_CONSERVATIVE_CODE = r"""// FogMS_WeatherConservative v1 (W48): conservative density of the weather in the cloud shadow pass: 1 where FogMS_WeatherExtinction
+WEATHER_CONSERVATIVE_CODE = r"""// FogMS_WeatherConservative v2 (W51): conservative density of the weather in the cloud shadow pass: 1 where FogMS_WeatherExtinction
 // can be > 0. Extended: inside a layer's altitudes with that layer's map channel > 0 at this point (FogMSWeatherFn is exactly 0
 // elsewhere: the channel multiplies the density); thin: 1 everywhere in the host layer while on (the column is known only after the lookup).
 if (On < 0.5f) return 0.0f;
-if (Thin > 0.5f) return 1.0f;
+if (Thin > 0.5f && ViewOn < 0.5f) return 1.0f;
 bool In0 = L0.z > 0.0f && Altitude > L0.x && Altitude < L0.y;
 bool In1 = L1.z > 0.0f && Altitude > L1.x && Altitude < L1.y;
 if (!(In0 || In1)) return 0.0f;
@@ -246,6 +269,23 @@ def shadow_hero_code(extinction_code):
 SHADOW_CONSERVATIVE_CODE = """// FogMS_CloudShadowConservative v1 (W48): conservative density of the cloud shadow pass = the hero Box's region or the weather's.
 return float3(max(Hero.x, Weather), 0.0f, 0.0f);"""
 
+# W51: the visible view joins the two physical media. The shadow pass keeps its pre-existing sum/max. A reflection capture
+# sees weather only while the prototype is on, so its captured sky does not include the local hero Box a second time.
+VIEW_EXTINCTION_CODE = """// W51 visible extinction, exact v5 hero extinction when ViewOn=0.
+return Hero + ((ViewOn > 0.5f) ? Weather : 0.0f);"""
+CAPTURE_EXTINCTION_CODE = """// W51 capture of visible weather only; v5 hero unchanged when the prototype is off.
+return (ViewOn > 0.5f) ? Weather : Hero;"""
+VIEW_CONSERVATIVE_CODE = """// W51 visible skip mask; weather's physical conservative mask is unioned with the hero only when enabled.
+return float3(max(Hero.x, (ViewOn > 0.5f) ? Weather : 0.0f), 0.0f, 0.0f);"""
+CAPTURE_CONSERVATIVE_CODE = """// W51 weather-only reflection capture mask, exact v5 hero mask when off.
+return (ViewOn > 0.5f) ? float3(Weather, 0.0f, 0.0f) : Hero;"""
+CAPTURE_EMISSIVE_CODE = """// The MS field belongs to the hero Box; exclude it from visible-weather sky captures.
+return (ViewOn > 0.5f) ? float3(0.0f, 0.0f, 0.0f) : Hero;"""
+CAPTURE_ALBEDO_CODE = """// Weather uses native sky/sun with nearly white albedo in captures; off preserves v5.
+return (ViewOn > 0.5f) ? float3(0.98f, 0.98f, 0.98f) : Default;"""
+CAPTURE_AO_CODE = """// Weather receives native skylight in captures; off preserves v5.
+return (ViewOn > 0.5f) ? 1.0f : Default;"""
+
 FOOTPRINT_CODE = r"""// FogMS_CloudFootprint v1 (W46 cloud-host anti-dither, matedit_cloud.py). Nubis-style prefilter width w [cm] of FogMS_Extinction v3 at
 // this ray-march sample: the density is band-limited to the sampling rate, so detail finer than a ray-march step or a traced pixel does
 // not turn into per-pixel grain as the ray start jitters from pixel to pixel and frame to frame.
@@ -278,13 +318,17 @@ FORWARD_PINS = ('Emissive', 'FieldA', 'Mode', 'Strength', 'G', 'Depth', 'BackFlo
 CONSERVATIVE_PINS = ('LocalPosition', 'HeightProfile', 'HeightBottom', 'HeightTop', 'Threshold', 'Softness', 'DetailStrength', 'Density',
                      'Row0', 'Row1', 'Row2', 'Margin')
 # v3 (W48) weather nodes
-WEATHER_EXT_PINS = ('Offset', 'Altitude', 'On', 'Thin', 'Domain', 'Wind', 'L0', 'L1', 'SunDir', 'Map', 'SunMap', 'TypeLUT', 'Pattern', 'Curl')
-WEATHER_CONS_PINS = ('Offset', 'Altitude', 'On', 'Thin', 'Domain', 'Wind', 'L0', 'L1', 'Map')
+WEATHER_EXT_PINS = ('Offset', 'Altitude', 'On', 'ViewOn', 'Thin', 'Domain', 'Wind', 'L0', 'L1', 'SunDir', 'Map', 'SunMap', 'TypeLUT', 'Pattern', 'Curl')
+WEATHER_CONS_PINS = ('Offset', 'Altitude', 'On', 'ViewOn', 'Thin', 'Domain', 'Wind', 'L0', 'L1', 'Map')
 SHADOW_PINS = ('Hero', 'Weather')
+VIEW_PINS = ('Hero', 'Weather', 'ViewOn')
+CAPTURE_PINS = ('Hero', 'ViewOn')
+CAPTURE_DEFAULT_PINS = ('Default', 'ViewOn')
 # Custom pin <- vector / scalar parameter of the weather nodes (the texture pins <- the texture object of the same stem, 'Map' <-
 # FogMS_WeatherMap, 'SunMap' <- FogMS_WeatherSunMap, ...).
 WEATHER_LIGHT_PINS = tuple(p for p in WEATHER_EXT_PINS if p != 'Thin') + ('Mode', 'FieldA')
-WEATHER_PARAM_PINS = {'On': ('FogMS_WeatherOn', ''), 'Thin': ('FogMS_WeatherThin', ''), 'Domain': ('FogMS_WeatherDomain', 'RGBA'),
+WEATHER_PARAM_PINS = {'On': ('FogMS_WeatherOn', ''), 'ViewOn': ('FogMS_WeatherViewOn', ''),
+                      'Thin': ('FogMS_WeatherThin', ''), 'Domain': ('FogMS_WeatherDomain', 'RGBA'),
                       'Wind': ('FogMS_WeatherWind', 'RGBA'), 'L0': ('FogMS_WeatherL0', 'RGBA'), 'L1': ('FogMS_WeatherL1', 'RGBA'),
                       'SunDir': ('FogMS_WeatherSunDir', 'RGBA')}
 WEATHER_TEXTURE_PINS = {'Map': 'FogMS_WeatherMap', 'SunMap': 'FogMS_WeatherSunMap', 'TypeLUT': 'FogMS_WeatherTypeLUT',
@@ -580,9 +624,11 @@ def build(material, extinction_code, lobe_code):
                     'BackFloor': (P['FogMS_ForwardFloor'], ''), 'CameraVector': (camera, ''), 'Ecc': (P['FogMS_ForwardEcc'], '')}
     for pin in FORWARD_PINS:
         g.link(lobe_sources[pin][0], lobe_sources[pin][1], lobe, pin)
-    albedo = g.custom('FogMS_CloudAlbedo', ALBEDO_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT3, ('Albedo', 'Mode', 'WeatherT'), 250, 400)
+    albedo = g.custom('FogMS_CloudAlbedo', ALBEDO_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
+                      ('Albedo', 'Mode', 'WeatherT', 'Hero', 'Weather', 'ViewOn'), 250, 400)
     g.link(P['FogMS_Albedo'], 'RGB', albedo, 'Albedo'); g.link(P['FogMS_InjectionMode'], '', albedo, 'Mode')
-    sky = g.custom('FogMS_CloudSkyAO', SKY_AO_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT1, ('FieldA', 'Mode'), 250, 1100)
+    sky = g.custom('FogMS_CloudSkyAO', SKY_AO_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+                   ('FieldA', 'Mode', 'Hero', 'Weather', 'ViewOn'), 250, 1100)
     g.link(field, 'A', sky, 'FieldA'); g.link(P['FogMS_InjectionMode'], '', sky, 'Mode')
     cons = g.custom('FogMS_CloudConservative', CONSERVATIVE_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT3, CONSERVATIVE_PINS, 250, -500)
     for pin, src in (('LocalPosition', local), ('HeightProfile', P['FogMS_HeightProfile']), ('HeightBottom', P['FogMS_HeightBottom']),
@@ -613,6 +659,9 @@ def build(material, extinction_code, lobe_code):
     g.link(wlight, '', albedo, 'WeatherT')
     wext = g.custom('FogMS_WeatherExtinction', WEATHER_EXTINCTION_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT1, WEATHER_EXT_PINS, -600, 1500)
     wcons = g.custom('FogMS_WeatherConservative', WEATHER_CONSERVATIVE_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT1, WEATHER_CONS_PINS, -600, 1900)
+    for node in (albedo, sky):
+        g.link(ext, '', node, 'Hero'); g.link(wext, '', node, 'Weather')
+        g.link(P['FogMS_WeatherViewOn'], '', node, 'ViewOn')
     for node, pins in ((wext, WEATHER_EXT_PINS), (wcons, WEATHER_CONS_PINS), (wlight, WEATHER_LIGHT_PINS)):
         for pin in pins:
             if node == wlight and pin in ('Mode', 'FieldA'): continue
@@ -647,10 +696,41 @@ def build(material, extinction_code, lobe_code):
     g.link(hero, '', ssum, 'Hero'); g.link(wext, '', ssum, 'Weather')
     scons = g.custom('FogMS_CloudShadowConservative', SHADOW_CONSERVATIVE_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT3, SHADOW_PINS, -250, 1900)
     g.link(cons, '', scons, 'Hero'); g.link(wcons, '', scons, 'Weather')
-    sw_ext = g.node(unreal.MaterialExpressionShadowReplace, 50, 1500)
-    g.link(ext, '', sw_ext, 'Default'); g.link(ssum, '', sw_ext, 'Shadow')
-    sw_cons = g.node(unreal.MaterialExpressionShadowReplace, 50, 1900)
-    g.link(cons, '', sw_cons, 'Default'); g.link(scons, '', sw_cons, 'Shadow')
+    view_ext = g.custom('FogMS_CloudViewExtinction', VIEW_EXTINCTION_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+                        VIEW_PINS, -100, 1300)
+    cap_ext = g.custom('FogMS_CloudCaptureExtinction', CAPTURE_EXTINCTION_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+                       VIEW_PINS, -100, 1500)
+    view_cons = g.custom('FogMS_CloudViewConservative', VIEW_CONSERVATIVE_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
+                         VIEW_PINS, -100, 1800)
+    cap_cons = g.custom('FogMS_CloudCaptureConservative', CAPTURE_CONSERVATIVE_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
+                        VIEW_PINS, -100, 2000)
+    for node, hero_src, weather_src in ((view_ext, ext, wext), (cap_ext, ext, wext),
+                                        (view_cons, cons, wcons), (cap_cons, cons, wcons)):
+        g.link(hero_src, '', node, 'Hero'); g.link(weather_src, '', node, 'Weather')
+        g.link(P['FogMS_WeatherViewOn'], '', node, 'ViewOn')
+    ref_ext = g.node(unreal.MaterialExpressionReflectionCapturePassSwitch, 100, 1400)
+    g.link(view_ext, '', ref_ext, 'Default'); g.link(cap_ext, '', ref_ext, 'Reflection')
+    ref_cons = g.node(unreal.MaterialExpressionReflectionCapturePassSwitch, 100, 1900)
+    g.link(view_cons, '', ref_cons, 'Default'); g.link(cap_cons, '', ref_cons, 'Reflection')
+    sw_ext = g.node(unreal.MaterialExpressionShadowReplace, 300, 1500)
+    g.link(ref_ext, '', sw_ext, 'Default'); g.link(ssum, '', sw_ext, 'Shadow')
+    sw_cons = g.node(unreal.MaterialExpressionShadowReplace, 300, 1900)
+    g.link(ref_cons, '', sw_cons, 'Default'); g.link(scons, '', sw_cons, 'Shadow')
+    cap_emissive = g.custom('FogMS_CloudCaptureEmissive', CAPTURE_EMISSIVE_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
+                            CAPTURE_PINS, 450, 700)
+    g.link(lobe, '', cap_emissive, 'Hero'); g.link(P['FogMS_WeatherViewOn'], '', cap_emissive, 'ViewOn')
+    ref_emissive = g.node(unreal.MaterialExpressionReflectionCapturePassSwitch, 650, 700)
+    g.link(lobe, '', ref_emissive, 'Default'); g.link(cap_emissive, '', ref_emissive, 'Reflection')
+    cap_albedo = g.custom('FogMS_CloudCaptureAlbedo', CAPTURE_ALBEDO_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT3,
+                          CAPTURE_DEFAULT_PINS, 450, 400)
+    g.link(albedo, '', cap_albedo, 'Default'); g.link(P['FogMS_WeatherViewOn'], '', cap_albedo, 'ViewOn')
+    ref_albedo = g.node(unreal.MaterialExpressionReflectionCapturePassSwitch, 650, 400)
+    g.link(albedo, '', ref_albedo, 'Default'); g.link(cap_albedo, '', ref_albedo, 'Reflection')
+    cap_ao = g.custom('FogMS_CloudCaptureSkyAO', CAPTURE_AO_CODE, unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+                      CAPTURE_DEFAULT_PINS, 450, 1100)
+    g.link(sky, '', cap_ao, 'Default'); g.link(P['FogMS_WeatherViewOn'], '', cap_ao, 'ViewOn')
+    ref_ao = g.node(unreal.MaterialExpressionReflectionCapturePassSwitch, 650, 1100)
+    g.link(sky, '', ref_ao, 'Default'); g.link(cap_ao, '', ref_ao, 'Reflection')
     vao = g.node(unreal.MaterialExpressionVolumetricAdvancedMaterialOutput, 600, -300)
     set_node_bool(vao, ('ray_march_volume_shadow', 'bRayMarchVolumeShadow'), True)
     set_node_bool(vao, ('ground_contribution', 'bGroundContribution'), False)
@@ -660,7 +740,8 @@ def build(material, extinction_code, lobe_code):
     vao.set_editor_property('per_sample_phase_evaluation', False)
     for pin, src in vao_wanted(vao, P, sw_cons).items():
         g.link(src, '', vao, pin)
-    for prop, src in (('MP_BASE_COLOR', albedo), ('MP_SUBSURFACE_COLOR', sw_ext), ('MP_EMISSIVE_COLOR', lobe), ('MP_AMBIENT_OCCLUSION', sky)):
+    for prop, src in (('MP_BASE_COLOR', ref_albedo), ('MP_SUBSURFACE_COLOR', sw_ext),
+                      ('MP_EMISSIVE_COLOR', ref_emissive), ('MP_AMBIENT_OCCLUSION', ref_ao)):
         require(mel.connect_material_property(src, '', getattr(unreal.MaterialProperty, prop)), 'Cannot route ' + prop)
     return g
 
@@ -701,9 +782,7 @@ def verify_prefilter(material, nodes, P):
 
 
 def verify_weather(material, nodes, P):
-    """v3 (W48) links, checked on every run from the T3D readback: the weather Custom nodes' pins (parameters by output, texture objects,
-    the weather-offset Subtract, Cloud Sample Attributes.Altitude), the shadow sum / conservative nodes, the hero conservative v2 pins, and
-    the two Shadow Pass Switches (SubsurfaceColor and the VAO conservative density)."""
+    """W48 shadow and W51 visible/capture links, checked on every run from their T3D readback."""
     def nm(e):
         return e.get_name() if e else None
     def want(node, pin, src, out):
@@ -736,6 +815,10 @@ def verify_weather(material, nodes, P):
             else:
                 want(node, pin, P[WEATHER_TEXTURE_PINS[pin]], '')
     want(nodes['FogMS_CloudAlbedo'], 'WeatherT', nodes['FogMS_WeatherLighting'], '')
+    for desc in ('FogMS_CloudAlbedo', 'FogMS_CloudSkyAO'):
+        want(nodes[desc], 'Hero', nodes['FogMS_Extinction_v3'], '')
+        want(nodes[desc], 'Weather', nodes['FogMS_WeatherExtinction'], '')
+        want(nodes[desc], 'ViewOn', P['FogMS_WeatherViewOn'], '')
     want(nodes['FogMS_CloudShadowSum'], 'Hero', nodes['FogMS_CloudShadowHero'], '')
     want(nodes['FogMS_CloudShadowSum'], 'Weather', nodes['FogMS_WeatherExtinction'], '')
     # v4: the gated hero reads exactly the extinction node's inputs (same sources and outputs), its mask, the three noise UVWs and
@@ -766,10 +849,34 @@ def verify_weather(material, nodes, P):
     require(len(switches) == 2, 'expected two Shadow Pass Switches, found %d' % len(switches))
     sub = mel.get_material_property_input_node(material, unreal.MaterialProperty.MP_SUBSURFACE_COLOR)
     require(sub in switches, 'MP_SUBSURFACE_COLOR is fed by %s, wanted a Shadow Pass Switch' % nm(sub))
-    verify_single_output_sources(material, sub, {'Default': nodes['FogMS_Extinction_v3'], 'Shadow': nodes['FogMS_CloudShadowSum']})
+    refs = [e for e in mel.get_material_expressions(material) if isinstance(e, unreal.MaterialExpressionReflectionCapturePassSwitch)]
+    require(len(refs) == 5, 'expected five Reflection Capture Pass Switches, found %d' % len(refs))
+    def ref(default, reflection):
+        found = [e for e in refs if dict(input_sources(material, e)).get('Default') == default]
+        require(len(found) == 1, 'expected one reflection switch with Default=%s, found %d' % (nm(default), len(found)))
+        verify_single_output_sources(material, found[0], {'Default': default, 'Reflection': reflection})
+        return found[0]
+    for desc, hero, weather in (('FogMS_CloudViewExtinction', 'FogMS_Extinction_v3', 'FogMS_WeatherExtinction'),
+                                ('FogMS_CloudCaptureExtinction', 'FogMS_Extinction_v3', 'FogMS_WeatherExtinction'),
+                                ('FogMS_CloudViewConservative', 'FogMS_CloudConservative', 'FogMS_WeatherConservative'),
+                                ('FogMS_CloudCaptureConservative', 'FogMS_CloudConservative', 'FogMS_WeatherConservative')):
+        want(nodes[desc], 'Hero', nodes[hero], '')
+        want(nodes[desc], 'Weather', nodes[weather], '')
+        want(nodes[desc], 'ViewOn', P['FogMS_WeatherViewOn'], '')
+    for desc, default in (('FogMS_CloudCaptureEmissive', 'FogMS_ForwardLobe'),
+                          ('FogMS_CloudCaptureAlbedo', 'FogMS_CloudAlbedo'),
+                          ('FogMS_CloudCaptureSkyAO', 'FogMS_CloudSkyAO')):
+        want(nodes[desc], 'Hero' if desc == 'FogMS_CloudCaptureEmissive' else 'Default', nodes[default], '')
+        want(nodes[desc], 'ViewOn', P['FogMS_WeatherViewOn'], '')
+    ref_ext = ref(nodes['FogMS_CloudViewExtinction'], nodes['FogMS_CloudCaptureExtinction'])
+    ref_cons = ref(nodes['FogMS_CloudViewConservative'], nodes['FogMS_CloudCaptureConservative'])
+    ref_emissive = ref(nodes['FogMS_ForwardLobe'], nodes['FogMS_CloudCaptureEmissive'])
+    ref_albedo = ref(nodes['FogMS_CloudAlbedo'], nodes['FogMS_CloudCaptureAlbedo'])
+    ref_ao = ref(nodes['FogMS_CloudSkyAO'], nodes['FogMS_CloudCaptureSkyAO'])
+    verify_single_output_sources(material, sub, {'Default': ref_ext, 'Shadow': nodes['FogMS_CloudShadowSum']})
     other = [s for s in switches if s != sub][0]
-    verify_single_output_sources(material, other, {'Default': nodes['FogMS_CloudConservative'], 'Shadow': nodes['FogMS_CloudShadowConservative']})
-    return other
+    verify_single_output_sources(material, other, {'Default': ref_cons, 'Shadow': nodes['FogMS_CloudShadowConservative']})
+    return other, {'MP_BASE_COLOR': ref_albedo, 'MP_EMISSIVE_COLOR': ref_emissive, 'MP_AMBIENT_OCCLUSION': ref_ao}
 
 
 def find_param(material, name):
@@ -797,7 +904,11 @@ def verify(material, extinction_code, lobe_code, g=None):
                  'FogMS_CloudSkyAO': SKY_AO_CODE, 'FogMS_CloudConservative': CONSERVATIVE_CODE, 'FogMS_CloudFootprint': FOOTPRINT_CODE,
                  'FogMS_WeatherLighting': WEATHER_LIGHT_CODE, 'FogMS_WeatherExtinction': WEATHER_EXTINCTION_CODE, 'FogMS_WeatherConservative': WEATHER_CONSERVATIVE_CODE,
                  'FogMS_CloudShadowSum': SHADOW_SUM_CODE, 'FogMS_CloudShadowConservative': SHADOW_CONSERVATIVE_CODE,
-                 'FogMS_CloudShadowHero': shadow_hero_code(extinction_code)}
+                 'FogMS_CloudShadowHero': shadow_hero_code(extinction_code),
+                 'FogMS_CloudViewExtinction': VIEW_EXTINCTION_CODE, 'FogMS_CloudCaptureExtinction': CAPTURE_EXTINCTION_CODE,
+                 'FogMS_CloudViewConservative': VIEW_CONSERVATIVE_CODE, 'FogMS_CloudCaptureConservative': CAPTURE_CONSERVATIVE_CODE,
+                 'FogMS_CloudCaptureEmissive': CAPTURE_EMISSIVE_CODE, 'FogMS_CloudCaptureAlbedo': CAPTURE_ALBEDO_CODE,
+                 'FogMS_CloudCaptureSkyAO': CAPTURE_AO_CODE}
         nodes = {}
         for desc, code in codes.items():
             node = by_description(material, desc)
@@ -831,11 +942,11 @@ def verify(material, extinction_code, lobe_code, g=None):
             require(got == want, 'VAO %s is %s, wanted %s' % (names[0], got, want))
         P = dict((name, find_param(material, name)) for name, _ in SCALARS + VECTORS + WEATHER_TEXTURES)
         # v3: the conservative density reaches the VAO through its Shadow Pass Switch, the extinction SubsurfaceColor through the other.
-        cons_switch = verify_weather(material, nodes, P)
+        cons_switch, property_sources = verify_weather(material, nodes, P)
         verify_single_output_sources(material, vao, vao_wanted(vao, P, cons_switch))
-        for prop, desc in (('MP_BASE_COLOR', 'FogMS_CloudAlbedo'), ('MP_EMISSIVE_COLOR', 'FogMS_ForwardLobe'), ('MP_AMBIENT_OCCLUSION', 'FogMS_CloudSkyAO')):
+        for prop, want in property_sources.items():
             src = mel.get_material_property_input_node(material, getattr(unreal.MaterialProperty, prop))
-            require(src == nodes[desc], '%s is fed by %s, wanted %s' % (prop, src.get_name() if src else None, desc))
+            require(src == want, '%s is fed by %s, wanted %s' % (prop, src.get_name() if src else None, want.get_name()))
         verify_prefilter(material, nodes, P)
         if g is not None:
             for node, wanted in g.links.items():

@@ -591,7 +591,8 @@ FString UFogMSCloudHostSubsystem::FitLayer(UVolumetricCloudComponent& Component,
 				UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s': layer %.3f-%.3f -> %.3f-%.3f km above the ground, fitted to Box '%s' (density band %.3f-%.3f km +-%.0f m%s; %d refit(s) since the previous line)."),
 					*FogMS_Label(&Component), OldBottom * 1.0e-5, OldTop * 1.0e-5, Bottom * 1.0e-5, Top * 1.0e-5, *Box.GetActorNameOrLabel(),
 					AltMin * 1.0e-5, AltMax * 1.0e-5, FogMS_HostLayerMarginCm * 0.01,
-					Weather ? *FString::Printf(TEXT(" + FogMS Weather %.3f-%.3f km, shadow pass only"), Weather->BottomCm * 1.0e-5, Weather->TopCm * 1.0e-5) : TEXT(""),
+					Weather ? *FString::Printf(TEXT(" + FogMS Weather %.3f-%.3f km%s"), Weather->BottomCm * 1.0e-5,
+						Weather->TopCm * 1.0e-5, Weather->bViewWeather ? TEXT(" (visible W51 trial)") : TEXT(" (shadow pass only)")) : TEXT(""),
 					Host.RefitsSinceLog);
 				Host.LastRefitLogTime = Now;
 				Host.RefitsSinceLog = 0;
@@ -601,7 +602,8 @@ FString UFogMSCloudHostSubsystem::FitLayer(UVolumetricCloudComponent& Component,
 	const FFogMSWeatherFeed* Weather = bFit ? ExtendingWeather() : nullptr;
 	OutNote = FString::Printf(TEXT("layer %.3f-%.3f km%s"), Bottom * 1.0e-5, Top * 1.0e-5,
 		!bFit ? TEXT(" (r.FogMS.CloudHost.FitLayer 0)")
-		: Weather ? TEXT(" (fitted to the Box + the weather layers, shadow pass only)") : TEXT(" (fitted to the Box)"));
+		: Weather ? (Weather->bViewWeather ? TEXT(" (fitted to Box + visible weather layers)")
+			: TEXT(" (fitted to the Box + the weather layers, shadow pass only)")) : TEXT(" (fitted to the Box)"));
 	if (AltMin >= Bottom - FogMS_LayerToleranceCm && AltMax <= Top + FogMS_LayerToleranceCm) return FString();
 	if (AltMin < -FogMS_LayerToleranceCm)
 		return FString::Printf(TEXT("the Box's density band %.3f-%.3f km reaches below the ground of the cloud layer (altitude 0 of the SkyAtmosphere planet), where no cloud layer can start: move the Box up or use Render Path Froxel Fog"),
@@ -841,9 +843,13 @@ void UFogMSCloudHostSubsystem::ApplyHostSettings(UVolumetricCloudComponent& Host
 	float Want[ManagedCount] = {};
 	bool bWant[ManagedCount] = {};
 	// W46 view settings: only while a Box renders through the host (a weather-only host traces nothing in view: 'shadows only').
-	const bool bStep = bHero && CVarCloudHostStepSettings.GetValueOnGameThread() != 0;
+	const bool bNativeWeatherView = bWeatherActive && WeatherFeed.bViewWeather;
+	const bool bStep = (bHero || bNativeWeatherView) && CVarCloudHostStepSettings.GetValueOnGameThread() != 0;
 	bWant[FogMS_MDistance] = bStep;
-	Want[FogMS_MDistance] = FMath::Max(Host.TracingMaxDistance, 0.1f);
+	// A 6 km W51 trace must not replace the local Box's old sampling target with 6 km / sample count.
+	// The native cap still limits the final count; the field gate measures that quality/cost tradeoff.
+	Want[FogMS_MDistance] = bNativeWeatherView ? FMath::Min(FMath::Max(Host.TracingMaxDistance, 0.1f), 2.0f)
+		: FMath::Max(Host.TracingMaxDistance, 0.1f);
 	// View Sample Count Scale above 8 needs a higher cap than the engine's 768 samples (VolumetricCloudRendering.cpp SampleCountMax).
 	const float Samples = FMath::CeilToFloat(UVolumetricCloudComponent::BaseViewRaySampleCount * FMath::Max(Host.ViewSampleCountScale, 0.05f));
 	bWant[FogMS_MSampleMax] = bStep && Samples > FogMS_EngineViewRaySampleMaxCount;
@@ -865,7 +871,8 @@ void UFogMSCloudHostSubsystem::ApplyHostSettings(UVolumetricCloudComponent& Host
 	Want[FogMS_MMinKm] = MinKm;
 	// W48: the extended weather layer makes every upward view ray march up to Tracing Max Distance through empty space: skip it.
 	const int32 SkipSteps = CVarWeatherSkipSteps.GetValueOnGameThread();
-	bWant[FogMS_MSkipSteps] = bHero && bWeatherExtended && SkipSteps > 1;
+	// Skipping multiple empty samples can cross the physical weather base in the visible march.
+	bWant[FogMS_MSkipSteps] = bHero && bWeatherExtended && !bNativeWeatherView && SkipSteps > 1;
 	Want[FogMS_MSkipSteps] = static_cast<float>(FMath::Min(SkipSteps, 64));
 	// W47 cloud shadow map: only while the atmosphere sun casts cloud shadows (the engine builds the map only then); otherwise, and when
 	// the sun stops casting them, the previous values come back. W48: also for the weather without a Box.
@@ -1034,8 +1041,9 @@ void UFogMSCloudHostSubsystem::WriteWeatherParameters(UMaterialInstanceDynamic& 
 {
 	MID.SetScalarParameterValue(FogMS_WeatherOnParameter, bOn ? 1.0f : 0.0f);
 	MID.SetScalarParameterValue(TEXT("FogMS_WeatherLightingOn"), bOn && WeatherFeed.bLightLocalClouds ? 1.0f : 0.0f);
+	MID.SetScalarParameterValue(TEXT("FogMS_WeatherViewOn"), bOn && WeatherFeed.bViewWeather ? 1.0f : 0.0f);
 	if (!bOn) return;
-	MID.SetScalarParameterValue(TEXT("FogMS_WeatherThin"), WeatherFeed.bThinLayer ? 1.0f : 0.0f);
+	MID.SetScalarParameterValue(TEXT("FogMS_WeatherThin"), WeatherFeed.bThinLayer && !WeatherFeed.bViewWeather ? 1.0f : 0.0f);
 	if (UTexture* Texture = WeatherFeed.Map.Get()) MID.SetTextureParameterValue(TEXT("FogMS_WeatherMap"), Texture);
 	if (UTexture* Texture = WeatherFeed.SunMap.Get()) MID.SetTextureParameterValue(TEXT("FogMS_WeatherSunMap"), Texture);
 	if (UTexture* Texture = WeatherFeed.TypeLUT.Get()) MID.SetTextureParameterValue(TEXT("FogMS_WeatherTypeLUT"), Texture);
@@ -1062,10 +1070,20 @@ void UFogMSCloudHostSubsystem::ReleaseWeatherHost(FHost& Host, const TCHAR* Reas
 	if (Component)
 	{
 		const bool bOwnsMaterial = Host.WeatherMID.IsValid() && Component->Material.Get() == Host.WeatherMID.Get();
+		if (Host.bWeatherViewSaved && bOwnsMaterial)
+		{
+			// Only the weather experiment changes these component settings. A Box keeps its
+			// authored tracing range and capture policy when Clear/off releases the feed.
+			Component->bVisibleInRealTimeSkyCaptures = Host.bSavedCaptureVisibility;
+			Component->TracingMaxDistance = Host.SavedViewTraceDistanceKm;
+			Component->MarkRenderStateDirty();
+		}
+		Host.bWeatherViewSaved = false;
 		if (UMaterialInstanceDynamic* MID = bOwnsMaterial ? Host.WeatherMID.Get() : nullptr)
 		{
 			MID->SetScalarParameterValue(FogMS_WeatherOnParameter, 0.0f);
 			MID->SetScalarParameterValue(TEXT("FogMS_WeatherLightingOn"), 0.0f);
+			MID->SetScalarParameterValue(TEXT("FogMS_WeatherViewOn"), 0.0f);
 		}
 		bool bDirty = false;
 		if (!Host.bBound && Host.bWeatherSaved && bOwnsMaterial)
@@ -1182,6 +1200,10 @@ UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
 	if (!Base || !Base->GetScalarParameterDefaultValue(FHashedMaterialParameterInfo(FogMS_WeatherOnParameter), WeatherDefault))
 		return Problem(FString::Printf(TEXT("cloud host '%s': M_FogMS_Cloud has no weather shadow branch (older than W48): run matedit_cloud.py; no weather shadows"),
 			*FogMS_Label(Chosen)));
+	if (WeatherFeed.bViewWeather && !Base->GetScalarParameterDefaultValue(
+		FHashedMaterialParameterInfo(TEXT("FogMS_WeatherViewOn")), WeatherDefault))
+		return Problem(FString::Printf(TEXT("cloud host '%s': Native Weather Preview requires M_FogMS_Cloud v6; run matedit_cloud.py"),
+			*FogMS_Label(Chosen)));
 	FHost* Host = FindBinding(Chosen);
 	if (!Host)
 	{
@@ -1230,11 +1252,35 @@ UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
 	if (!MID) return Problem(FString::Printf(TEXT("cloud host '%s': %s"), *FogMS_Label(Chosen), *MIDProblem));
 	Host->WeatherMID = MID;
 	bWeatherHostUsable = true;
+	if (Host->bWeatherViewSaved && !WeatherFeed.bViewWeather)
+	{
+		Chosen->bVisibleInRealTimeSkyCaptures = Host->bSavedCaptureVisibility;
+		Chosen->TracingMaxDistance = Host->SavedViewTraceDistanceKm;
+		Host->bWeatherViewSaved = false;
+		Chosen->MarkRenderStateDirty();
+	}
+	if (WeatherFeed.bViewWeather)
+	{
+		if (!Host->bWeatherViewSaved)
+		{
+			Host->bWeatherViewSaved = true;
+			Host->bSavedCaptureVisibility = Chosen->bVisibleInRealTimeSkyCaptures;
+			Host->SavedViewTraceDistanceKm = Chosen->TracingMaxDistance;
+		}
+		const float WantTraceKm = FMath::Max(Host->SavedViewTraceDistanceKm, WeatherFeed.ViewTraceDistanceKm);
+		if (!Chosen->bVisibleInRealTimeSkyCaptures || !FMath::IsNearlyEqual(Chosen->TracingMaxDistance, WantTraceKm))
+		{
+			Chosen->bVisibleInRealTimeSkyCaptures = true;
+			Chosen->TracingMaxDistance = WantTraceKm;
+			Chosen->MarkRenderStateDirty();
+		}
+	}
 	if (!Host->bWeather)
 	{
 		Host->bWeather = true;
-		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather '%s' casts its shadows through cloud host '%s' (shadow pass only, %s layer)."), *Label, *FogMS_Label(Chosen),
-			WeatherFeed.bThinLayer ? TEXT("thin") : TEXT("extended"));
+		UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather '%s' uses cloud host '%s' (%s)."), *Label, *FogMS_Label(Chosen),
+			WeatherFeed.bViewWeather ? TEXT("native view + shadow pass, physical layers")
+				: WeatherFeed.bThinLayer ? TEXT("shadow pass only, thin layer") : TEXT("shadow pass only, extended layer"));
 	}
 	LastWeatherLog.Reset();
 	FString Mode;
@@ -1252,14 +1298,19 @@ UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
 		// The view pass traces nothing (TMin = TMax = Tracing Max Distance: SampleMinCount steps at one point, all skipped by conservative
 		// density 0); the cloud shadow map is traced from the layer, independent of it.
 		const float EmptyTrace = FMath::Max(Chosen->TracingMaxDistance, 0.1f);
-		if (Chosen->TracingStartDistanceFromCamera < EmptyTrace)
+		if (!WeatherFeed.bViewWeather && Chosen->TracingStartDistanceFromCamera < EmptyTrace)
 		{
 			UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS cloud host '%s': weather shadows only (no Box renders through it): Tracing Start Distance %g -> %g km (empty view trace)."),
 				*FogMS_Label(Chosen), Chosen->TracingStartDistanceFromCamera, EmptyTrace);
 			Chosen->TracingStartDistanceFromCamera = EmptyTrace;
 			bDirty = true;
 		}
-		Host->bShadowsOnly = true;
+		else if (WeatherFeed.bViewWeather && Chosen->TracingStartDistanceFromCamera > 0.0f)
+		{
+			Chosen->TracingStartDistanceFromCamera = 0.0f;
+			bDirty = true;
+		}
+		Host->bShadowsOnly = !WeatherFeed.bViewWeather;
 		if (WeatherFeed.bActive && CVarCloudHostFitLayer.GetValueOnGameThread() != 0)
 		{
 			double WantBottom = 0.0, WantTop = 0.0;
@@ -1289,7 +1340,8 @@ UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
 		MID->SetScalarParameterValue(TEXT("FogMS_Density"), 0.0f);
 		MID->SetScalarParameterValue(TEXT("FogMS_InjectionMode"), 0.0f);
 		if (bDirty) Chosen->MarkRenderStateDirty();
-		Mode = TEXT("shadows only: no Box renders through it, the view trace is empty");
+		Mode = WeatherFeed.bViewWeather ? TEXT("visible weather only: no Box bound")
+			: TEXT("shadows only: no Box renders through it, the view trace is empty");
 	}
 	else
 	{
@@ -1302,8 +1354,10 @@ UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
 		Chosen->LayerBottomAltitude + Chosen->LayerHeight,
 		!WeatherFeed.bActive ? TEXT(", weather branch off (no active layer)")
 		: WeatherFeed.bThinLayer ? TEXT(", thin layer: the weather column is spread over it in the shadow pass")
+		: WeatherFeed.bViewWeather ? TEXT(", physical weather layers visible + shadows (W51 trial)")
 		: TEXT(", extended to the weather layers (shadow pass only)"),
-		Host->bBound && WeatherFeed.bActive && !WeatherFeed.bThinLayer && Skip ? *FString::Printf(TEXT(", view empty-step skip x%d"), FMath::Max(Skip->GetInt(), 1)) : TEXT(""));
+		Host->bBound && WeatherFeed.bActive && !WeatherFeed.bThinLayer && !WeatherFeed.bViewWeather && Skip && Skip->GetInt() > 1
+			? *FString::Printf(TEXT(", view empty-step skip x%d"), Skip->GetInt()) : TEXT(""));
 	return Chosen;
 }
 
