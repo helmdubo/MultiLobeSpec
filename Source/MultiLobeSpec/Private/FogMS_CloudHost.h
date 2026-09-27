@@ -241,6 +241,11 @@ private:
 		bool bWeatherViewSaved = false;
 		bool bSavedCaptureVisibility = false;
 		float SavedViewTraceDistanceKm = 0.0f;
+		/** W51c: the visible-weather sun-march scale belongs only to this host; restore the authored value on exit. */
+		float SavedShadowViewSampleCountScale = 0.0f;
+		float LastWeatherShadowViewSampleCountScale = 0.0f;
+		bool bWeatherShadowScaleManaged = false;
+		bool bWeatherShadowScaleUserOverride = false;
 		float SavedLayerBottomKm = 0.0f;
 		float SavedLayerHeightKm = 0.1f;
 		float SavedStartDistanceKm = 0.0f;

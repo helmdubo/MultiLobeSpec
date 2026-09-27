@@ -95,6 +95,10 @@ namespace
 		TEXT("so the taller layer (up to the weather top) costs little in the visible pass; the Box's conservative region grows by the same ")
 		TEXT("distance (FogMS_CloudSkipMargin = value x the host step), so a skip never jumps over the Box's entry and its samples stay on the ")
 		TEXT("same grid. Default 8. 1 or less = leave the engine cvar alone (engine default 1: every empty step is visited)."), ECVF_Default);
+	TAutoConsoleVariable<float> CVarWeatherShadowViewSampleScale(TEXT("r.FogMS.Weather.ShadowViewSampleScale"), 1.6f,
+		TEXT("W51c: per-host scale for the sun shadow ray march while Native Weather Preview is visible. 1.6 gives at most 16 steps ")
+		TEXT("with the engine's base count of 10; the previous host scale is restored when Preview stops. Other Volumetric Clouds ")
+		TEXT("keep their settings. Set 0 or a negative value to leave the host's authored scale unchanged."), ECVF_Default);
 
 	// P1 host settings (round 39, docs/history/FogMS_Prod_Report.md 'Раунд 39'): trace 2 km from the camera, view samples x8 (768), sun march 0.25 km
 	// with 32 samples, stop at transmittance 0.005, layer = the Box's density band +-10 m (at least 0.1 km).
@@ -1070,6 +1074,12 @@ void UFogMSCloudHostSubsystem::ReleaseWeatherHost(FHost& Host, const TCHAR* Reas
 	if (Component)
 	{
 		const bool bOwnsMaterial = Host.WeatherMID.IsValid() && Component->Material.Get() == Host.WeatherMID.Get();
+		if (Host.bWeatherViewSaved && Host.bWeatherShadowScaleManaged &&
+			FMath::IsNearlyEqual(Component->ShadowViewSampleCountScale, Host.LastWeatherShadowViewSampleCountScale, 0.001f))
+		{
+			Component->SetShadowViewSampleCountScale(Host.SavedShadowViewSampleCountScale);
+			Restored += FString::Printf(TEXT("; sun shadow scale x%g restored"), Host.SavedShadowViewSampleCountScale);
+		}
 		if (Host.bWeatherViewSaved && bOwnsMaterial)
 		{
 			// Only the weather experiment changes these component settings. A Box keeps its
@@ -1121,6 +1131,8 @@ void UFogMSCloudHostSubsystem::ReleaseWeatherHost(FHost& Host, const TCHAR* Reas
 	Host.bWeather = false;
 	Host.bShadowsOnly = false;
 	Host.bWeatherSaved = false;
+	Host.bWeatherShadowScaleManaged = false;
+	Host.bWeatherShadowScaleUserOverride = false;
 	Host.SavedWeatherMaterial.Reset();
 	Host.WeatherMID.Reset();
 }
@@ -1254,6 +1266,11 @@ UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
 	bWeatherHostUsable = true;
 	if (Host->bWeatherViewSaved && !WeatherFeed.bViewWeather)
 	{
+		if (Host->bWeatherShadowScaleManaged && FMath::IsNearlyEqual(
+			Chosen->ShadowViewSampleCountScale, Host->LastWeatherShadowViewSampleCountScale, 0.001f))
+			Chosen->SetShadowViewSampleCountScale(Host->SavedShadowViewSampleCountScale);
+		Host->bWeatherShadowScaleManaged = false;
+		Host->bWeatherShadowScaleUserOverride = false;
 		Chosen->bVisibleInRealTimeSkyCaptures = Host->bSavedCaptureVisibility;
 		Chosen->TracingMaxDistance = Host->SavedViewTraceDistanceKm;
 		Host->bWeatherViewSaved = false;
@@ -1266,6 +1283,31 @@ UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
 			Host->bWeatherViewSaved = true;
 			Host->bSavedCaptureVisibility = Chosen->bVisibleInRealTimeSkyCaptures;
 			Host->SavedViewTraceDistanceKm = Chosen->TracingMaxDistance;
+			Host->SavedShadowViewSampleCountScale = Chosen->ShadowViewSampleCountScale;
+			Host->bWeatherShadowScaleManaged = false;
+			Host->bWeatherShadowScaleUserOverride = false;
+		}
+		// A user's edit to the host during Preview takes precedence until Preview is toggled off.
+		if (Host->bWeatherShadowScaleManaged && !FMath::IsNearlyEqual(
+			Chosen->ShadowViewSampleCountScale, Host->LastWeatherShadowViewSampleCountScale, 0.001f))
+		{
+			Host->bWeatherShadowScaleManaged = false;
+			Host->bWeatherShadowScaleUserOverride = true;
+		}
+		if (!Host->bWeatherShadowScaleUserOverride)
+		{
+			const float RequestedScale = CVarWeatherShadowViewSampleScale.GetValueOnGameThread();
+			const bool bUseWeatherScale = FMath::IsFinite(RequestedScale) && RequestedScale > 0.0f;
+			const float WantScale = bUseWeatherScale ? FMath::Clamp(RequestedScale, 0.05f, 8.0f)
+				: Host->SavedShadowViewSampleCountScale;
+			if (!FMath::IsNearlyEqual(Chosen->ShadowViewSampleCountScale, WantScale, 0.001f))
+			{
+				Chosen->SetShadowViewSampleCountScale(WantScale);
+				Host->bWeatherShadowScaleManaged = bUseWeatherScale;
+				Host->LastWeatherShadowViewSampleCountScale = WantScale;
+			}
+			else if (!bUseWeatherScale)
+				Host->bWeatherShadowScaleManaged = false;
 		}
 		const float WantTraceKm = FMath::Max(Host->SavedViewTraceDistanceKm, WeatherFeed.ViewTraceDistanceKm);
 		if (!Chosen->bVisibleInRealTimeSkyCaptures || !FMath::IsNearlyEqual(Chosen->TracingMaxDistance, WantTraceKm))

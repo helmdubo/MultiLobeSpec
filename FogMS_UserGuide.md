@@ -962,6 +962,7 @@ BRDF-части плагина (`README_RU.md`).
 | `r.FogMS.CloudHost.ShadowSpatialFiltering` | 2 | Раунд 47: `r.VolumetricCloud.ShadowMap.SpatialFiltering` (итерации размытия карты теней облака, до 4), пока Box рисуется хостом и солнце бросает тени облаков. −1 — не трогать |
 | `r.FogMS.CloudHost.ShadowSnapFraction` | 0,25 | Раунд 47: `r.VolumetricCloud.ShadowMap.SnapLength` = это × `Cloud Shadow Extent` солнца (не больше 20 км) и `SnapToPixelGrid 1`, при тех же условиях. 0 — не трогать. С раунда 48 оба cvar карты теней ставятся и при погоде без Box |
 | `r.FogMS.Weather.SkipSteps` | 8 | Раунд 48: `r.VolumetricCloud.StepSizeOnZeroConservativeDensity`, пока погода расширяет слой хоста, через который рисуется Box (Shadow Layer = Extended): пустые шаги видимого луча пропускаются по стольку за раз; консервативная область Box расширяется на то же расстояние. 32 оказалось дороже 8 (раунд 48). 1 или меньше — не трогать (движок 1) |
+| `r.FogMS.Weather.ShadowViewSampleScale` | 1,6 | W51c: только пока включён экспериментальный `Native Weather Preview`, масштаб солнечного марша **FogMS Host** (1,6 × базовые 10 = до 16 шагов вместо 3,2 × 10 = 32). 0 — оставить исходный масштаб хоста; при выключении Preview/Clear прежнее значение возвращается. Глобальный лимит теневых шагов UE и другие облака не меняются |
 | `r.FogMS.Weather.SkyDome` | 1 | Раунд 49: 0 — купол-небо погоды скрыт везде (A/B: небо уровня, тени погоды остаются, авто-источник неба решателя снова LUT); 1 — купол у актёров с галкой `Sky Dome` (раздел 4б) |
 
 **Диагностика:**
