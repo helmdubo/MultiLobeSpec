@@ -1,6 +1,7 @@
 #include "FogMS_BoxVolume.h"
 #include "FogMS_BoxRuntime.h"
 #include "FogMS_CloudHost.h"
+#include "FogMS_Weather.h"
 
 #include "Components/BoxComponent.h"
 #include "Components/ArrowComponent.h"
@@ -278,14 +279,9 @@ namespace
 
 FVector3f FogMS_FindAtmosphereSunDirection(UWorld* World)
 {
-	// The Box runtime's former BeginRenderViewFamily loop, unchanged: ADirectionalLight actors only, in iteration order.
-	if (!World) return FVector3f::ZeroVector;
-	for (TActorIterator<ADirectionalLight> It(World); It; ++It)
-	{
-		const UDirectionalLightComponent* Light = Cast<UDirectionalLightComponent>(It->GetLightComponent());
-		if (Light && Light->IsVisible() && Light->bAffectsWorld && Light->bAtmosphereSunLight && Light->AtmosphereSunLightIndex == 0)
-			return FVector3f(-Light->GetForwardVector()).GetSafeNormal();
-	}
+	// Same atmosphere-light selection as the cloud host, weather map and renderer.
+	if (const UDirectionalLightComponent* Light = UFogMSCloudHostSubsystem::FindAtmosphereSun(World))
+		return FVector3f(-Light->GetForwardVector()).GetSafeNormal();
 	return FVector3f::ZeroVector;
 }
 
@@ -679,8 +675,10 @@ bool FFogMSDensityMotionReference::Equals(const FFogMSDensityMotionReference& Ot
 		&& Velocity0 == Other.Velocity0 && Velocity1 == Other.Velocity1 && Velocity2 == Other.Velocity2;
 }
 
-bool AFogMSBoxVolume::GetDensityMotionVelocities(FVector& Out0, FVector& Out1, FVector& Out2) const
+bool AFogMSBoxVolume::GetDensityMotionVelocities(FVector& Out0, FVector& Out1, FVector& Out2, bool* bOutWeatherWind) const
 {
+	if (bOutWeatherWind) *bOutWeatherWind = false;
+	bool bWeatherWind = false;
 	if (DensityMotionMode == EFogMSDensityMotionMode::LegacyVectors)
 		Out0 = DensityWindVelocity;
 	else if (DensityMotionMode == EFogMSDensityMotionMode::Directional)
@@ -689,6 +687,15 @@ bool AFogMSBoxVolume::GetDensityMotionVelocities(FVector& Out0, FVector& Out1, F
 			|| !FMath::IsFinite(WindSpeed) || WindSpeed < 0.0
 			|| !FMath::IsFinite(EdgeFlowSpeed) || EdgeFlowSpeed < 0.0) return false;
 		Out0 = WindDirectionComponent->GetForwardVector() * WindSpeed;
+		if (bUseWeatherWind)
+		{
+			FVector WeatherVelocity;
+			if (AFogMSWeather::GetWindVelocity(GetWorld(), WeatherVelocity) && !WeatherVelocity.ContainsNaN())
+			{
+				Out0 = WeatherVelocity;
+				bWeatherWind = true;
+			}
+		}
 	}
 	else return false;
 	Out1 = Out0 + DensityDetailVelocity;
@@ -698,9 +705,18 @@ bool AFogMSBoxVolume::GetDensityMotionVelocities(FVector& Out0, FVector& Out1, F
 	// octave two uses half the world speed at twice the frequency.
 	if (DensityMotionMode == EFogMSDensityMotionMode::Directional && EdgeFlowSpeed > 0.0)
 	{
-		Out1 += WindDirectionComponent->GetRightVector() * EdgeFlowSpeed;
-		Out2 -= WindDirectionComponent->GetUpVector() * (0.5 * EdgeFlowSpeed);
+		FVector EdgeRight = WindDirectionComponent->GetRightVector();
+		FVector EdgeUp = WindDirectionComponent->GetUpVector();
+		if (bWeatherWind && !Out0.IsNearlyZero())
+		{
+			// Weather wind is horizontal in world space. Rotate the existing contour flow with it, without changing its authored speed.
+			EdgeRight = FVector::CrossProduct(FVector::UpVector, Out0.GetSafeNormal()).GetSafeNormal();
+			EdgeUp = FVector::UpVector;
+		}
+		Out1 += EdgeRight * EdgeFlowSpeed;
+		Out2 -= EdgeUp * (0.5 * EdgeFlowSpeed);
 	}
+	if (bOutWeatherWind) *bOutWeatherWind = bWeatherWind;
 	return !Out0.ContainsNaN() && !Out1.ContainsNaN() && !Out2.ContainsNaN();
 }
 
@@ -783,9 +799,15 @@ bool AFogMSBoxVolume::FDensityState::HasSameEffect(const FDensityState& Other) c
 	// fog-history revision. Authored edits, explicit seeks and backwards world time do.
 	return bManualAnimationTime == Other.bManualAnimationTime
 		&& MotionMode == Other.MotionMode
-		&& (MotionMode != EFogMSDensityMotionMode::Directional || MotionReference.Equals(Other.MotionReference))
-		&& WindVelocity == Other.WindVelocity && DetailVelocity == Other.DetailVelocity
-		&& EvolutionVelocity == Other.EvolutionVelocity && TimeOffset == Other.TimeOffset
+		&& bWeatherWindDriven == Other.bWeatherWindDriven
+		&& MotionResetRevision == Other.MotionResetRevision
+		&& DetailVelocity == Other.DetailVelocity && EvolutionVelocity == Other.EvolutionVelocity
+		// The integrated weather trajectory changes slope during a blend, without a density discontinuity. Keep history through that
+		// motion; source changes, actual density edits, explicit seeks and backwards time still invalidate it.
+		&& ((bWeatherWindDriven && Other.bWeatherWindDriven)
+			|| ((MotionMode != EFogMSDensityMotionMode::Directional || MotionReference.Equals(Other.MotionReference))
+				&& WindVelocity == Other.WindVelocity))
+		&& TimeOffset == Other.TimeOffset
 		&& (!bManualAnimationTime || ManualTime == Other.ManualTime)
 		&& SampleTime >= Other.SampleTime;
 }
@@ -831,6 +853,7 @@ void AFogMSBoxVolume::UpdateDensity()
 	FLinearColor WorldPhase1(0, 0, 0, 0);
 	FLinearColor WorldPhase2(0, 0, 0, 0);
 	bool bAnimationActive = false;
+	bool bWeatherWindDriven = false;
 	double AnimationSampleTime = 0.0;
 	FVector MotionVelocity0 = FVector::ZeroVector, MotionVelocity1 = FVector::ZeroVector, MotionVelocity2 = FVector::ZeroVector;
 	FString AnimationStatus = bAnimateDensity ? TEXT("Waiting for a valid density source") : TEXT("Off");
@@ -947,7 +970,7 @@ void AFogMSBoxVolume::UpdateDensity()
 						AnimationStatus = TEXT("Static: animation requires World Aligned Texture");
 					else if (ScatteringMode != EFogMSScatteringMode::WorldSpace && !FogMS_IsTransportMode(ScatteringMode))
 						AnimationStatus = TEXT("Static: animation requires World or Transport scattering; Spatial history is unsupported");
-					else if (!GetDensityMotionVelocities(MotionVelocity0, MotionVelocity1, MotionVelocity2)
+					else if (!GetDensityMotionVelocities(MotionVelocity0, MotionVelocity1, MotionVelocity2, &bWeatherWindDriven)
 						|| !FMath::IsFinite(AnimationTimeOffset) || (bUseManualAnimationTime && !FMath::IsFinite(ManualAnimationTime)))
 						AnimationStatus = TEXT("Static: wind direction, nonnegative wind/edge-flow speeds, relative velocities and time must be valid");
 					else
@@ -975,6 +998,10 @@ void AFogMSBoxVolume::UpdateDensity()
 						{
 							WorldPhase0 = Phase0; WorldPhase1 = Phase1; WorldPhase2 = Phase2;
 							AnimationStatus = bUseManualAnimationTime ? TEXT("Frozen at manual time") : TEXT("Active: shared world-time density phases");
+							AnimationStatus += bWeatherWindDriven ? TEXT("; wind: FogMS Weather")
+								: bUseWeatherWind && DensityMotionMode == EFogMSDensityMotionMode::LegacyVectors
+									? TEXT("; wind: legacy (Use Directional Motion to follow weather)")
+									: bUseWeatherWind ? TEXT("; wind: local fallback (no active FogMS Weather)") : TEXT("; wind: local");
 						}
 						else AnimationStatus = TEXT("Static: animation phase is not finite");
 					}
@@ -1176,6 +1203,8 @@ void AFogMSBoxVolume::UpdateDensity()
 				if (bAnimationActive)
 				{
 					State.bManualAnimationTime = bUseManualAnimationTime;
+					State.bWeatherWindDriven = bWeatherWindDriven;
+					State.MotionResetRevision = MotionResetRevision;
 					State.MotionMode = DensityMotionMode;
 					State.MotionReference = DensityMotionReference;
 					State.WindVelocity = MotionVelocity0;
@@ -1346,6 +1375,7 @@ bool AFogMSBoxVolume::RestoreDensityMotionReference(const FFogMSDensityMotionRef
 {
 	if (!Reference.IsFinite()) return false;
 	Modify();
+	++MotionResetRevision;
 	DensityMotionReference = Reference;
 	UpdateDensity();
 	return true;
@@ -1404,6 +1434,7 @@ void AFogMSBoxVolume::ResetMotionOrigin()
 	const double Time = (bUseManualAnimationTime ? ManualAnimationTime : FogMS_GetDensityFrameTime(GetWorld())) + AnimationTimeOffset;
 	if (!FMath::IsFinite(Time) || !GetDensityMotionVelocities(Velocity0, Velocity1, Velocity2)) return;
 	Modify();
+	++MotionResetRevision;
 	DensityMotionReference = FFogMSDensityMotionReference{};
 	DensityMotionReference.bInitialized = true;
 	DensityMotionReference.Time = Time;

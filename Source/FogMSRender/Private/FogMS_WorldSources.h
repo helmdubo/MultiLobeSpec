@@ -6,6 +6,7 @@
 class FRDGBuilder;
 class FSceneView;
 struct FFogMSWorldSky;
+struct FFogMSWeatherLighting;
 
 // Include this with SHADER_PARAMETER_STRUCT_INCLUDE(..., WorldSources). The .ush
 // declares the same flattened names; it needs Common.ush, but no native light UB.
@@ -50,6 +51,22 @@ BEGIN_SHADER_PARAMETER_STRUCT(FFogMSWorldSourcesParameters, )
 	// that light is not gathered (none, hidden, zero colour). Only the atmosphere sun, never a fallback
 	// directional light: hybrid injection darkens native single scattering by this light's transmittance.
 	SHADER_PARAMETER(int32, FogMSWorldSunLightIndex)
+	SHADER_PARAMETER(uint32, FogMSWeatherActive)
+	SHADER_PARAMETER(FVector3f, FogMSWeatherOriginTranslated)
+	SHADER_PARAMETER(FVector3f, FogMSWeatherPlanetTopTranslated)
+	SHADER_PARAMETER(float, FogMSWeatherPlanetRadius)
+	SHADER_PARAMETER(FVector4f, FogMSWeatherDomain)
+	SHADER_PARAMETER(FVector4f, FogMSWeatherWind)
+	SHADER_PARAMETER(FVector4f, FogMSWeatherL0)
+	SHADER_PARAMETER(FVector4f, FogMSWeatherL1)
+	SHADER_PARAMETER(FVector3f, FogMSWeatherSunDirection)
+	SHADER_PARAMETER_RDG_TEXTURE(Texture2D, FogMSWeatherMap)
+	SHADER_PARAMETER_RDG_TEXTURE(Texture2D, FogMSWeatherSunMap)
+	SHADER_PARAMETER_RDG_TEXTURE(Texture2D, FogMSWeatherTypeLUT)
+	SHADER_PARAMETER_RDG_TEXTURE(Texture2D, FogMSWeatherPattern)
+	SHADER_PARAMETER_RDG_TEXTURE(Texture2D, FogMSWeatherCurl)
+	SHADER_PARAMETER_SAMPLER(SamplerState, FogMSWeatherWrapSampler)
+	SHADER_PARAMETER_SAMPLER(SamplerState, FogMSWeatherClampSampler)
 END_SHADER_PARAMETER_STRUCT()
 
 // Render thread, after light proxies / View UB have been updated. BoxExtent is
@@ -64,10 +81,13 @@ END_SHADER_PARAMETER_STRUCT()
 // Rect / IES / light-function / baked-static sources intersecting this Box fail explicitly. A sun with Cast Cloud
 // Shadows is accepted since W47: the engine's cloud shadow map is not bound (the solver shadows the sun with the Box's
 // own medium, which is what a FogMS cloud host puts into that map); a foreign cloud only adds a status note.
+// W50: the caller separately applies FogMS_WorldWeatherSun to atmosphere sunlight, using this snapshot's weather
+// density/column map. It never samples the native cloud shadow map (which also contains the hero Box's own density).
 // Camera MaxDrawDistance fading and screen-froxel LightSoftFading are intentionally not applied to this world grid.
 // View: FSceneView of the PostTLASBuild callback; the caller's shader must bind that view's View uniform buffer.
 // Sky: game-thread snapshot (FFogMSWorldRequest::Sky) for the public sky sources; OutSkySource names the bound one
 // (plus status notes: several sky lights, W47 shadows of a foreign Volumetric Cloud).
+// Weather: value/RHI snapshot; active requests with missing or invalid resources fail before any dispatch.
 bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FSceneView& View,
-	FVector BoxCenterWS, FVector3f BoxExtent, const FFogMSWorldSky& Sky,
+	FVector BoxCenterWS, FVector3f BoxExtent, const FFogMSWorldSky& Sky, const FFogMSWeatherLighting& Weather,
 	FFogMSWorldSourcesParameters& OutParameters, FString& OutSkySource, FString& Error);

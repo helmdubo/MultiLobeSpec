@@ -2,6 +2,7 @@
 
 #include "FogMS_ShadowCache.h" // FogMSRender::BoxRowCount
 #include "FogMS_Spatial.h"
+#include "FogMS_WeatherLighting.h"
 
 /** Game-thread snapshot of the scene's sky light for the public sky-boundary sources (r.FogMS.World.SkySource 0/2/3/4).
  * Values and RHI references only: no component, proxy or FTexture pointer reaches the render thread. The colour scale
@@ -53,6 +54,8 @@ struct FFogMSWorldRequest : FFogMSSpatialRequest
 	FVector3f DirectionToSun = FVector3f::ZeroVector;
 	/** Sky light snapshot for the public sky-boundary sources; unused by the Sky View LUT and SH paths. */
 	FFogMSWorldSky Sky;
+	/** W50: only the atmosphere sun's incident radiance is attenuated; sky and Lumen already see weather. */
+	FFogMSWeatherLighting Weather;
 	/** Render thread only. Transport + Emissive Injection: 32^3 UAV-capable Texture3D (FloatRGBA or
 	 * RGBA32F) that receives total incident J per Box cell (alpha 1), then is left in SRV state for
 	 * the Box Volume material. Null: no field write. An invalid texture fails the request.

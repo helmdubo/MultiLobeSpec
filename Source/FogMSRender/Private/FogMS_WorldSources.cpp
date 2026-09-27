@@ -232,7 +232,7 @@ namespace
 }
 
 bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FSceneView& View,
-	FVector BoxCenterWS, FVector3f BoxExtent, const FFogMSWorldSky& Sky,
+	FVector BoxCenterWS, FVector3f BoxExtent, const FFogMSWorldSky& Sky, const FFogMSWeatherLighting& Weather,
 	FFogMSWorldSourcesParameters& OutParameters, FString& OutSkySource, FString& Error)
 {
 	check(IsInRenderingThread());
@@ -251,6 +251,48 @@ bool FogMS_GetWorldSources(FRDGBuilder& GraphBuilder, const FSceneView& View,
 		return false;
 	}
 	const FScene& Scene = *static_cast<const FScene*>(View.Family->Scene);
+	// Always bind valid fallback SRVs/samplers, including inactive weather and shader permutations
+	// where the uniform branch survives compilation. Snapshots retain RHI resources through execution.
+	OutParameters.FogMSWeatherMap = GSystemTextures.GetBlackDummy(GraphBuilder);
+	OutParameters.FogMSWeatherSunMap = OutParameters.FogMSWeatherMap;
+	OutParameters.FogMSWeatherTypeLUT = OutParameters.FogMSWeatherMap;
+	OutParameters.FogMSWeatherPattern = OutParameters.FogMSWeatherMap;
+	OutParameters.FogMSWeatherCurl = OutParameters.FogMSWeatherMap;
+	OutParameters.FogMSWeatherWrapSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
+	OutParameters.FogMSWeatherClampSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	if (Weather.bActive)
+	{
+		const auto ValidTexture = [](const FTextureRHIRef& Texture)
+		{
+			return Texture.IsValid() && Texture->GetDesc().Dimension == ETextureDimension::Texture2D
+				&& EnumHasAnyFlags(Texture->GetDesc().Flags, TexCreate_ShaderResource);
+		};
+		if (!ValidTexture(Weather.Map) || !ValidTexture(Weather.SunMap) || !ValidTexture(Weather.TypeLUT)
+			|| !ValidTexture(Weather.Pattern) || !ValidTexture(Weather.Curl) || Weather.Origin.ContainsNaN()
+			|| Weather.PlanetCenter.ContainsNaN() || !FMath::IsFinite(Weather.PlanetRadius) || Weather.PlanetRadius <= 0.0
+			|| Weather.Domain.ContainsNaN() || Weather.Wind.ContainsNaN() || Weather.L0.ContainsNaN() || Weather.L1.ContainsNaN()
+			|| Weather.Domain.X <= 0.f || Weather.Domain.Y <= 0.f || !Finite(Weather.DirectionToSun)
+			|| !FMath::IsNearlyEqual(Weather.DirectionToSun.SizeSquared(), 1.f, 0.01f))
+		{
+			Error = TEXT("Active weather requires finite parameters, a unit sun direction and five resident 2D shader textures.");
+			return false;
+		}
+		OutParameters.FogMSWeatherActive = 1u;
+		OutParameters.FogMSWeatherOriginTranslated = FVector3f(Weather.Origin + View.ViewMatrices.GetPreViewTranslation());
+		OutParameters.FogMSWeatherPlanetTopTranslated = FVector3f(Weather.PlanetCenter + FVector3d(0, 0, Weather.PlanetRadius)
+			+ View.ViewMatrices.GetPreViewTranslation());
+		OutParameters.FogMSWeatherPlanetRadius = float(Weather.PlanetRadius);
+		OutParameters.FogMSWeatherDomain = Weather.Domain;
+		OutParameters.FogMSWeatherWind = Weather.Wind;
+		OutParameters.FogMSWeatherL0 = Weather.L0;
+		OutParameters.FogMSWeatherL1 = Weather.L1;
+		OutParameters.FogMSWeatherSunDirection = Weather.DirectionToSun;
+		OutParameters.FogMSWeatherMap = RegisterExternalTexture(GraphBuilder, Weather.Map, TEXT("FogMS.WeatherMap"));
+		OutParameters.FogMSWeatherSunMap = RegisterExternalTexture(GraphBuilder, Weather.SunMap, TEXT("FogMS.WeatherSunMap"));
+		OutParameters.FogMSWeatherTypeLUT = RegisterExternalTexture(GraphBuilder, Weather.TypeLUT, TEXT("FogMS.WeatherTypeLUT"));
+		OutParameters.FogMSWeatherPattern = RegisterExternalTexture(GraphBuilder, Weather.Pattern, TEXT("FogMS.WeatherPattern"));
+		OutParameters.FogMSWeatherCurl = RegisterExternalTexture(GraphBuilder, Weather.Curl, TEXT("FogMS.WeatherCurl"));
+	}
 	ResetSky(GraphBuilder, OutParameters);
 	OutSkySource.Empty();
 	const int32 SkySource = CVarWorldSkySource.GetValueOnRenderThread();

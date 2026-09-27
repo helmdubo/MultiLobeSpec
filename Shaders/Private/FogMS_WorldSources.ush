@@ -31,6 +31,45 @@ float FogMSWorldSunExcludeCos;
 // list. Transport pass 2 (hybrid injection) uses it to write the per-cell sun transmittance T_sun.
 int FogMSWorldSunLightIndex;
 
+#include "/Plugin/FogMS/Private/FogMS_WeatherLighting.ush"
+uint FogMSWeatherActive;
+float3 FogMSWeatherOriginTranslated;
+float3 FogMSWeatherPlanetTopTranslated;
+float FogMSWeatherPlanetRadius;
+float4 FogMSWeatherDomain;
+float4 FogMSWeatherWind;
+float4 FogMSWeatherL0;
+float4 FogMSWeatherL1;
+float3 FogMSWeatherSunDirection;
+Texture2D FogMSWeatherMap;
+Texture2D FogMSWeatherSunMap;
+Texture2D FogMSWeatherTypeLUT;
+Texture2D FogMSWeatherPattern;
+Texture2D FogMSWeatherCurl;
+SamplerState FogMSWeatherWrapSampler;
+SamplerState FogMSWeatherClampSampler;
+
+// Weather attenuates only direct atmosphere sunlight. Sky SH/capture and Lumen
+// surface radiance already include weather; applying this to them would double count.
+float FogMS_WorldWeatherSun(float3 P, float3 D)
+{
+	if (FogMSWeatherActive == 0u) return 1.0f;
+	float2 XY = (P - FogMSWeatherOriginTranslated).xy - FogMSWeatherWind.xy;
+	// Stable spherical altitude relative to the planet's +Z top plane. The domain
+	// projection/march remains locally flat, like the shared weather shadow map.
+	float3 Q = P - FogMSWeatherPlanetTopTranslated;
+	float R = FogMSWeatherPlanetRadius;
+	float Altitude = (dot(Q, Q) + 2.0f * R * Q.z) / max(length(Q + float3(0, 0, R)) + R, 1.0f);
+	// Soft-sun rays tilted away from the map's central direction must march their
+	// own column, so attenuation and the geometry/medium visibility use one ray.
+	bool UseSunMap = all(abs(D - FogMSWeatherSunDirection) < 1.0e-6f);
+	FogMSWeatherFn W;
+	return W.SunTransmittance(XY, Altitude, D, FogMSWeatherDomain, FogMSWeatherL0, FogMSWeatherL1,
+		FogMSWeatherMap, FogMSWeatherWrapSampler, FogMSWeatherSunMap, FogMSWeatherWrapSampler,
+		FogMSWeatherTypeLUT, FogMSWeatherClampSampler, FogMSWeatherPattern, FogMSWeatherWrapSampler,
+		FogMSWeatherCurl, FogMSWeatherWrapSampler, UseSunMap);
+}
+
 uint FogMS_WorldLightCount()
 {
 	return FogMSWorldNumLights;

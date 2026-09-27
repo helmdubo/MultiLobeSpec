@@ -2,6 +2,7 @@
 #include "FogMS_CloudHost.h"
 
 #include "Components/DirectionalLightComponent.h"
+#include "Components/ArrowComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
@@ -22,6 +23,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "MultiLobeSpec.h"
+#include "TextureResource.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectHash.h"
@@ -51,8 +53,6 @@ namespace
 	constexpr double FogMS_KmToCm = 1.0e5;
 	/** The altitude envelope handed to the host is rounded outward to 100 m x Weather Scale (a transition refits the layer at its ends). */
 	constexpr double FogMS_EnvelopeStepCm = 1.0e4;
-	/** The thin-layer sun map is redrawn when the sun turns by more than this. */
-	const double FogMS_SunRedrawCos = FMath::Cos(FMath::DegreesToRadians(0.05));
 	/** Calibration draw of the RGBA write check (M_FogMS_WeatherCompose, P1.y = 1): the expected texel. */
 	const FLinearColor FogMS_CalibrationTexel(0.25f, 0.5f, 0.75f, 0.125f);
 	/** W48 FogMS.Weather.SetupShadows / the button: resolution x2 (1024 texels); shadow ray samples x1 for the Thin layer (the engine's 16
@@ -296,6 +296,11 @@ AFogMSWeather::AFogMSWeather()
 	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	Root->SetMobility(EComponentMobility::Movable);
 	SetRootComponent(Root);
+	WindArrow = CreateDefaultSubobject<UArrowComponent>(TEXT("WindArrow"));
+	WindArrow->SetupAttachment(Root);
+	WindArrow->SetHiddenInGame(true);
+	WindArrow->ArrowColor = FColor(80, 190, 255);
+	WindArrow->ArrowSize = 2.0f;
 	// W49: the dome's 1000 km bounds must not become the level's bounds (level bounds, lightmass importance).
 	bRelevantForLevelBounds = false;
 
@@ -332,6 +337,41 @@ bool AFogMSWeather::IsSkyDomeActive(const UWorld* World)
 	if (!World) return false;
 	for (TActorIterator<AFogMSWeather> It(const_cast<UWorld*>(World)); It; ++It)
 		if (!It->IsActorBeingDestroyed() && It->bSkyDomeActive) return true;
+	return false;
+}
+
+bool AFogMSWeather::GetWindVelocity(const UWorld* World, FVector& OutVelocityCmPerSecond)
+{
+	OutVelocityCmPerSecond = FVector::ZeroVector;
+	if (!World) return false;
+	for (TActorIterator<AFogMSWeather> It(const_cast<UWorld*>(World)); It; ++It)
+	{
+		if (!It->bEnabled || !It->bFeeding || It->IsActorBeingDestroyed() || It->LightingFedFrame + 1 < GFrameCounter) continue;
+		const double Speed = FMath::Max(0.0, double(It->CurrentValues.WindSpeed)) * 100.0 * FMath::Clamp(double(It->WeatherScale), 0.01, 10.0);
+		const double Yaw = FMath::DegreesToRadians(double(It->CurrentValues.WindDirectionDeg));
+		OutVelocityCmPerSecond = FVector(FMath::Cos(Yaw), FMath::Sin(Yaw), 0.0) * Speed;
+		return true;
+	}
+	return false;
+}
+
+bool AFogMSWeather::GatherLighting(const UWorld* World, FFogMSWeatherLighting& OutLighting, const FTexture* (&OutTextures)[5])
+{
+	OutLighting = FFogMSWeatherLighting();
+	for (const FTexture*& Texture : OutTextures) Texture = nullptr;
+	if (!World) return false;
+	for (TActorIterator<AFogMSWeather> It(const_cast<UWorld*>(World)); It; ++It)
+	{
+		if (!It->bEnabled || !It->bFeeding || It->IsActorBeingDestroyed() || !It->LightingSnapshot.bActive || It->LightingFedFrame + 1 < GFrameCounter) continue;
+		for (int32 Index = 0; Index < 5; ++Index)
+		{
+			UTexture* Texture = It->LightingTextures[Index].Get();
+			if (!Texture || !Texture->GetResource()) return false;
+			OutTextures[Index] = Texture->GetResource();
+		}
+		OutLighting = It->LightingSnapshot;
+		return true;
+	}
 	return false;
 }
 
@@ -446,9 +486,12 @@ void AFogMSWeather::StopFeeding(const TCHAR* Reason, bool bDeleteCreatedHost)
 		}
 		else
 		{
-			UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather '%s': deletes cloud host '%s' it created (no Box renders through it; the sky clouds render again)."),
-				*GetActorNameOrLabel(), *CreatedCloudHost->GetActorNameOrLabel());
-			CreatedCloudHost->Destroy();
+			const FString HostName = CreatedCloudHost->GetActorNameOrLabel();
+			if (!CreatedCloudHost->Destroy()) return;
+			UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather '%s': deletes cloud host '%s' it created (no Box renders through it)."),
+				*GetActorNameOrLabel(), *HostName);
+			// Our cleanup may be reversed by enabling weather or leaving Clear. A host deleted by the user never reaches this reset.
+			bTriedSpawn = false;
 		}
 		CreatedCloudHost = nullptr;
 	}
@@ -570,6 +613,7 @@ bool AFogMSWeather::EnsureResourcesInner(FString& OutProblem)
 
 void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 {
+	LightingSnapshot.bActive = false;
 	UWorld* World = GetWorld();
 	UFogMSCloudHostSubsystem* Hosts = World ? World->GetSubsystem<UFogMSCloudHostSubsystem>() : nullptr;
 	if (!Hosts)
@@ -580,9 +624,9 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 	}
 	if (!bEnabled)
 	{
-		if (bFeeding) StopFeeding(TEXT("Enabled unticked"), false);
+		if (bFeeding || IsValid(CreatedCloudHost)) StopFeeding(TEXT("Enabled unticked"), true);
 		HideSkyDome(TEXT("Enabled unticked"));
-		WeatherStatus = TEXT("Off (Enabled unticked): the cloud host and the sky are as without weather");
+		WeatherStatus = TEXT("Off (Enabled unticked): weather shadows and dome off; Box and borrowed hosts retained");
 		return;
 	}
 	FString Other;
@@ -618,11 +662,18 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 	else
 		CurrentValues = Target;
 
+	if (bOverrideWind)
+	{
+		CurrentValues.WindSpeed = FMath::Clamp(WindSpeed, 0.0f, 100.0f);
+		CurrentValues.WindDirectionDeg = GetActorRotation().Yaw;
+	}
+	if (WindArrow) WindArrow->SetWorldRotation(FRotator(0.0, CurrentValues.WindDirectionDeg, 0.0));
+
 	// 2. Assets, render targets, the RGBA write check.
 	FString Problem;
 	if (!EnsureResources(Problem))
 	{
-		if (bFeeding) StopFeeding(TEXT("its resources are missing"), false);
+		if (bFeeding || IsValid(CreatedCloudHost)) StopFeeding(TEXT("its resources are missing"), true);
 		HideSkyDome(TEXT("the weather resources are missing"));
 		if (Problem != LastLoggedProblem)
 		{
@@ -680,10 +731,10 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 	const bool bActive = bLow || bDeck;
 	const bool bThin = ShadowLayer == EFogMSWeatherShadowLayer::Thin;
 
-	// 5. Thin layer: RT_FogMS_WeatherSun (the column optical depth along the sun) when the map, the layers or the sun changed.
-	if (bThin && bActive)
+	// Shared solar column: native ground shadows and local-cloud lighting use the same density, independent of shadow carrier mode.
+	if (bActive)
 	{
-		if (!bSunMapValid || L0 != DrawnSunL0 || L1 != DrawnSunL1 || Domain != DrawnSunDomain || FVector::DotProduct(ToSun, DrawnSunDirection) < FogMS_SunRedrawCos)
+		if (!bSunMapValid || L0 != DrawnSunL0 || L1 != DrawnSunL1 || Domain != DrawnSunDomain || !ToSun.Equals(DrawnSunDirection, 1.0e-6))
 		{
 			SunMID->SetVectorParameterValue(TEXT("FogMS_WeatherDomain"), Domain);
 			SunMID->SetVectorParameterValue(TEXT("FogMS_WeatherL0"), L0);
@@ -695,6 +746,7 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 			DrawnSunDomain = Domain;
 			DrawnSunDirection = ToSun;
 			bSunMapValid = true;
+			++LightingRevision;
 		}
 	}
 
@@ -713,6 +765,17 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 	FFogMSWeatherFeed Feed;
 	Feed.Owner = this;
 	Feed.bActive = bActive;
+	bool bSecondAtmosphereLight = false;
+	ForEachObjectOfClass(UDirectionalLightComponent::StaticClass(), [&bSecondAtmosphereLight, World](UObject* Object)
+	{
+		const UDirectionalLightComponent* Light = static_cast<const UDirectionalLightComponent*>(Object);
+		if (Light->GetWorld() == World && Light->IsRegistered() && Light->IsVisible() && Light->bAffectsWorld
+			&& Light->IsUsedAsAtmosphereSunLight() && Light->GetAtmosphereSunLightIndex() != 0
+			&& Light->GetColoredLightBrightness().GetLuminance() > 0.0f) bSecondAtmosphereLight = true;
+	}, true, RF_ClassDefaultObject | RF_ArchetypeObject, EInternalObjectFlags::Garbage);
+	// The host's BaseColor modulates native sun scattering: with two atmosphere lights it cannot separate their terms.
+	// Disable both consumers together until there is a per-light native adapter; never silently shade the moon as sunlight.
+	Feed.bLightLocalClouds = bLightLocalClouds && bSunMapValid && Sun && ToSun.Z > 0.0 && !bSecondAtmosphereLight;
 	Feed.bThinLayer = bThin;
 	Feed.BottomCm = bActive ? FMath::Max(0.0, FMath::FloorToDouble(Bottom / Step) * Step) : 0.0;
 	Feed.TopCm = bActive ? FMath::CeilToDouble(Top / Step) * Step : 0.0;
@@ -727,17 +790,36 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 	Feed.Wind = Wind;
 	Feed.L0 = L0;
 	Feed.L1 = L1;
+	// Retire only the unbound host we created; a Box-adopted host remains with the Box. Keep feeding the inactive state so the
+	// subsystem releases borrowed hosts too, while the cirrus dome can continue independently below.
+	if (!bActive && IsValid(CreatedCloudHost)) StopFeeding(TEXT("the weather has no active low layer or deck"), true);
 	Hosts->FeedWeather(Feed);
 	bFeeding = true;
+	LightingFedFrame = GFrameCounter;
+	LightingSnapshot.bActive = bActive && Feed.bLightLocalClouds;
+	LightingSnapshot.Origin = FVector3d(Origin.R, Origin.G, 0.0);
+	LightingSnapshot.Domain = FVector4f(Domain.R, Domain.G, Domain.B, Domain.A);
+	LightingSnapshot.Wind = FVector4f(Wind.R, Wind.G, 0.0f, 0.0f);
+	LightingSnapshot.L0 = FVector4f(L0.R, L0.G, L0.B, L0.A);
+	LightingSnapshot.L1 = FVector4f(L1.R, L1.G, L1.B, L1.A);
+	LightingSnapshot.DirectionToSun = FVector3f(DrawnSunDirection);
+	LightingSnapshot.Revision = LightingRevision;
+	UFogMSCloudHostSubsystem::GetWeatherPlanet(World, LightingSnapshot.PlanetCenter, LightingSnapshot.PlanetRadius);
+	LightingTextures[0] = WeatherMap;
+	LightingTextures[1] = WeatherSunMap;
+	LightingTextures[2] = Feed.TypeLUT;
+	LightingTextures[3] = Feed.Pattern;
+	LightingTextures[4] = Feed.Curl;
 
-	// 7. No cloud host at all: create one (the FogMS.CloudHost.Create path), once per actor session.
-	if (Hosts->WeatherNeedsHost() && bCreateCloudHost && !IsValid(CreatedCloudHost) && !bTriedSpawn)
+	// 7. Active weather with no cloud host: create one. Internal Clear/disable cleanup permits recreating it; manual deletion does not.
+	if (bActive && Hosts->WeatherNeedsHost() && bCreateCloudHost && !IsValid(CreatedCloudHost) && !bTriedSpawn)
 	{
 		bTriedSpawn = true;
 		FString Message;
-		AActor* Host = UFogMSCloudHostSubsystem::SpawnHost(World, nullptr, Message);
+		bool bSpawned = false;
+		AActor* Host = UFogMSCloudHostSubsystem::SpawnHost(World, nullptr, Message, &bSpawned);
 		UE_LOG(LogMultiLobeSpec, Warning, TEXT("FogMS Weather '%s': %s"), *GetActorNameOrLabel(), *Message);
-		if (Host) CreatedCloudHost = Host;
+		if (Host && bSpawned) CreatedCloudHost = Host;
 	}
 
 	// 7b. W49: the visible weather sky (the same parameters as the host's shadow pass).
@@ -764,6 +846,10 @@ void AFogMSWeather::UpdateWeather(float DeltaSeconds)
 		DomainCm * 1.0e-5, DomainCm * 0.01 / FogMS_WeatherMapSize, MapDrawCount,
 		bThin ? TEXT("shadow layer: thin (the weather column spread over the host layer)") : TEXT("shadow layer: extended host layer"),
 		*HostNote, *SunNote, *SkyNote);
+	WeatherStatus += LightingSnapshot.bActive ? TEXT(" | local-cloud sunlight: weather column + MS transport (primary atmosphere sun)")
+		: TEXT(" | local-cloud sunlight: weather attenuation off");
+	if (bLightLocalClouds && bActive && bSecondAtmosphereLight) WeatherStatus += TEXT(" (two atmosphere lights are not supported by the local-cloud solar adapter)");
+	else if (bLightLocalClouds && bActive && Sun && ToSun.Z <= 0.0) WeatherStatus += TEXT(" (sun below horizon: local-cloud solar adapter inactive)");
 }
 
 void AFogMSWeather::UpdateSkyDome(const FFogMSWeatherValues& V, double Scale, const FLinearColor& Origin, const FLinearColor& Domain,
@@ -863,7 +949,7 @@ void AFogMSWeather::UpdateSkyDome(const FFogMSWeatherValues& V, double Scale, co
 		const USkyLightComponent* Component = It->GetLightComponent();
 		if (!Component || !Component->IsRegistered() || !Component->bAffectsWorld || !Component->ShouldRender()) continue;
 		Light = Component->IsRealTimeCaptureEnabled()
-			? FString(TEXT("sky light: Real Time Capture holds the dome; the FogMS solver takes its SH"))
+			? FString(TEXT("sky light: Real Time Capture includes the dome; solver Auto uses captured SH (capture refresh may lag)"))
 			: FString::Printf(TEXT("the SkyLight '%s' has no Real Time Capture: the sky light, the fog and the FogMS solver do not follow the weather clouds (tick Real Time Capture)"),
 				*It->GetActorNameOrLabel());
 		break;

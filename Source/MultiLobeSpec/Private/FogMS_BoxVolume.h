@@ -426,6 +426,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="FogMS|Density Animation", meta=(ToolTip="Select this component and rotate its arrow to set world wind direction. Its rotation is independent of the Box; its position follows the Box. Used by Directional Wind."))
 	TObjectPtr<UArrowComponent> WindDirectionComponent;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density Animation", meta=(DisplayName="Use Weather Wind", EditCondition="DensityMotionMode == EFogMSDensityMotionMode::Directional", ToolTip="Use the active FogMS Weather actor's blended world wind for all density octaves. Falls back to this Box's arrow and Wind Speed when no weather actor drives the world. Requires Directional Wind; changing weather preserves the current phase. Local wind settings and detail/erosion strengths are retained. Off preserves existing authored motion."))
+	bool bUseWeatherWind = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS|Density Animation", meta=(EditCondition="DensityMotionMode == EFogMSDensityMotionMode::Directional", EditConditionHides, ClampMin="0.0", UIMin="0.0", Units="cm/s", ToolTip="Common speed along the independent wind arrow. All three noise octaves share this motion; Edge Flow Speed and advanced relative velocities add detail motion. Speed and arrow edits preserve the current density phase."))
 	double WindSpeed = 0.0;
 
@@ -646,6 +649,9 @@ private:
 		EFogMSDensityMotionMode MotionMode = EFogMSDensityMotionMode::LegacyVectors;
 		FFogMSDensityMotionReference MotionReference;
 		bool bManualAnimationTime = false;
+		/** Weather velocity varies continuously during transitions: it must not reset lighting history every frame. */
+		bool bWeatherWindDriven = false;
+		uint64 MotionResetRevision = 0;
 		FVector WindVelocity = FVector::ZeroVector;
 		FVector DetailVelocity = FVector::ZeroVector;
 		FVector EvolutionVelocity = FVector::ZeroVector;
@@ -667,6 +673,8 @@ private:
 	FDensityState LastDensityState;
 	FDensityState LastMaterialState;
 	uint64 DensityRevision = 0;
+	/** Explicit phase reset/restore remains an invalidation even during continuously changing weather wind. */
+	uint64 MotionResetRevision = 0;
 	bool bHasMaterialState = false;
 	bool bUpdatingDensity = false;
 	/** Injection-only runtime (no BindlessAll) started by this actor itself (editor tick or BeginPlay). */
@@ -710,7 +718,7 @@ private:
 	 * FogMS_PrefilterWavelengths). */
 	void WriteDensityParameters(UMaterialInstanceDynamic& MID, const FDensityState& State, bool bCloudHost) const;
 
-	bool GetDensityMotionVelocities(FVector& Out0, FVector& Out1, FVector& Out2) const;
+	bool GetDensityMotionVelocities(FVector& Out0, FVector& Out1, FVector& Out2, bool* bOutWeatherWind = nullptr) const;
 	bool EvaluateDirectionalMotion(double Time, const FVector& Velocity0, const FVector& Velocity1,
 		const FVector& Velocity2, FVector& Out0, FVector& Out1, FVector& Out2);
 

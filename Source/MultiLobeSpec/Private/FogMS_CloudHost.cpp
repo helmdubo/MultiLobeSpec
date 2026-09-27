@@ -13,6 +13,7 @@
 #include "MaterialDomain.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 #include "MultiLobeSpec.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UObjectHash.h"
@@ -410,6 +411,11 @@ void UFogMSCloudHostSubsystem::Scan()
 	ScanSun = FindAtmosphereSun(World);
 }
 
+void UFogMSCloudHostSubsystem::GetWeatherPlanet(const UWorld* World, FVector& OutCenter, double& OutRadius)
+{
+	FogMS_CloudPlanet(World, 6360.0, OutCenter, OutRadius);
+}
+
 UDirectionalLightComponent* UFogMSCloudHostSubsystem::FindAtmosphereSun(const UWorld* World, int32* OutCount)
 {
 	// The renderer's rule (FScene::AddLightSceneInfo_RenderThread): among the lights used as atmosphere sun 0, the brightest.
@@ -704,6 +710,10 @@ FFogMSCloudHostBinding UFogMSCloudHostSubsystem::AcquireHost(const AFogMSBoxVolu
 	Host->Owner = &Box;
 	Host->FedFrame = GFrameCounter;
 	Host->bBound = true;
+	// A Box has adopted this material and layer; weather must never later restore its pre-Box snapshot over the Box's state.
+	Host->SavedWeatherMaterial.Reset();
+	Host->bWeatherSaved = false;
+	Host->bWeatherMaterialReplaced = false;
 	Host->Geometry = Geometry;
 	// W46 prefilter (M_FogMS_Cloud v2 node FogMS_CloudFootprint): the host's nominal ray-march step; the Box writes its own strength.
 	const float StepCm = FogMS_HostStepCm(*Chosen);
@@ -1000,7 +1010,10 @@ void UFogMSCloudHostSubsystem::StopWeather(const AActor& Owner, const TCHAR* Rea
 {
 	if (WeatherFeed.Owner.Get() != &Owner) return;
 	for (FHost& Host : Hosts)
+	{
 		if (Host.bWeather) ReleaseWeatherHost(Host, Reason);
+		Host.bWeatherMaterialReplaced = false;
+	}
 	UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather '%s' stopped (%s): its shadow-pass branch is off; the managed cloud cvars follow on the next tick."),
 		*Owner.GetActorNameOrLabel(), Reason);
 	WeatherFeed = FFogMSWeatherFeed();
@@ -1020,6 +1033,7 @@ const FFogMSWeatherFeed* UFogMSCloudHostSubsystem::ExtendingWeather() const
 void UFogMSCloudHostSubsystem::WriteWeatherParameters(UMaterialInstanceDynamic& MID, const UVolumetricCloudComponent& Component, bool bOn) const
 {
 	MID.SetScalarParameterValue(FogMS_WeatherOnParameter, bOn ? 1.0f : 0.0f);
+	MID.SetScalarParameterValue(TEXT("FogMS_WeatherLightingOn"), bOn && WeatherFeed.bLightLocalClouds ? 1.0f : 0.0f);
 	if (!bOn) return;
 	MID.SetScalarParameterValue(TEXT("FogMS_WeatherThin"), WeatherFeed.bThinLayer ? 1.0f : 0.0f);
 	if (UTexture* Texture = WeatherFeed.Map.Get()) MID.SetTextureParameterValue(TEXT("FogMS_WeatherMap"), Texture);
@@ -1047,12 +1061,21 @@ void UFogMSCloudHostSubsystem::ReleaseWeatherHost(FHost& Host, const TCHAR* Reas
 	FString Restored;
 	if (Component)
 	{
-		if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Component->Material.Get()))
-			MID->SetScalarParameterValue(FogMS_WeatherOnParameter, 0.0f);
-		bool bDirty = false;
-		if (!Host.bBound && Host.bWeatherSaved)
+		const bool bOwnsMaterial = Host.WeatherMID.IsValid() && Component->Material.Get() == Host.WeatherMID.Get();
+		if (UMaterialInstanceDynamic* MID = bOwnsMaterial ? Host.WeatherMID.Get() : nullptr)
 		{
-			// A host the weather took without a Box: its layer and start distance as before the weather (a hero host refits to its Box).
+			MID->SetScalarParameterValue(FogMS_WeatherOnParameter, 0.0f);
+			MID->SetScalarParameterValue(TEXT("FogMS_WeatherLightingOn"), 0.0f);
+		}
+		bool bDirty = false;
+		if (!Host.bBound && Host.bWeatherSaved && bOwnsMaterial)
+		{
+			// Restore the untouched original (including any original MID overrides), only while our private MID still owns this host.
+			if (UMaterialInterface* Original = Host.SavedWeatherMaterial.Get())
+			{
+				Component->SetMaterial(Original);
+				Restored += FString::Printf(TEXT("; original material '%s' restored"), *Original->GetName());
+			}
 			Restored += FString::Printf(TEXT("; layer %.3f-%.3f -> %.3f-%.3f km, Tracing Start Distance %g -> %g km"), Component->LayerBottomAltitude,
 				Component->LayerBottomAltitude + Component->LayerHeight, Host.SavedLayerBottomKm, Host.SavedLayerBottomKm + Host.SavedLayerHeightKm,
 				Component->TracingStartDistanceFromCamera, Host.SavedStartDistanceKm);
@@ -1061,7 +1084,7 @@ void UFogMSCloudHostSubsystem::ReleaseWeatherHost(FHost& Host, const TCHAR* Reas
 			Component->TracingStartDistanceFromCamera = Host.SavedStartDistanceKm;
 			bDirty = true;
 		}
-		else if (!Host.bBound && Host.bShadowsOnly)
+		else if (!Host.bBound && Host.bShadowsOnly && bOwnsMaterial)
 		{
 			Restored += FString::Printf(TEXT("; Tracing Start Distance %g -> 0 km"), Component->TracingStartDistanceFromCamera);
 			Component->TracingStartDistanceFromCamera = 0.0f;
@@ -1069,12 +1092,19 @@ void UFogMSCloudHostSubsystem::ReleaseWeatherHost(FHost& Host, const TCHAR* Reas
 		}
 		else if (Host.bBound)
 			Restored += TEXT("; the layer refits to its Box on the Box's next update");
+		else if (!bOwnsMaterial)
+		{
+			Host.bWeatherMaterialReplaced = true;
+			Restored += TEXT("; material replaced externally: material and layer left unchanged");
+		}
 		if (bDirty) Component->MarkRenderStateDirty();
 	}
 	UE_LOG(LogMultiLobeSpec, Display, TEXT("FogMS Weather leaves cloud host '%s' (%s): weather shadows off%s."), *FogMS_Label(Component), Reason, *Restored);
 	Host.bWeather = false;
 	Host.bShadowsOnly = false;
 	Host.bWeatherSaved = false;
+	Host.SavedWeatherMaterial.Reset();
+	Host.WeatherMID.Reset();
 }
 
 UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
@@ -1085,10 +1115,26 @@ UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
 	{
 		// The actor stopped feeding without StopWeather (removed with its level, ticking off): release what it used.
 		for (FHost& Host : Hosts)
+		{
 			if (Host.bWeather) ReleaseWeatherHost(Host, TEXT("the FogMS Weather actor stopped feeding"));
+			Host.bWeatherMaterialReplaced = false;
+		}
 		if (WeatherFeed.FedFrame != 0) WeatherFeed = FFogMSWeatherFeed();
 		bWeatherHostUsable = false;
 		WeatherNote.Reset();
+		LastWeatherLog.Reset();
+		return nullptr;
+	}
+	if (!WeatherFeed.bActive)
+	{
+		// Clear and cirrus-only weather do not need a shadow host. Release before selecting a host or wrapping its material.
+		for (FHost& Host : Hosts)
+		{
+			if (Host.bWeather) ReleaseWeatherHost(Host, TEXT("the weather has no active low layer or deck"));
+			Host.bWeatherMaterialReplaced = false;
+		}
+		bWeatherHostUsable = false;
+		WeatherNote = TEXT("no active low layer or deck: no weather shadow host claimed");
 		LastWeatherLog.Reset();
 		return nullptr;
 	}
@@ -1136,15 +1182,53 @@ UVolumetricCloudComponent* UFogMSCloudHostSubsystem::TickWeather()
 	if (!Base || !Base->GetScalarParameterDefaultValue(FHashedMaterialParameterInfo(FogMS_WeatherOnParameter), WeatherDefault))
 		return Problem(FString::Printf(TEXT("cloud host '%s': M_FogMS_Cloud has no weather shadow branch (older than W48): run matedit_cloud.py; no weather shadows"),
 			*FogMS_Label(Chosen)));
-	FString MIDProblem;
-	UMaterialInstanceDynamic* MID = EnsureHostMID(*Chosen, FString::Printf(TEXT("FogMS Weather '%s'"), *Label), MIDProblem);
-	if (!MID) return Problem(FString::Printf(TEXT("cloud host '%s': %s"), *FogMS_Label(Chosen), *MIDProblem));
 	FHost* Host = FindBinding(Chosen);
 	if (!Host)
 	{
 		Host = &Hosts.AddDefaulted_GetRef();
 		Host->Component = Chosen;
 	}
+	FString MIDProblem;
+	if (Host->bWeatherMaterialReplaced && !Host->bBound)
+		return Problem(FString::Printf(TEXT("cloud host '%s': material replaced externally; toggle weather off/on to resume weather shadows"), *FogMS_Label(Chosen)));
+	UMaterialInstanceDynamic* MID = nullptr;
+	if (Host->bBound)
+	{
+		MID = EnsureHostMID(*Chosen, FString::Printf(TEXT("FogMS Weather '%s'"), *Label), MIDProblem);
+	}
+	else if (Host->bWeatherSaved)
+	{
+		// A user replacement ends this claim; never restore the old snapshot over the replacement.
+		if (Chosen->Material.Get() != Host->WeatherMID.Get())
+			return Problem(FString::Printf(TEXT("cloud host '%s': its weather material was replaced externally"), *FogMS_Label(Chosen)));
+		MID = Host->WeatherMID.Get();
+	}
+	else
+	{
+		TStrongObjectPtr<UMaterialInterface> Original(Chosen->Material.Get());
+		UMaterialInstanceDynamic* OriginalMID = Cast<UMaterialInstanceDynamic>(Original.Get());
+		UMaterialInterface* Parent = OriginalMID ? OriginalMID->Parent.Get() : Original.Get();
+		MID = UMaterialInstanceDynamic::Create(Parent, Chosen,
+			MakeUniqueObjectName(Chosen, UMaterialInstanceDynamic::StaticClass(), TEXT("MID_FogMS_WeatherHost")));
+		if (MID)
+		{
+			// A sibling, not a dynamic-instance parent chain: keep the same parent/static permutation and all authored overrides.
+			if (OriginalMID) MID->CopyParameterOverrides(OriginalMID);
+			Chosen->SetMaterial(MID);
+			if (Chosen->Material.Get() == MID)
+			{
+				Host->SavedWeatherMaterial = MoveTemp(Original);
+				Host->bWeatherSaved = true;
+				Host->SavedLayerBottomKm = Chosen->LayerBottomAltitude;
+				Host->SavedLayerHeightKm = Chosen->LayerHeight;
+				Host->SavedStartDistanceKm = Chosen->TracingStartDistanceFromCamera;
+			}
+			else MID = nullptr;
+		}
+		if (!MID) MIDProblem = TEXT("cannot assign a private weather material");
+	}
+	if (!MID) return Problem(FString::Printf(TEXT("cloud host '%s': %s"), *FogMS_Label(Chosen), *MIDProblem));
+	Host->WeatherMID = MID;
 	bWeatherHostUsable = true;
 	if (!Host->bWeather)
 	{
@@ -1246,8 +1330,9 @@ void UFogMSCloudHostSubsystem::OnObjectPropertyChanged(UObject* Object, FPropert
 }
 #endif
 
-AActor* UFogMSCloudHostSubsystem::SpawnHost(UWorld* World, const AFogMSBoxVolume* Box, FString& OutMessage)
+AActor* UFogMSCloudHostSubsystem::SpawnHost(UWorld* World, const AFogMSBoxVolume* Box, FString& OutMessage, bool* bOutSpawned)
 {
+	if (bOutSpawned) *bOutSpawned = false;
 	if (!World)
 	{
 		OutMessage = TEXT("no world: nothing spawned");
@@ -1281,6 +1366,7 @@ AActor* UFogMSCloudHostSubsystem::SpawnHost(UWorld* World, const AFogMSBoxVolume
 	Params.ObjectFlags |= RF_Transactional;
 #endif
 	AVolumetricCloud* Host = World->SpawnActor<AVolumetricCloud>(AVolumetricCloud::StaticClass(), FTransform::Identity, Params);
+	if (bOutSpawned) *bOutSpawned = Host != nullptr;
 	UVolumetricCloudComponent* Component = Host ? Host->FindComponentByClass<UVolumetricCloudComponent>() : nullptr;
 	if (!Component)
 	{

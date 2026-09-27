@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "UObject/StrongObjectPtr.h"
 #include <atomic>
 #include "FogMS_CloudHost.generated.h"
 
@@ -12,6 +13,7 @@ class UActorComponent;
 class UDirectionalLightComponent;
 class UMaterial;
 class UMaterialInstanceDynamic;
+class UMaterialInterface;
 class UTexture;
 class UVolumetricCloudComponent;
 class UWorld;
@@ -22,6 +24,7 @@ struct FPropertyChangedEvent;
  * map) then shadows the ground, the fog, Lumen and the atmosphere with the weather; the visible pass keeps drawing the hero Boxes only. */
 struct FFogMSWeatherFeed
 {
+	bool bLightLocalClouds = false;
 	TWeakObjectPtr<const AActor> Owner;
 	/** Some weather density exists (a layer with coverage > 0 and extinction > 0, and the weather map passed its RGBA write check). False
 	 * (Clear, or the map is not usable): the shadow branch is off and nothing of the host changes. */
@@ -170,8 +173,9 @@ public:
 	/** Editor button 'Create Cloud Host' and console FogMS.CloudHost.Create: spawns an AVolumetricCloud labelled 'FogMS Cloud Host'
 	 * with MI_FogMS_Cloud and the P1 settings (layer fitted to Box's density band +-10 m, trace 2 km from the camera, view samples
 	 * r.FogMS.CloudHost.ViewSampleScale (8), sun march 0.25 km x 32, not in real-time sky captures). An existing host is returned
-	 * instead. Nothing is saved. Afterwards the layer follows the Box (AcquireHost). */
-	static AActor* SpawnHost(UWorld* World, const AFogMSBoxVolume* Box, FString& OutMessage);
+	 * instead. bOutSpawned distinguishes newly owned actors from borrowed existing hosts. Nothing is saved. Afterwards the layer follows
+	 * the Box (AcquireHost). */
+	static AActor* SpawnHost(UWorld* World, const AFogMSBoxVolume* Box, FString& OutMessage, bool* bOutSpawned = nullptr);
 	/** /MultiLobeSpec/FogMS/M_FogMS_Cloud (null when the asset is missing). */
 	static UMaterial* GetCloudHostMaterial();
 	/** W47 console FogMS.CloudHost.SetupShadows: the atmosphere sun of World (the engine's choice: the brightest visible directional
@@ -182,6 +186,8 @@ public:
 	/** W47: the world's atmosphere sun as the renderer picks it (FScene::AtmosphereLights[0]: the brightest visible, world-affecting
 	 * directional light with Atmosphere Sun Light and index 0); OutCount = how many qualify. Null when none. */
 	static UDirectionalLightComponent* FindAtmosphereSun(const UWorld* World, int32* OutCount = nullptr);
+	/** Planet shared by the native cloud layer and the weather lighting snapshot (cm). */
+	static void GetWeatherPlanet(const UWorld* World, FVector& OutCenter, double& OutRadius);
 
 	/** W48: one weather actor per world. True when Owner drives the weather (it already does, or nobody fed in the last frame);
 	 * OutOther = the label of the actor that does otherwise. */
@@ -220,6 +226,12 @@ private:
 		bool bShadowsOnly = false;
 		/** W48: the layer and start distance the host had before the weather managed it without a Box (restored when the weather stops). */
 		bool bWeatherSaved = false;
+		/** Weather-only claims use a private MID so even a borrowed dynamic material keeps all authored overrides unchanged.
+		 * FHost is not a reflected struct: this strong reference explicitly keeps the original alive until restore or Box adoption. */
+		TStrongObjectPtr<UMaterialInterface> SavedWeatherMaterial;
+		TWeakObjectPtr<UMaterialInstanceDynamic> WeatherMID;
+		/** A user's replacement suspends automatic weather material acquisition until weather stops/Clear or a Box adopts the host. */
+		bool bWeatherMaterialReplaced = false;
 		float SavedLayerBottomKm = 0.0f;
 		float SavedLayerHeightKm = 0.1f;
 		float SavedStartDistanceKm = 0.0f;
