@@ -647,7 +647,10 @@ FFogMSCloudHostBinding UFogMSCloudHostSubsystem::AcquireHost(const AFogMSBoxVolu
 		const FHost* Binding = FindBinding(Component);
 		const AFogMSBoxVolume* Owner = Binding ? Binding->Owner.Get() : nullptr;
 		if (Owner == &Box) { Chosen = Component; break; }
-		const bool bOwnerActive = Owner && Binding->FedFrame + 1 >= GFrameCounter;
+		// Editor frames can continue while non-realtime/background viewports do not tick their actors. A bound editor
+		// owner keeps its host until Tick revalidates it through UpdateDensity; a global frame gap is not a release.
+		const bool bEditorOwner = GetWorld() && GetWorld()->WorldType == EWorldType::Editor && Binding && Binding->bBound;
+		const bool bOwnerActive = Owner && (bEditorOwner || Binding->FedFrame + 1 >= GFrameCounter);
 		if (!bOwnerActive) { if (!Chosen) Chosen = Component; }
 		else if (!Busy) Busy = Owner;
 	}
@@ -770,6 +773,20 @@ void UFogMSCloudHostSubsystem::Tick(float DeltaTime)
 	// W46 near/far settings: the nearest camera rendered last frame (every perspective editor viewport / game view; the list is filled
 	// after this world's previous tick and reset at the end of this one) to any hosted Box's density band box.
 	const UWorld* World = GetWorld();
+	if (World && World->WorldType == EWorldType::Editor)
+	{
+		// The subsystem still ticks when the editor skips actor/view ticks (background throttling, realtime off).
+		// Revalidate stale owners with the same path as an actor tick: hidden/disabled/invalid density still releases
+		// immediately, but an idle viewport must not empty the material and restore the engine's low-quality settings.
+		// Collect first: UpdateDensity may acquire/release hosts and invalidate references into Hosts.
+		TArray<TWeakObjectPtr<const AFogMSBoxVolume>, TInlineAllocator<4>> StaleOwners;
+		for (const FHost& Host : Hosts)
+			if (Host.bBound && Host.Owner.IsValid() && Host.FedFrame + 1 < GFrameCounter)
+				StaleOwners.AddUnique(Host.Owner);
+		for (const TWeakObjectPtr<const AFogMSBoxVolume>& WeakOwner : StaleOwners)
+			if (AFogMSBoxVolume* Owner = const_cast<AFogMSBoxVolume*>(WeakOwner.Get()); Owner && !Owner->IsActorBeingDestroyed())
+				Owner->UpdateDensity();
+	}
 	double NearestCm = TNumericLimits<double>::Max();
 	for (int32 Index = Hosts.Num() - 1; Index >= 0; --Index)
 	{

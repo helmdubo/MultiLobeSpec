@@ -98,7 +98,9 @@ struct FFogMSCloudHostBinding
  *     layer, and the band always stays >= 5 m inside it); r.FogMS.CloudHost.FitLayer 0 = the author owns the layer (check only);
  *     then the layer must cover the band (altitude above the SkyAtmosphere ground), else froxel fallback with the reason.
  *   Tick (after the actor ticks): a host whose Box stopped feeding it goes empty (FogMS_Density 0 = no density, conservative
- *     density 0); while a Box renders through a host, other rendering Volumetric Clouds are displaced: whenever one of them is
+ *     density 0). In editor worlds a frame gap first revalidates the owner through UpdateDensity: an idle/background viewport
+ *     keeps its binding and settings; hidden, disabled or invalid Boxes still release it. Game/PIE retain the frame heartbeat.
+ *     While a Box renders through a host, other rendering Volumetric Clouds are displaced: whenever one of them is
  *     added, shown or re-registered (MarkRenderStateDirty, editor property edits), the host's render state is marked dirty the
  *     next frame so the engine's cloud stack has the host on top again (FScene renders the most recently added cloud).
  *   Engine settings (ApplyHostSettings, every tick while a Box renders through a host; each at game-setting priority, an explicit
