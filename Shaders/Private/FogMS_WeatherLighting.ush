@@ -1,0 +1,93 @@
+// FogMS_WeatherFn v2 (W50): shared verbatim by material Custom nodes and the transport shader.
+// No include guard: material generators embed this function-local struct.
+// sigma_t [1/m] of the FogMS Weather layers at a point (FogMS_Weather_Design.md 3.5, Nubis 2022):
+//   m = WeatherMap(XY)   RT_FogMS_WeatherMap: R coverage L0, G type L0, B storm (W52), A deck L1; one tile = the domain (wrap)
+//   L0: hf = (Alt - Base0) / (Top0 - Base0); lut = TypeLUT(u = m.g, v = 1 - hf): R profile, G softness, B billowy, A anvil
+//       profile = lut.r * (1 + lut.a) * m.r
+//       n = lerp(1, lerp(pattern.g, pattern.r, lut.b), DetailStrength): the pattern (rank-equalised: uniform 0..1) at the detail
+//           tiling, curl-warped by hf (height-dependent: a 3D-like noise from 2D textures, HZD's 2D curl), at mip Domain.w
+//       sigma0 = Sigma0 * saturate((n - (1 - profile)) / max(lut.g, 0.02))
+//   L1: hf1 = (Alt - Base1) / (Top1 - Base1); sigma1 = Sigma1 * smoothstep(0, 0.15, hf1) * (1 - smoothstep(0.75, 1, hf1)) * m.a
+//       * (0.7 + 0.3 * the pattern's deck channel at a quarter of the detail frequency)
+// XY = sample - weather origin - wind displacement [cm] (the wind moves the whole field; the maps are drawn wind-free);
+// Alt = altitude above the ground of the cloud layer [cm]. Domain = (1 / domain [1/cm], 1 / detail tile [1/cm], curl strength [detail
+// tiles], detail mip); L0 = (base, top [cm], sigma [1/m], detail strength); L1 = (base, top [cm], sigma [1/m], 0). Sigma 0 = layer off.
+// Outside [base, top] of every layer, or with the layer's map channel 0, the result is exactly 0 (FogMS_WeatherConservative relies on it).
+struct FogMSWeatherFn
+{
+    float Sigma(float2 XY, float Alt, float4 Domain, float4 L0, float4 L1, Texture2D Map, SamplerState MapSampler,
+                Texture2D TypeLUT, SamplerState TypeLUTSampler, Texture2D Pattern, SamplerState PatternSampler,
+                Texture2D Curl, SamplerState CurlSampler)
+    {
+        bool In0 = L0.z > 0.0f && Alt > L0.x && Alt < L0.y;
+        bool In1 = L1.z > 0.0f && Alt > L1.x && Alt < L1.y;
+        if (!(In0 || In1)) return 0.0f;
+        float4 m = Map.SampleLevel(MapSampler, XY * Domain.x, 0.0f);
+        float s = 0.0f;
+        if (In0 && m.r > 0.0f)
+        {
+            float hf = (Alt - L0.x) / max(L0.y - L0.x, 1.0f);
+            float4 lut = TypeLUT.SampleLevel(TypeLUTSampler, float2(saturate(m.g), 1.0f - hf), 0.0f);
+            float profile = lut.r * (1.0f + lut.a) * m.r;
+            float2 duv = XY * Domain.y;
+            float2 c = Curl.SampleLevel(CurlSampler, duv * 0.5f, Domain.w).rg * 2.0f - 1.0f;
+            float4 p = Pattern.SampleLevel(PatternSampler, duv + c * (Domain.z * hf), Domain.w);
+            float n = lerp(1.0f, lerp(p.g, p.r, lut.b), saturate(L0.w));
+            s += L0.z * saturate((n - (1.0f - profile)) / max(lut.g, 0.02f));
+        }
+        if (In1 && m.a > 0.0f)
+        {
+            float hf1 = (Alt - L1.x) / max(L1.y - L1.x, 1.0f);
+            float deck = smoothstep(0.0f, 0.15f, hf1) * (1.0f - smoothstep(0.75f, 1.0f, hf1));
+            float low = Pattern.SampleLevel(PatternSampler, XY * (Domain.y * 0.25f), Domain.w).a;
+            s += L1.z * deck * m.a * (0.7f + 0.3f * low);
+        }
+        return s;
+    }
+
+    // W50: optical depth from the receiver to the top of each active layer. Independent
+    // 24-step intervals resolve separated layers without spending samples in the gap.
+    // Sigma is evaluated once per layer, including overlap; lengths cm -> metres.
+    float SunOpticalDepth(float2 XY, float Altitude, float3 D, float4 Domain, float4 L0, float4 L1,
+                          Texture2D Map, SamplerState MapSampler, Texture2D TypeLUT, SamplerState TypeLUTSampler,
+                          Texture2D Pattern, SamplerState PatternSampler, Texture2D Curl, SamplerState CurlSampler)
+    {
+        float Up = max(D.z, 0.05f); // Existing weather convention, including a near/below-horizon sun.
+        float OD = 0.0f;
+        for (int Layer = 0; Layer < 2; ++Layer)
+        {
+            float4 Q = Layer == 0 ? L0 : L1;
+            float Bottom = max(Altitude, Q.x);
+            if (Q.z <= 0.0f || Q.y <= Bottom) continue;
+            float dAlt = (Q.y - Bottom) / 24.0f;
+            float4 A = L0; float4 B = L1;
+            if (Layer == 0) B.z = 0.0f; else A.z = 0.0f;
+            for (int i = 0; i < 24; ++i)
+            {
+                float Alt = Bottom + (i + 0.5f) * dAlt;
+                OD += Sigma(XY + D.xy * ((Alt - Altitude) / Up), Alt, Domain, A, B,
+                            Map, MapSampler, TypeLUT, TypeLUTSampler, Pattern, PatternSampler, Curl, CurlSampler) * dAlt / Up * 0.01f;
+            }
+        }
+        return max(OD, 0.0f);
+    }
+    float SunTransmittance(float2 XY, float Altitude, float3 D, float4 Domain, float4 L0, float4 L1,
+                           Texture2D Map, SamplerState MapSampler, Texture2D SunMap, SamplerState SunMapSampler,
+                           Texture2D TypeLUT, SamplerState TypeLUTSampler, Texture2D Pattern, SamplerState PatternSampler,
+                           Texture2D Curl, SamplerState CurlSampler, bool UseSunMap)
+    {
+        float Bottom = 1.0e30f; float Top = -1.0e30f;
+        if (L0.z > 0.0f) { Bottom = min(Bottom, L0.x); Top = max(Top, L0.y); }
+        if (L1.z > 0.0f) { Bottom = min(Bottom, L1.x); Top = max(Top, L1.y); }
+        if (Top <= Bottom || Altitude >= Top) return 1.0f;
+        float OD;
+        if (UseSunMap && Altitude <= Bottom)
+        {
+            float2 G = XY - D.xy * (Altitude / max(D.z, 0.05f));
+            OD = max(SunMap.SampleLevel(SunMapSampler, G * Domain.x, 0.0f).r, 0.0f);
+        }
+        else OD = SunOpticalDepth(XY, Altitude, D, Domain, L0, L1,
+                                 Map, MapSampler, TypeLUT, TypeLUTSampler, Pattern, PatternSampler, Curl, CurlSampler);
+        return exp(-OD);
+    }
+};

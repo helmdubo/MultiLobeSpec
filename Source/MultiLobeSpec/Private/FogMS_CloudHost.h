@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "UObject/StrongObjectPtr.h"
 #include <atomic>
 #include "FogMS_CloudHost.generated.h"
 
@@ -12,6 +13,7 @@ class UActorComponent;
 class UDirectionalLightComponent;
 class UMaterial;
 class UMaterialInstanceDynamic;
+class UMaterialInterface;
 class UTexture;
 class UVolumetricCloudComponent;
 class UWorld;
@@ -22,6 +24,10 @@ struct FPropertyChangedEvent;
  * map) then shadows the ground, the fog, Lumen and the atmosphere with the weather; the visible pass keeps drawing the hero Boxes only. */
 struct FFogMSWeatherFeed
 {
+	bool bLightLocalClouds = false;
+	/** W51 prototype: sample physical weather in the host's visible cloud pass. Off preserves W50. */
+	bool bViewWeather = false;
+	float ViewTraceDistanceKm = 6.0f;
 	TWeakObjectPtr<const AActor> Owner;
 	/** Some weather density exists (a layer with coverage > 0 and extinction > 0, and the weather map passed its RGBA write check). False
 	 * (Clear, or the map is not usable): the shadow branch is off and nothing of the host changes. */
@@ -92,7 +98,9 @@ struct FFogMSCloudHostBinding
  *     layer, and the band always stays >= 5 m inside it); r.FogMS.CloudHost.FitLayer 0 = the author owns the layer (check only);
  *     then the layer must cover the band (altitude above the SkyAtmosphere ground), else froxel fallback with the reason.
  *   Tick (after the actor ticks): a host whose Box stopped feeding it goes empty (FogMS_Density 0 = no density, conservative
- *     density 0); while a Box renders through a host, other rendering Volumetric Clouds are displaced: whenever one of them is
+ *     density 0). In editor worlds a frame gap first revalidates the owner through UpdateDensity: an idle/background viewport
+ *     keeps its binding and settings; hidden, disabled or invalid Boxes still release it. Game/PIE retain the frame heartbeat.
+ *     While a Box renders through a host, other rendering Volumetric Clouds are displaced: whenever one of them is
  *     added, shown or re-registered (MarkRenderStateDirty, editor property edits), the host's render state is marked dirty the
  *     next frame so the engine's cloud stack has the host on top again (FScene renders the most recently added cloud).
  *   Engine settings (ApplyHostSettings, every tick while a Box renders through a host; each at game-setting priority, an explicit
@@ -170,8 +178,9 @@ public:
 	/** Editor button 'Create Cloud Host' and console FogMS.CloudHost.Create: spawns an AVolumetricCloud labelled 'FogMS Cloud Host'
 	 * with MI_FogMS_Cloud and the P1 settings (layer fitted to Box's density band +-10 m, trace 2 km from the camera, view samples
 	 * r.FogMS.CloudHost.ViewSampleScale (8), sun march 0.25 km x 32, not in real-time sky captures). An existing host is returned
-	 * instead. Nothing is saved. Afterwards the layer follows the Box (AcquireHost). */
-	static AActor* SpawnHost(UWorld* World, const AFogMSBoxVolume* Box, FString& OutMessage);
+	 * instead. bOutSpawned distinguishes newly owned actors from borrowed existing hosts. Nothing is saved. Afterwards the layer follows
+	 * the Box (AcquireHost). */
+	static AActor* SpawnHost(UWorld* World, const AFogMSBoxVolume* Box, FString& OutMessage, bool* bOutSpawned = nullptr);
 	/** /MultiLobeSpec/FogMS/M_FogMS_Cloud (null when the asset is missing). */
 	static UMaterial* GetCloudHostMaterial();
 	/** W47 console FogMS.CloudHost.SetupShadows: the atmosphere sun of World (the engine's choice: the brightest visible directional
@@ -182,6 +191,8 @@ public:
 	/** W47: the world's atmosphere sun as the renderer picks it (FScene::AtmosphereLights[0]: the brightest visible, world-affecting
 	 * directional light with Atmosphere Sun Light and index 0); OutCount = how many qualify. Null when none. */
 	static UDirectionalLightComponent* FindAtmosphereSun(const UWorld* World, int32* OutCount = nullptr);
+	/** Planet shared by the native cloud layer and the weather lighting snapshot (cm). */
+	static void GetWeatherPlanet(const UWorld* World, FVector& OutCenter, double& OutRadius);
 
 	/** W48: one weather actor per world. True when Owner drives the weather (it already does, or nobody fed in the last frame);
 	 * OutOther = the label of the actor that does otherwise. */
@@ -193,6 +204,8 @@ public:
 	void StopWeather(const AActor& Owner, const TCHAR* Reason);
 	/** W48: the fed weather found no cloud host in this world (none exists, not even a hidden one). */
 	bool WeatherNeedsHost() const { return bWeatherNeedsHost; }
+	/** True only after a live host has accepted the W51 visible-weather feed. */
+	bool IsWeatherViewActive() const { return bWeatherHostUsable && WeatherFeed.bActive && WeatherFeed.bViewWeather; }
 	/** W48: the host part of the weather actor's status (from the last tick). */
 	const FString& GetWeatherNote() const { return WeatherNote; }
 	/** W48: a Box renders through the cloud component of HostActor (its hero part is in use). */
@@ -220,6 +233,21 @@ private:
 		bool bShadowsOnly = false;
 		/** W48: the layer and start distance the host had before the weather managed it without a Box (restored when the weather stops). */
 		bool bWeatherSaved = false;
+		/** Weather-only claims use a private MID so even a borrowed dynamic material keeps all authored overrides unchanged.
+		 * FHost is not a reflected struct: this strong reference explicitly keeps the original alive until restore or Box adoption. */
+		TStrongObjectPtr<UMaterialInterface> SavedWeatherMaterial;
+		TWeakObjectPtr<UMaterialInstanceDynamic> WeatherMID;
+		/** A user's replacement suspends automatic weather material acquisition until weather stops/Clear or a Box adopts the host. */
+		bool bWeatherMaterialReplaced = false;
+		/** W51: restore settings borrowed from a host when the visible-weather experiment ends. */
+		bool bWeatherViewSaved = false;
+		bool bSavedCaptureVisibility = false;
+		float SavedViewTraceDistanceKm = 0.0f;
+		/** W51c: the visible-weather sun-march scale belongs only to this host; restore the authored value on exit. */
+		float SavedShadowViewSampleCountScale = 0.0f;
+		float LastWeatherShadowViewSampleCountScale = 0.0f;
+		bool bWeatherShadowScaleManaged = false;
+		bool bWeatherShadowScaleUserOverride = false;
 		float SavedLayerBottomKm = 0.0f;
 		float SavedLayerHeightKm = 0.1f;
 		float SavedStartDistanceKm = 0.0f;

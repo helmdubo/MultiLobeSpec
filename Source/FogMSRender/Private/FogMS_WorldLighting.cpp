@@ -355,6 +355,7 @@ namespace
 			&& Last.Tolerance == Request.Tolerance && Last.Strength == Request.Strength && Last.DirectionToSun == Request.DirectionToSun
 			&& Last.bHybridInjection == Request.bHybridInjection && Last.bLatePublish == Request.bLatePublish
 			&& Last.bLumenBounce == Request.bLumenBounce && Last.FallbackGroundAlbedo == Request.FallbackGroundAlbedo
+			&& Last.Weather.Equals(Request.Weather)
 			&& State.bHoldInjection == Request.InjectionTexture.IsValid() && State.LastIndirectEnabled == IndirectEnabled
 			&& CVarIntValue(TEXT("r.FogMS.Transport.TestReconstruction")) == 0;
 	}
@@ -571,7 +572,7 @@ FFogMSWorldResult FogMS_BuildWorldLighting(FRDGBuilder& GraphBuilder, const FSce
 		Common.LumenSource.FogMSFallbackMedium = CVarWorldFallbackMedium.GetValueOnRenderThread() != 0 ? 1u : 0u;
 	}
 	else if (!FogMS_GetLumenSource(GraphBuilder, View, Common.LumenSource, Result.Error)) return Result; // World: no fallback.
-	if (!FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Request.Sky, Common.LightSources, SkySource, Result.Error)) return Result;
+	if (!FogMS_GetWorldSources(GraphBuilder, View, Request.CenterWS, Request.Extent, Request.Sky, Request.Weather, Common.LightSources, SkySource, Result.Error)) return Result;
 	FRHICommandListImmediate& RHICmdList = FRHICommandListExecutor::GetImmediateCommandList();
 	++WorldAccessSerial;
 	CollectWorldViews(Key, RHICmdList);

@@ -427,6 +427,7 @@ namespace
 		FVector3f DirectionToSun = FVector3f::ZeroVector;
 		// Sky light snapshot of the current family (render thread): values + RHI refs only (FFogMSWorldRequest::Sky).
 		FFogMSWorldSky Sky;
+		FFogMSWeatherLighting Weather;
 		uint64 Revision = 0;
 		uint64 DensityAtlasRevision = 0;
 		bool bWorldFieldPublished = false;
@@ -590,6 +591,9 @@ namespace
 				Sky.bWeatherSky = AFogMSWeather::IsSkyDomeActive(World);
 			}
 			FString Problem;
+			FFogMSWeatherLighting Weather;
+			const FTexture* WeatherTextures[5] = {};
+			AFogMSWeather::GatherLighting(World, Weather, WeatherTextures);
 			// Enabled, visible Boxes. Emissive Injection Boxes (Transport + Emissive Injection requested) each solve into their
 			// own volume, read by their own Volume material: any number. Every other Box needs the one overlay packet: at most one.
 			TArray<AFogMSBoxVolume*> OverlayBoxes;
@@ -730,10 +734,21 @@ namespace
 			// The resources below are created and released only through render commands enqueued in game-thread order,
 			// so they are alive when this command runs; only RHI refs are kept (see AddBoxUpdate, the sky gather above).
 			ENQUEUE_RENDER_COMMAND(FogMS_UpdateBox)([Updates = MoveTemp(Updates), List = RenderBoxes, SharedTexture = SharedPacket, DirectionToSun,
-				Sky, ProcessedSky](FRHICommandListImmediate& RHICmdList) mutable
+				Sky, ProcessedSky, Weather, WeatherTextures](FRHICommandListImmediate& RHICmdList) mutable
 			{
 				// Sky snapshot: resolve the processed cubemap to RHI refs now (resource alive, see the gather); keep no FTexture*.
 				FFogMSWorldSky ResolvedSky = Sky;
+				FFogMSWeatherLighting ResolvedWeather = Weather;
+				if (ResolvedWeather.bActive)
+				{
+					FTextureRHIRef* Targets[] = { &ResolvedWeather.Map, &ResolvedWeather.SunMap, &ResolvedWeather.TypeLUT,
+						&ResolvedWeather.Pattern, &ResolvedWeather.Curl };
+					for (int32 Index = 0; Index < 5; ++Index)
+					{
+						if (WeatherTextures[Index]) *Targets[Index] = WeatherTextures[Index]->TextureRHI;
+						if (!Targets[Index]->IsValid()) ResolvedWeather.bActive = false;
+					}
+				}
 				if (ProcessedSky && ProcessedSky->TextureRHI.IsValid() && ProcessedSky->SamplerStateRHI.IsValid())
 				{
 					ResolvedSky.ProcessedTexture = ProcessedSky->TextureRHI;
@@ -751,6 +766,7 @@ namespace
 				for (FBoxUpdate& Update : Updates)
 				{
 					const TSharedRef<FBoxGPUState, ESPMode::ThreadSafe> Resource = Update.GPU.ToSharedRef();
+					Resource->Weather = ResolvedWeather;
 					Resource->bPacketOwner = Update.bPacketOwner;
 					Resource->PacketTexture = Update.bPacketOwner ? SharedTexture : TSharedPtr<FBoxPacketTexture, ESPMode::ThreadSafe>();
 					ApplyBoxUpdate(RHICmdList, &Resource.Get(), MoveTemp(Update.Snapshot), Update.DensityUpload, DirectionToSun, Update.Revision,
@@ -1594,6 +1610,7 @@ namespace
 				WorldRequest.bTransport = bTransport;
 				WorldRequest.DirectionToSun = GPU->DirectionToSun;
 				WorldRequest.Sky = GPU->Sky; // Public sky sources (r.FogMS.World.SkySource); values + RHI refs.
+				WorldRequest.Weather = GPU->Weather;
 				// Per-(view, Box) world state; only the packet Box gets the resident atlas (overlay consumers, DumpSpatial).
 				WorldRequest.BoxId = GPU->BoxId;
 				WorldRequest.bResidentAtlas = GPU->bPacketOwner;

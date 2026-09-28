@@ -109,31 +109,13 @@ COMPOSE_RGB_CODE = """// FogMS_WeatherComposeRGB (W48): RGB of RT_FogMS_WeatherM
 return Value.rgb;"""
 COMPOSE_OPACITY_CODE = """// FogMS_WeatherComposeOpacity (W48): Opacity = 1 - deck, so the map's alpha (cleared to 1) becomes 1 - opacity = deck.
 return 1.0f - Value.a;"""
-SUN_OD_BODY = r"""// FogMS_WeatherSunOD v1 (W48 thin layer, matedit_weather.py): one texel of RT_FogMS_WeatherSun (R16F over the weather domain,
-// wind-free like RT_FogMS_WeatherMap: the host shifts both lookups by the wind) = the optical depth [-] of every weather layer along the
-// sun line through the texel's ground point G (altitude 0):
-//   OD(G) = sum over N = 24 midpoint altitudes of [Bottom, Top] of the active layers of
-//           FogMSWeatherFn.Sigma(G + SunDir.xy * Alt / SunDir.z, Alt) * dAlt / SunDir.z * 0.01  (sigma [1/m], lengths [cm])
-// (flat ground: over a layer's path the planet's curvature is below a metre). SunDir.xyz = toward the atmosphere sun, z clamped to
-// >= 0.05 (a sun below 3 degrees is treated as 3 degrees).
+SUN_OD_BODY = r"""// W50 shared remaining-column integral, at the ground plane. Wind-free periodic optical depth.
 FogMSWeatherFn W;
-float Up = max(SunDir.z, 0.05f);
-float2 G = UV / Domain.x;
-float Bottom = 1.0e9f;
-float Top = -1.0e9f;
-if (L0.z > 0.0f) { Bottom = min(Bottom, L0.x); Top = max(Top, L0.y); }
-if (L1.z > 0.0f) { Bottom = min(Bottom, L1.x); Top = max(Top, L1.y); }
-if (Top <= Bottom) return float3(0.0f, 0.0f, 0.0f);
-const int N = 24;
-float dAlt = (Top - Bottom) / N;
-float OD = 0.0f;
-for (int i = 0; i < N; ++i)
-{
-    float Alt = Bottom + (i + 0.5f) * dAlt;
-    OD += W.Sigma(G + SunDir.xy * (Alt / Up), Alt, Domain, L0, L1, Map, MapSampler, TypeLUT, TypeLUTSampler, Pattern, PatternSampler, Curl, CurlSampler);
-}
-return float3(OD * dAlt / Up * 0.01f, 0.0f, 0.0f);
+float OD = W.SunOpticalDepth(UV / Domain.x, 0.0f, SunDir.xyz, Domain, L0, L1,
+    Map, MapSampler, TypeLUT, TypeLUTSampler, Pattern, PatternSampler, Curl, CurlSampler);
+return float3(OD, 0.0f, 0.0f);
 """
+
 COMPOSE_PINS = ('UV', 'Pattern', 'P0', 'P1')
 SUN_PINS = ('UV', 'Domain', 'L0', 'L1', 'SunDir', 'Map', 'TypeLUT', 'Pattern', 'Curl')
 SUN_VECTORS = (('FogMS_WeatherDomain', (5.0e-7, 4.0e-6, 0.05, 0.0)), ('FogMS_WeatherL0', (0.0, 0.0, 0.0, 0.0)),
@@ -447,6 +429,9 @@ def probe_dir():
 def cloud_constant(name):
     """A string constant of matedit_cloud.py (read as text with ast; that script patches on import). String concatenations of earlier
     constants are evaluated in order."""
+    if name == 'WEATHER_FN_CODE':
+        with open(os.path.join(probe_dir(), '../../../Shaders/Private/FogMS_WeatherLighting.ush'), encoding='utf-8') as f:
+            return f.read()
     path = os.path.join(probe_dir(), 'matedit_cloud.py')
     tree = ast.parse(open(path, encoding='utf-8').read())
     env = {}

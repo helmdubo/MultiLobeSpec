@@ -223,7 +223,7 @@ float3 FallbackSurfaceRadiance(float3 Hit,float3 N)
         float NoL=saturate(dot(N,L));
         float3 Origin=Hit+N*FallbackNormalBias;
         if(NoL>0&&any(J>0)&&(!Shadow||!DirectShadow(Origin,L,Distance)))
-            Radiance+=4.f*J*NoL*(FogMSFallbackMedium!=0u?MediumTAnywhere(Origin,L,Distance):1.f);
+            Radiance+=4.f*J*NoL*FogMS_WorldWeatherSun(Hit,L)*(FogMSFallbackMedium!=0u?MediumTAnywhere(Origin,L,Distance):1.f);
     }
     Radiance+=FogMS_WorldSkyIrradianceSH(N);
     Radiance*=FogMSFallbackGroundAlbedo;
@@ -362,6 +362,9 @@ void TransportCS(uint3 DispatchId:SV_DispatchThreadID)
                 if(Directional&&!SunPoint) continue;
                 // Sun Softness: this subcell point's ray inside the sun cone, shared by every use of D below.
                 if(Directional&&SunConeTan>0.f) D=FogMS_SunConeDirection(D,K,SunConeTan);
+                // Weather changes incident sun energy, not the Box's self-transmittance.
+                // The identical attenuated J enters Direct and SunDirect (hybrid subtraction).
+                if(int(Light)==FogMSWorldSunLightIndex&&any(J>0.f)) J*=FogMS_WorldWeatherSun(P,D);
                 const float Weight=Directional?SunWeight:.125f;
 #if FOGMS_TRANSPORT_HYBRID
                 if(HasSun&&Light==uint(FogMSWorldSunLightIndex))

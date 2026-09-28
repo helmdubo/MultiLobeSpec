@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "GameFramework/Actor.h"
+#include "FogMS_WeatherLighting.h"
 #include "FogMS_Weather.generated.h"
 
 class UMaterialInstanceDynamic;
@@ -11,6 +12,9 @@ class USceneComponent;
 class UStaticMeshComponent;
 class UTexture2D;
 class UTextureRenderTarget2D;
+class FTexture;
+class UTexture;
+class UArrowComponent;
 
 /** W48 built-in weather states (FogMS_Weather_Design.md 1.6: oktas / 8, WMO altitudes of the middle latitudes); W49 adds the cirrus. */
 UENUM(BlueprintType)
@@ -179,11 +183,30 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather", meta=(ToolTip="Off: the weather stops; the cloud host's weather branch, layer and settings go back as before (log line)."))
 	bool bEnabled = true;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather", meta=(DisplayName="Light Local Clouds", ToolTip="Attenuate the atmosphere sun reaching FogMS local clouds by the weather above them. The same weather density supplies ground shadows, direct cloud sunlight and the multiple-scattering solver. Off is an A/B bypass; it does not change the sky or ground shadows."))
+	bool bLightLocalClouds = true;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="FogMS Weather", meta=(DisplayName="Weather State", ToolTip="The weather state this actor shows (DA_FogMS_Weather_Clear / _Scattered / _Broken / _Overcast in /MultiLobeSpec/FogMS/Weather, or your own FogMS Weather State asset). Changing it here switches over Editor Transition Seconds; from Blueprint use Set Weather. Empty = Clear."))
 	TObjectPtr<UFogMSWeatherState> WeatherState;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather", meta=(ClampMin="0.0", UIMin="0.0", UIMax="120.0", Units="s", ToolTip="Transition time when Weather State is changed in the Details panel (0 = immediate)."))
 	float EditorTransitionSeconds = 0.0f;
+
+	UFUNCTION(CallInEditor, Category="FogMS Weather|Presets")
+	void Clear() { SetWeather(FindPresetState(EFogMSWeatherPreset::Clear), EditorTransitionSeconds); }
+	UFUNCTION(CallInEditor, Category="FogMS Weather|Presets")
+	void Scattered() { SetWeather(FindPresetState(EFogMSWeatherPreset::Scattered), EditorTransitionSeconds); }
+	UFUNCTION(CallInEditor, Category="FogMS Weather|Presets")
+	void Broken() { SetWeather(FindPresetState(EFogMSWeatherPreset::Broken), EditorTransitionSeconds); }
+	UFUNCTION(CallInEditor, Category="FogMS Weather|Presets")
+	void Overcast() { SetWeather(FindPresetState(EFogMSWeatherPreset::Overcast), EditorTransitionSeconds); }
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather|Wind", meta=(DisplayName="Override Preset Wind", ToolTip="Use this actor's horizontal rotation as the direction the wind blows towards, and Wind Speed below. Otherwise the blended weather state's wind drives the arrow. Local Boxes can opt in with Use Weather Wind."))
+	bool bOverrideWind = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather|Wind", meta=(EditCondition="bOverrideWind", ClampMin="0.0", ClampMax="100.0", Units="m/s"))
+	float WindSpeed = 8.0f;
+	UPROPERTY(VisibleAnywhere, Category="FogMS Weather|Wind")
+	TObjectPtr<UArrowComponent> WindArrow;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather", meta=(DisplayName="Shadow Layer", ToolTip="Owner decision 2, picked by the round-48 gate: Thin Layer (default: no visible-pass cost; the weather column is spread over the hero band, the ground gets the right shadow, the air above the band none) or Extended Host Layer (the weather at its true altitude, all consumers incl. light shafts in the air; +1.04 ms in the visible pass at the owner camera, round 48)."))
 	EFogMSWeatherShadowLayer ShadowLayer = EFogMSWeatherShadowLayer::Thin;
@@ -211,6 +234,13 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather|Sky", meta=(DisplayName="Sky Dome", ToolTip="W49: draw the weather clouds (low layer, deck, cirrus) on the sky with an Is Sky dome (M_FogMS_WeatherSky). The SkyLight's Real Time Capture then sees them: the sky light, the fog and the FogMS solver darken with the weather. Needs a SkyAtmosphere. Off (or Clear): the sky is the level's own. r.FogMS.Weather.SkyDome 0 hides it everywhere."))
 	bool bSkyDome = true;
+
+	/** W51 field prototype: show L0/L1 in the existing native cloud host. Off keeps the proven W50 dome. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FogMS Weather|Sky", meta=(DisplayName="Native Weather Preview", ToolTip="Experimental: render the low weather and deck in the same Volumetric Cloud Host as the local Box. The host spans both altitude bands; this can cost more and reduce local detail. Turn off to return to the W50 sky dome."))
+	bool bNativeWeatherPreview = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(EditCondition="bNativeWeatherPreview", ClampMin="1.0", ClampMax="20.0", Units="km", DisplayName="Native Weather Trace Distance"))
+	float NativeWeatherTraceDistanceKm = 6.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, AdvancedDisplay, Category="FogMS Weather|Sky", meta=(ClampMin="5.0", ClampMax="400.0", Units="km", ToolTip="How far along the view ray the dome marches the low layer and the deck (physical scale, x Weather Scale); the density fades out over the last 40 % (the cirrus reaches twice as far). Beyond it the aerial perspective hides the clouds anyway."))
 	float SkyMaxDistanceKm = 60.0f;
@@ -260,6 +290,10 @@ public:
 	/** W49 (game thread): a FogMS Weather actor of World shows its sky dome now, i.e. the SkyLight's Real Time Capture holds the weather
 	 * clouds (FogMS_BoxRuntime.cpp -> FFogMSWorldSky::bWeatherSky: the solver's auto sky source takes the capture's SH). */
 	static bool IsSkyDomeActive(const UWorld* World);
+	/** Continuous blended weather velocity, cm/s. Does not modify the Box's authored animation settings. */
+	static bool GetWindVelocity(const UWorld* World, FVector& OutVelocityCmPerSecond);
+	/** Game-thread snapshot. Texture resources are resolved to reference-counted RHI textures in the queued render command. */
+	static bool GatherLighting(const UWorld* World, FFogMSWeatherLighting& OutLighting, const FTexture* (&OutTextures)[5]);
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Transient, Category="FogMS Weather", meta=(DisplayName="Weather Status"))
 	FString WeatherStatus;
@@ -308,6 +342,10 @@ public:
 	bool bSkyDomeActive = false;
 
 private:
+	FFogMSWeatherLighting LightingSnapshot;
+	TWeakObjectPtr<UTexture> LightingTextures[5];
+	uint64 LightingRevision = 0;
+	uint64 LightingFedFrame = 0;
 	UPROPERTY(VisibleAnywhere, Category="FogMS Weather")
 	TObjectPtr<USceneComponent> Root;
 	UPROPERTY(Transient, DuplicateTransient)
@@ -353,7 +391,7 @@ private:
 	FLinearColor DrawnSunL1 = FLinearColor(-1.0f, -1.0f, -1.0f, -1.0f);
 	FLinearColor DrawnSunDomain = FLinearColor(-1.0f, -1.0f, -1.0f, -1.0f);
 	bool bSunMapValid = false;
-	/** The actor spawned (or tried to spawn) a cloud host in this session: never twice (a user who deletes it keeps it deleted). */
+	/** One automatic spawn attempt until internal cleanup; manual deletion never triggers a respawn. */
 	bool bTriedSpawn = false;
 	/** RGBA write check of the map: 0 not done, 1 passed, -1 failed (MapCheckProblem). */
 	int32 MapCheck = 0;

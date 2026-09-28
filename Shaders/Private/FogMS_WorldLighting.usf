@@ -155,6 +155,7 @@ void WorldLightingCS(uint3 Id:SV_DispatchThreadID)
 	{
 		float3 D,L; float Distance; bool Shadow;
 		FogMS_WorldLight(I,P,D,Distance,L,Shadow);
+		if(int(I)==FogMSWorldSunLightIndex) L*=FogMS_WorldWeatherSun(P,D);
 		if(any(L>0.f) && (!Shadow || WorldGeometryLimit(P,D,Distance)>=Distance-.2f))
 			Direct += L*WorldTransmittance(P,D,Distance);
 	}
